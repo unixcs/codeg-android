@@ -65,6 +65,12 @@
     <string name="session_agent_options">智能体选项</string>
     <string name="sessions_collapse">收起</string>
     <string name="sessions_expand">展开</string>
+    <string name="sessions_hide_action">隐藏</string>
+    <string name="sessions_hide_title">隐藏“%1$s”？</string>
+    <string name="sessions_hide_message">该分组将从会话列表消失。组内会话照常运行，动态页仍可见，随时可恢复。</string>
+    <string name="sessions_hidden_manage">已隐藏 %1$d 个分组</string>
+    <string name="sessions_hidden_empty">此服务器没有隐藏任何分组。</string>
+    <string name="sessions_restore">恢复</string>
 
     <!-- Projects / Folders -->
     <string name="projects_add">添加</string>
@@ -84,6 +90,7 @@
     <string name="activity_empty_title">暂无动态</string>
     <string name="activity_empty_message">运行中和最近的会话会显示在这里。</string>
     <string name="activity_updated">更新于 %1$s</string>
+    <string name="activity_load_failed">动态加载失败</string>
 
     <!-- Search -->
     <string name="search_placeholder">搜索会话</string>
@@ -661,6 +668,8 @@
     <string name="files_empty_folder_message">此目录为空。</string>
     <string name="files_read_failed">无法读取文件</string>
     <string name="files_empty_file">空文件</string>
+    <string name="files_preview_rendered">渲染</string>
+    <string name="files_preview_source">源码</string>
     <string name="files_empty_file_message">该文件没有内容。</string>
     <string name="commits_not_a_git_repo">不是 Git 仓库</string>
     <string name="commits_not_a_git_repo_message">该文件夹不是 git 仓库。</string>
@@ -836,4 +845,11 @@
     <string name="cc_test_message_sent">测试消息已发送。</string>
     <string name="cc_token_removed">令牌已移除。</string>
     <string name="mcp_spec_invalid_json">规格不是有效的 JSON</string>
+    <string name="agents_generic_env_footer">这些值会写入服务器上该 Agent 的环境变量。留空即清除。</string>
+    <string name="agents_qoder_token">Personal Access Token</string>
+    <string name="agents_qoder_model_hint">可选的模型覆盖（QODER_MODEL）。留空使用 CLI 默认值。</string>
+    <string name="agents_qoder_settings_label">settings.json</string>
+    <string name="agents_qoder_settings_hint">原样写入服务器上 Qoder 的 settings 文件。</string>
+    <string name="agents_zcode_hint">ZCode 通过自己的 CLI 登录，这里没有可存的 API key。会话建立后，在会话输入区选择模型与审批模式。</string>
+    <string name="agents_unknown_hint">此 Agent 类型未知，请更新 App 后再配置。</string>
 </resources>

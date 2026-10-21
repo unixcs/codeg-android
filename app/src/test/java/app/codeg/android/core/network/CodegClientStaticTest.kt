@@ -52,6 +52,13 @@ class CodegClientStaticTest {
               {"agent_type":"pi","name":"Pi"},
               {"agent_type":"grok","name":"Grok","grok_config_toml":"[ui]\n","grok_settings":{"permission_mode":"ask","default_reasoning_effort":"high"}},
               {"agent_type":"cursor","name":"Cursor","cursor_cli_config_json":"{}","cursor_settings":{"sandbox_mode":"enabled","permissions_allow":["Shell(ls)"],"permissions_deny":["Shell(rm)"]}},
+              {"agent_type":"deepseek","name":"DeepSeek Harness"},
+              {"agent_type":"qoder","name":"Qoder"},
+              {"agent_type":"antigravity","name":"Google Antigravity"},
+              {"agent_type":"kiro","name":"Kiro CLI"},
+              {"agent_type":"zcode","name":"ZCode"},
+              {"agent_type":"trae","name":"TRAE CLI"},
+              {"agent_type":"command_code","name":"Command Code"},
               {"agent_type":"future_agent_9000","name":"Future"}
             ]
         """.trimIndent()
@@ -60,6 +67,8 @@ class CodegClientStaticTest {
             listOf(
                 AgentType.CLAUDE_CODE, AgentType.CODE_BUDDY, AgentType.CODEX,
                 AgentType.KIMI_CODE, AgentType.PI, AgentType.GROK, AgentType.CURSOR,
+                AgentType.DEEPSEEK, AgentType.QODER, AgentType.ANTIGRAVITY, AgentType.KIRO,
+                AgentType.ZCODE, AgentType.TRAE, AgentType.COMMAND_CODE,
             ),
             agents.map { it.agentType },
         )

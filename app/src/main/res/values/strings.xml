@@ -65,6 +65,12 @@
     <string name="session_agent_options">Agent options</string>
     <string name="sessions_collapse">Collapse</string>
     <string name="sessions_expand">Expand</string>
+    <string name="sessions_hide_action">Hide</string>
+    <string name="sessions_hide_title">Hide “%1$s”?</string>
+    <string name="sessions_hide_message">This group disappears from the Chats list. Sessions inside keep running and still appear in Activity. You can restore it anytime.</string>
+    <string name="sessions_hidden_manage">%1$d hidden group(s)</string>
+    <string name="sessions_hidden_empty">Nothing hidden on this server.</string>
+    <string name="sessions_restore">Restore</string>
 
     <!-- Projects / Folders -->
     <string name="projects_add">Add</string>
@@ -84,6 +90,7 @@
     <string name="activity_empty_title">No activity</string>
     <string name="activity_empty_message">Running and recent sessions show up here.</string>
     <string name="activity_updated">Updated %1$s</string>
+    <string name="activity_load_failed">Couldn\'t load activity</string>
 
     <!-- Search -->
     <string name="search_placeholder">Search sessions</string>
@@ -565,6 +572,14 @@
     <!-- Detail · advanced raw editor -->
     <string name="agents_advanced">Advanced</string>
     <string name="agents_advanced_override_hint">Edits here override the fields above on save.</string>
+    <!-- Detail · newer agents (env-only entries + ZCode/Qoder notes) -->
+    <string name="agents_generic_env_footer">These values are written to the agent\'s environment on the server. Leave a field blank to clear it.</string>
+    <string name="agents_qoder_token">Personal Access Token</string>
+    <string name="agents_qoder_model_hint">Optional model override (QODER_MODEL). Leave blank to use the CLI default.</string>
+    <string name="agents_qoder_settings_label">settings.json</string>
+    <string name="agents_qoder_settings_hint">Written verbatim to Qoder\'s settings file on the server.</string>
+    <string name="agents_zcode_hint">ZCode signs in through its own CLI, so there is no API key to store here. Pick the model and approval mode from the session composer once a session is open.</string>
+    <string name="agents_unknown_hint">This build doesn\'t know this agent yet, so it can\'t be configured or enabled from the app. Update the app to manage it.</string>
 
     <!-- ===== Session Detail · Actions &amp; Details ===== -->
     <string name="sessionactions_session_actions">Session actions</string>
@@ -661,6 +676,8 @@
     <string name="files_empty_folder_message">Nothing in this directory.</string>
     <string name="files_read_failed">Couldn\'t read file</string>
     <string name="files_empty_file">Empty file</string>
+    <string name="files_preview_rendered">Rendered</string>
+    <string name="files_preview_source">Source</string>
     <string name="files_empty_file_message">This file has no content.</string>
     <string name="commits_not_a_git_repo">Not a Git repository</string>
     <string name="commits_not_a_git_repo_message">This folder isn\'t a git repo.</string>

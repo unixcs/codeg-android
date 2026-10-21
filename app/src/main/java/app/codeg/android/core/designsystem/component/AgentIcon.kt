@@ -37,6 +37,14 @@ object AgentVisuals {
         AgentType.PI -> R.drawable.ic_agent_pi
         AgentType.GROK -> R.drawable.ic_agent_grok
         AgentType.CURSOR -> R.drawable.ic_agent_cursor
+        AgentType.DEEPSEEK -> R.drawable.ic_agent_deepseek
+        AgentType.QODER -> R.drawable.ic_agent_qoder
+        AgentType.ANTIGRAVITY -> R.drawable.ic_agent_antigravity
+        AgentType.KIRO -> R.drawable.ic_agent_kiro
+        AgentType.ZCODE -> R.drawable.ic_agent_zcode
+        AgentType.TRAE -> R.drawable.ic_agent_trae
+        AgentType.COMMAND_CODE -> R.drawable.ic_agent_command_code
+        AgentType.UNKNOWN -> R.drawable.ic_agent_unknown
     }
 
     /**
@@ -47,9 +55,12 @@ object AgentVisuals {
     fun iconIsTemplate(agent: AgentType): Boolean = when (agent) {
         AgentType.OPEN_CODE, AgentType.CLINE, AgentType.HERMES,
         AgentType.CODE_BUDDY, AgentType.GROK, AgentType.CURSOR,
+        AgentType.QODER, AgentType.ANTIGRAVITY, AgentType.UNKNOWN,
         -> true
         AgentType.CLAUDE_CODE, AgentType.CODEX, AgentType.GEMINI,
         AgentType.OPEN_CLAW, AgentType.KIMI_CODE, AgentType.PI,
+        AgentType.DEEPSEEK, AgentType.KIRO, AgentType.ZCODE,
+        AgentType.TRAE, AgentType.COMMAND_CODE,
         -> false
     }
 
@@ -72,6 +83,14 @@ object AgentVisuals {
         AgentType.PI -> Color(0xFF383842) // pi slate
         AgentType.GROK, AgentType.CURSOR ->
             if (isDark) Color(0xFFEBEBEB) else Color(0xFF1F1F1F)
+        AgentType.DEEPSEEK -> Color(0xFF4D6BFE) // deepseek brand blue
+        AgentType.QODER -> Color(0xFF6C5CE7) // qoder violet
+        AgentType.ANTIGRAVITY -> Color(0xFF8E9199) // antigravity graphite
+        AgentType.KIRO -> Color(0xFF9046FF) // kiro purple
+        AgentType.ZCODE -> Color(0xFF22D3EE) // zcode cyan
+        AgentType.TRAE -> Color(0xFF32F08C) // trae green
+        AgentType.COMMAND_CODE -> Color(0xFFFFB020) // command code amber
+        AgentType.UNKNOWN -> Color(0xFF6B7280) // neutral grey
     }
 
     /** [accent] resolved against the current theme. */

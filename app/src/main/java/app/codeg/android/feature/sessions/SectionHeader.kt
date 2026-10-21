@@ -1,7 +1,9 @@
 package app.codeg.android.feature.sessions
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,8 +39,11 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
  * tappable to collapse/expand its rows with a chevron that flips ▾↔▴.
  *
  * The whole row is the toggle target (the native accordion idiom). When [collapsible]
- * is false (an empty group), it renders statically — no chevron, no tap.
+ * is false (an empty group), it renders statically — no chevron, no tap. An optional
+ * [onLongClick] (e.g. the Chats tab's hide-section action) upgrades the row to a
+ * combined click target; a long-pressable header stays tappable even when empty.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CollapsibleSectionHeader(
     icon: ImageVector,
@@ -49,6 +54,7 @@ fun CollapsibleSectionHeader(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
     collapsible: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = CodegTheme.colors
     val rotation by animateFloatAsState(
@@ -65,10 +71,16 @@ fun CollapsibleSectionHeader(
             .padding(top = 10.dp) // inter-section gap, kept outside the ripple
             .clip(RoundedCornerShape(12.dp))
             .then(
-                if (collapsible) {
-                    Modifier.clickable(onClickLabel = toggleLabel, role = Role.Button, onClick = onToggle)
-                } else {
-                    Modifier
+                when {
+                    onLongClick != null -> Modifier.combinedClickable(
+                        onClickLabel = toggleLabel,
+                        role = Role.Button,
+                        onClick = onToggle,
+                        onLongClickLabel = onLongClickLabel,
+                        onLongClick = onLongClick,
+                    )
+                    collapsible -> Modifier.clickable(onClickLabel = toggleLabel, role = Role.Button, onClick = onToggle)
+                    else -> Modifier
                 },
             )
             .padding(horizontal = 8.dp, vertical = 8.dp),
@@ -97,3 +109,7 @@ fun CollapsibleSectionHeader(
         }
     }
 }
+
+/** Accessibility label for the header's long-press action. */
+private val onLongClickLabel: String
+    @Composable get() = stringResource(R.string.sessions_hide_action)

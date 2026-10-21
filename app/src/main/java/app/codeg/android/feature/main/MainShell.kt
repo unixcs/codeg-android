@@ -274,7 +274,13 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 ProjectListScreen(onOpenFolder = { id -> nav.navigate("project/$id") })
             }
             composable(HomeTab.ACTIVITY.route) {
-                ActivityScreen(onOpenConversation = { id -> nav.navigate("conversation/$id") })
+                ActivityScreen(
+                    servers = servers,
+                    selectedServerId = selectedProfile?.id,
+                    onSelectServer = appViewModel::selectServer,
+                    onManageServers = { nav.navigate(ROUTE_SERVERS) },
+                    onOpenConversation = { id -> nav.navigate("conversation/$id") },
+                )
             }
             composable(HomeTab.SEARCH.route) {
                 SearchScreen(onOpenConversation = { id -> nav.navigate("conversation/$id") })

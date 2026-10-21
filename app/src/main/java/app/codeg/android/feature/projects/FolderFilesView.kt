@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -42,10 +43,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.R
+import app.codeg.android.core.designsystem.component.CodegSegmented
 import app.codeg.android.core.designsystem.component.CopyButton
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
+import app.codeg.android.core.designsystem.markdown.MarkdownContent
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.DirectoryItem
 import app.codeg.android.core.network.CodegClient
@@ -130,10 +133,18 @@ private fun FilePreview(client: CodegClient, rootPath: String, absPath: String) 
     val rel = if (absPath.startsWith("$rootPath/")) absPath.removePrefix("$rootPath/") else absPath.substringAfterLast('/')
     var result by remember(absPath) { mutableStateOf<Result<String>?>(null) }
     LaunchedEffect(absPath) { result = runCatching { client.readFilePreview(rootPath, rel).content } }
+    // Rendered vs raw: Markdown files default to rendered; everything else is raw-only.
+    val isMarkdown = remember(absPath) {
+        absPath.substringAfterLast('/').substringAfterLast('.', "").lowercase() in setOf("md", "markdown")
+    }
+    var rendered by remember(absPath, isMarkdown) { mutableStateOf(isMarkdown) }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(rel, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (isMarkdown && result?.getOrNull()?.isNotEmpty() == true) {
+                FilePreviewModeToggle(rendered = rendered, onToggle = { rendered = it })
+            }
             result?.getOrNull()?.let { if (it.isNotEmpty()) CopyButton(it) }
         }
         val r = result
@@ -146,11 +157,44 @@ private fun FilePreview(client: CodegClient, rootPath: String, absPath: String) 
                 val content = r.getOrDefault("")
                 if (content.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState(Icons.AutoMirrored.Rounded.InsertDriveFile, stringResource(R.string.files_empty_file), stringResource(R.string.files_empty_file_message)) }
+                } else if (rendered) {
+                    MarkdownScrollContent(content)
                 } else {
                     FileContent(content)
                 }
             }
         }
+    }
+}
+
+/** Rendered/Source segmented toggle for Markdown file previews. */
+@Composable
+private fun FilePreviewModeToggle(rendered: Boolean, onToggle: (Boolean) -> Unit) {
+    CodegSegmented(
+        options = listOf(
+            stringResource(R.string.files_preview_rendered),
+            stringResource(R.string.files_preview_source),
+        ),
+        selectedIndex = if (rendered) 0 else 1,
+        onSelect = { onToggle(it == 0) },
+        modifier = Modifier.padding(end = 8.dp),
+    )
+}
+
+/**
+ * Rendered Markdown in a scrollable container. The file preview is a plain Column
+ * (not the session timeline's LazyColumn), so the block list scrolls as one unit;
+ * `MarkdownContent` already re-parses only when the content changes.
+ */
+@Composable
+private fun MarkdownScrollContent(content: String) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp),
+    ) {
+        MarkdownContent(content, modifier = Modifier.padding(vertical = 8.dp))
     }
 }
 

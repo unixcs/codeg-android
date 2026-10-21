@@ -173,6 +173,45 @@ object AgentEnvKeys {
             listOf(CursorConfig.API_KEY),
             listOf(CursorConfig.MODEL),
         )
+        // DeepSeek Harness reads its own DEEPSEEK_* keys. Deliberately no
+        // OPENAI_* fallbacks: an unrelated OpenAI endpoint/key must never be
+        // surfaced as DeepSeek's and then copied onto its canonical key.
+        AgentType.DEEPSEEK -> ImportantKeys(
+            listOf("DEEPSEEK_BASE_URL"),
+            listOf("DEEPSEEK_API_KEY"),
+            listOf("DEEPSEEK_ACP_MODEL"),
+        )
+        // Qoder authenticates against its own backend: only the personal access
+        // token + model are read from the env.
+        AgentType.QODER -> ImportantKeys(
+            emptyList(),
+            listOf("QODER_PERSONAL_ACCESS_TOKEN"),
+            listOf("QODER_MODEL"),
+        )
+        AgentType.ANTIGRAVITY -> ImportantKeys(
+            emptyList(),
+            listOf("GEMINI_API_KEY"),
+            listOf("AGY_ACP_DEFAULT_MODEL"),
+        )
+        AgentType.KIRO -> ImportantKeys(
+            emptyList(),
+            listOf("KIRO_API_KEY"),
+            emptyList(),
+        )
+        AgentType.TRAE -> ImportantKeys(
+            listOf("TRAECLI_HOST"),
+            listOf("TRAECLI_PERSONAL_ACCESS_TOKEN"),
+            emptyList(),
+        )
+        AgentType.COMMAND_CODE -> ImportantKeys(
+            emptyList(),
+            listOf("COMMAND_CODE_API_KEY"),
+            emptyList(),
+        )
+        // ZCode carries no bring-your-own credentials: it reuses the CLI's own
+        // login, and model/mode arrive through ACP configOptions at session time.
+        AgentType.ZCODE -> ImportantKeys(emptyList(), emptyList(), emptyList())
+        AgentType.UNKNOWN -> ImportantKeys(emptyList(), emptyList(), emptyList())
         else -> ImportantKeys(
             listOf("OPENAI_BASE_URL", "API_BASE_URL"),
             listOf("OPENAI_API_KEY", "API_KEY"),
@@ -599,6 +638,11 @@ data class AgentDraft(
                 // Kimi & Pi project their own state from `configJson` inside their
                 // self-contained panels.
                 AgentType.KIMI_CODE, AgentType.PI -> Unit
+                // The newer agents have no structured controls of their own: their
+                // apiBaseUrl/apiKey/model are already seeded by the shared `important`
+                // path above, and any native config text rides `configText` untouched.
+                AgentType.DEEPSEEK, AgentType.QODER, AgentType.ANTIGRAVITY, AgentType.KIRO,
+                AgentType.ZCODE, AgentType.TRAE, AgentType.COMMAND_CODE, AgentType.UNKNOWN -> Unit
             }
             return draft
         }
@@ -911,6 +955,12 @@ object AgentConfig {
             // Kimi & Pi are self-contained (saved via acp_update_kimi_code_config /
             // acp_update_pi_config), not the shared draft.
             AgentType.KIMI_CODE, AgentType.PI -> Unit
+            // The newer agents only have the generic apiBaseUrl/apiKey/model fields;
+            // patch them onto the canonical env key for each. ZCode takes no
+            // credentials at all (its CLI login is the auth), so nothing to write.
+            AgentType.DEEPSEEK, AgentType.QODER, AgentType.ANTIGRAVITY, AgentType.KIRO,
+            AgentType.TRAE, AgentType.COMMAND_CODE -> envText = applyImportantEnv(agent, draft.envText, draft)
+            AgentType.ZCODE, AgentType.UNKNOWN -> Unit
         }
         return Applied(configText, envText, codexConfigTomlText, codexAuthJsonText)
     }
@@ -946,6 +996,20 @@ object AgentConfig {
             "ANTHROPIC_DEFAULT_OPUS_MODEL" to d.claudeDefaultOpusModel,
         ),
     )
+
+    /**
+     * Patch the shared apiBaseUrl/apiKey/model fields onto the canonical env key
+     * of a newer agent (the first entry of [AgentEnvKeys.important]); an empty
+     * list means that field has no env key and is left alone.
+     */
+    private fun applyImportantEnv(agent: AgentType, envText: String, d: AgentDraft): String {
+        val keys = AgentEnvKeys.important(agent)
+        val patch = LinkedHashMap<String, String?>()
+        keys.apiBaseUrl.firstOrNull()?.let { patch[it] = d.apiBaseUrl }
+        keys.apiKey.firstOrNull()?.let { patch[it] = d.apiKey }
+        keys.model.firstOrNull()?.let { patch[it] = d.model }
+        return EnvText.patch(envText, patch)
+    }
 
     private fun applyClaudeEffort(configText: String, level: ClaudeEffortLevel): String {
         val config = LinkedHashMap(JsonConfig.parse(configText).config)

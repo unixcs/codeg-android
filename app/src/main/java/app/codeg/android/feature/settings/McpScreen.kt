@@ -157,7 +157,7 @@ private fun McpEditor(
                 CodegTextField(spec, { spec = it }, label = stringResource(R.string.mcp_spec_json), mono = true, singleLine = false)
                 Text(stringResource(R.string.mcp_enabled_for), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textSecondary)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (agent in AgentType.entries) {
+                    for (agent in AgentType.entries.filter { it != AgentType.UNKNOWN }) {
                         val on = apps.contains(agent.wire)
                         CodegFilterChip(
                             label = agent.shortName,

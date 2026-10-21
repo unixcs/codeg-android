@@ -15,8 +15,8 @@ import kotlinx.serialization.encoding.Encoder
  * per-agent accent colours and monogram rendering live in the design system
  * (`AgentVisuals`), keyed off this enum.
  *
- * Unknown future agent types decode to [CLAUDE_CODE] (matching iOS) so one new
- * server-side agent can't break a whole list decode.
+ * Unknown future agent types decode to [UNKNOWN] so one new server-side agent
+ * can't break a whole list decode, and can't be mistaken for a real agent.
  */
 @Serializable(with = AgentType.AgentTypeSerializer::class)
 enum class AgentType(val wire: String) {
@@ -31,7 +31,21 @@ enum class AgentType(val wire: String) {
     KIMI_CODE("kimi_code"),
     PI("pi"),
     GROK("grok"),
-    CURSOR("cursor");
+    CURSOR("cursor"),
+    DEEPSEEK("deepseek"),
+    QODER("qoder"),
+    ANTIGRAVITY("antigravity"),
+    KIRO("kiro"),
+    ZCODE("zcode"),
+    TRAE("trae"),
+    COMMAND_CODE("command_code"),
+
+    /**
+     * A server-side agent this build has no entry for. Decoding to this instead
+     * of [CLAUDE_CODE] keeps an unknown agent from masquerading as a real one;
+     * it is display-only and must never be sent back to the server.
+     */
+    UNKNOWN("unknown");
 
     val displayName: String
         get() = when (this) {
@@ -47,6 +61,14 @@ enum class AgentType(val wire: String) {
             PI -> "Pi"
             GROK -> "Grok"
             CURSOR -> "Cursor"
+            DEEPSEEK -> "DeepSeek Harness"
+            QODER -> "Qoder"
+            ANTIGRAVITY -> "Google Antigravity"
+            KIRO -> "Kiro CLI"
+            ZCODE -> "ZCode"
+            TRAE -> "TRAE CLI"
+            COMMAND_CODE -> "Command Code"
+            UNKNOWN -> "Unknown Agent"
         }
 
     /** Short label for dense badges. */
@@ -64,16 +86,25 @@ enum class AgentType(val wire: String) {
             PI -> "Pi"
             GROK -> "Grok"
             CURSOR -> "Cursor"
+            DEEPSEEK -> "DeepSeek"
+            QODER -> "Qoder"
+            ANTIGRAVITY -> "Antigravity"
+            KIRO -> "Kiro"
+            ZCODE -> "ZCode"
+            TRAE -> "TRAE"
+            COMMAND_CODE -> "Command"
+            UNKNOWN -> "Unknown"
         }
 
     companion object {
         /**
-         * The agent for [raw], falling back to [CLAUDE_CODE] when unrecognised so a
-         * single agent-typed field always decodes (matching iOS). List decoders that
-         * must not collapse several unknown agents onto one identity should use
-         * [knownFromWire] and drop the nulls instead — see `CodegClient.decodeAgentList`.
+         * The agent for [raw], falling back to [UNKNOWN] when unrecognised so a
+         * single agent-typed field always decodes without inventing an identity.
+         * List decoders that must not collapse several unknown agents onto one
+         * identity use [knownFromWire] and drop the nulls instead — see
+         * `CodegClient.decodeAgentList`.
          */
-        fun fromWire(raw: String): AgentType = knownFromWire(raw) ?: CLAUDE_CODE
+        fun fromWire(raw: String): AgentType = knownFromWire(raw) ?: UNKNOWN
 
         /** The agent for [raw], or null when this build doesn't recognise the wire value. */
         fun knownFromWire(raw: String): AgentType? = entries.firstOrNull { it.wire == raw }

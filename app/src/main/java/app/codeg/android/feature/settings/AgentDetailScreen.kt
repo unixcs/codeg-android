@@ -71,6 +71,7 @@ import app.codeg.android.core.designsystem.component.SecretField
 import app.codeg.android.core.designsystem.theme.CodegColors
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.AgentConfig
+import app.codeg.android.core.model.AgentEnvKeys
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.ClaudeAuthMode
 import app.codeg.android.core.model.CodeBuddyEnvironment
@@ -115,6 +116,10 @@ fun AgentDetailContent(
     // — like Hermes' raw editor, they hide the host "Save" and the generic
     // native-config editor.
     val selfContained = agentType == AgentType.KIMI_CODE || agentType == AgentType.PI
+    // Qoder edits its native settings.json in its own section; ZCode has no native
+    // config file at all; UNKNOWN must not be written anywhere.
+    val hideAdvanced = agentType == AgentType.HERMES || selfContained ||
+        agentType == AgentType.QODER || agentType == AgentType.ZCODE || agentType == AgentType.UNKNOWN
     Column(Modifier.fillMaxSize().imePadding()) {
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
@@ -136,9 +141,14 @@ fun AgentDetailContent(
                 AgentType.CURSOR -> CursorSection(detail, viewModel)
                 AgentType.KIMI_CODE -> AgentConfigKimiView(detail.agent, viewModel)
                 AgentType.PI -> AgentConfigPiView(detail.agent, viewModel)
+                AgentType.DEEPSEEK, AgentType.ANTIGRAVITY, AgentType.KIRO,
+                AgentType.TRAE, AgentType.COMMAND_CODE -> GenericEnvSection(detail, viewModel, agentType)
+                AgentType.QODER -> QoderSection(detail, viewModel)
+                AgentType.ZCODE -> ZCodeSection()
+                AgentType.UNKNOWN -> UnknownAgentSection()
             }
 
-            if (agentType != AgentType.HERMES && !selfContained) AdvancedSection(detail, viewModel)
+            if (!hideAdvanced) AdvancedSection(detail, viewModel)
         }
 
         if (!selfContained) {
@@ -972,11 +982,83 @@ private fun TonalAction(text: String, onClick: () -> Unit) {
     ) { Text(text) }
 }
 
+/**
+ * The newer agents (DeepSeek Harness, Antigravity, Kiro, TRAE, Command Code) are
+ * env-only entries: their whole configuration is the shared url/key/model pair,
+ * each written to that agent's canonical env key. Agents without a base URL or
+ * model key simply show fewer fields.
+ */
+@Composable
+private fun GenericEnvSection(state: AgentDetailState, vm: AgentsViewModel, agentType: AgentType) {
+    val d = state.draft
+    val keys = AgentEnvKeys.important(agentType)
+    FormSection(
+        stringResource(R.string.agents_section_configuration),
+        footer = stringResource(R.string.agents_generic_env_footer),
+    ) {
+        if (keys.apiBaseUrl.isNotEmpty()) {
+            CodegTextField(
+                d.apiBaseUrl,
+                { v -> vm.editDraft { it.copy(apiBaseUrl = v) } },
+                stringResource(R.string.agents_field_api_url),
+                placeholder = "https://…",
+                keyboardType = KeyboardType.Uri,
+                mono = true,
+            )
+        }
+        if (keys.apiKey.isNotEmpty()) {
+            SecretField(d.apiKey, { v -> vm.editDraft { it.copy(apiKey = v) } }, stringResource(R.string.agents_field_api_key))
+        }
+        if (keys.model.isNotEmpty()) {
+            CodegTextField(d.model, { v -> vm.editDraft { it.copy(model = v) } }, stringResource(R.string.agents_field_model), mono = true)
+        }
+    }
+}
+
+/** Qoder: personal access token + model ride the env; settings.json is edited raw. */
+@Composable
+private fun QoderSection(state: AgentDetailState, vm: AgentsViewModel) {
+    val d = state.draft
+    FormSection(
+        stringResource(R.string.agents_section_configuration),
+        footer = stringResource(R.string.agents_qoder_model_hint),
+    ) {
+        SecretField(d.apiKey, { v -> vm.editDraft { it.copy(apiKey = v) } }, stringResource(R.string.agents_qoder_token))
+        CodegTextField(d.model, { v -> vm.editDraft { it.copy(model = v) } }, stringResource(R.string.agents_field_model), mono = true)
+    }
+    RawEditorSection(
+        label = stringResource(R.string.agents_qoder_settings_label),
+        hint = stringResource(R.string.agents_qoder_settings_hint),
+        text = d.configText,
+        error = state.configError,
+        onChange = vm::editRawConfig,
+    )
+}
+
+@Composable
+private fun ZCodeSection() {
+    HintSection(stringResource(R.string.agents_zcode_hint))
+}
+
+@Composable
+private fun UnknownAgentSection() {
+    HintSection(stringResource(R.string.agents_unknown_hint))
+}
+
+@Composable
+private fun HintSection(text: String) {
+    val colors = CodegTheme.colors
+    Text(
+        text,
+        fontSize = 13.sp,
+        color = colors.textSecondary,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(colors.bgElevated.copy(alpha = 0.5f)).padding(14.dp),
+    )
+}
+
 @Composable
 private fun AdvancedSection(state: AgentDetailState, vm: AgentsViewModel) {
-    val colors = CodegTheme.colors
-    var open by remember { mutableStateOf(false) }
-    val rotation by animateFloatAsState(if (open) 180f else 0f, label = "advanced")
     val label = when (state.agentType) {
         AgentType.CODEX, AgentType.GROK -> "config.toml"
         AgentType.CURSOR -> "cli-config.json"
@@ -988,6 +1070,20 @@ private fun AdvancedSection(state: AgentDetailState, vm: AgentsViewModel) {
         AgentType.CURSOR -> state.draft.cursorCliConfigText
         else -> state.draft.configText
     }
+    RawEditorSection(
+        label = label,
+        hint = stringResource(R.string.agents_advanced_override_hint),
+        text = text,
+        error = state.configError,
+        onChange = vm::editRawConfig,
+    )
+}
+
+@Composable
+private fun RawEditorSection(label: String, hint: String, text: String, error: String?, onChange: (String) -> Unit) {
+    val colors = CodegTheme.colors
+    var open by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(if (open) 180f else 0f, label = "advanced")
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
@@ -1006,7 +1102,7 @@ private fun AdvancedSection(state: AgentDetailState, vm: AgentsViewModel) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedTextField(
                     value = text,
-                    onValueChange = vm::editRawConfig,
+                    onValueChange = onChange,
                     textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
                     keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
@@ -1018,8 +1114,8 @@ private fun AdvancedSection(state: AgentDetailState, vm: AgentsViewModel) {
                         cursorColor = colors.accent,
                     ),
                 )
-                state.configError?.let { Text(it, fontSize = 11.sp, color = colors.danger, modifier = Modifier.padding(start = 4.dp)) }
-                Text(stringResource(R.string.agents_advanced_override_hint), fontSize = 11.sp, color = colors.textTertiary, modifier = Modifier.padding(start = 4.dp))
+                error?.let { Text(it, fontSize = 11.sp, color = colors.danger, modifier = Modifier.padding(start = 4.dp)) }
+                Text(hint, fontSize = 11.sp, color = colors.textTertiary, modifier = Modifier.padding(start = 4.dp))
             }
         }
     }

@@ -138,6 +138,26 @@ object TranscriptTimeline {
         withLive(buildPersisted(turns, pending, agent, hideTrailingAssistantReply), live, agent)
 
     /**
+     * ACP tool ids are only unique within a turn — ZCode's todo tool reuses one id
+     * (`acp-plan`) for every reply. Node ids double as LazyColumn keys, so a repeated
+     * id across turns would crash on duplicate-key. Keep the first occurrence's id
+     * untouched (live→persisted handoff identity) and suffix later ones in order.
+     */
+    private fun uniqueIds(nodes: List<TimelineNode>): List<TimelineNode> {
+        if (nodes.isEmpty()) return nodes
+        val seen = HashSet<String>(nodes.size * 2)
+        var deduped: MutableList<TimelineNode>? = null
+        nodes.forEachIndexed { index, node ->
+            if (seen.add(node.id)) return@forEachIndexed
+            if (deduped == null) deduped = nodes.subList(0, index).toMutableList()
+            var suffix = 2
+            while (!seen.add("${node.id}#$suffix")) suffix++
+            deduped!!.add(node.copy(id = "${node.id}#$suffix"))
+        }
+        return deduped ?: nodes
+    }
+
+    /**
      * The persisted + optimistic-pending nodes, with the rail NOT yet terminated.
      * Memoize this (it re-merges/adapts every turn) separately from [withLive] so the
      * ~50ms live stream only re-runs the cheap live append, not the whole transcript.
@@ -195,7 +215,7 @@ object TranscriptTimeline {
             nodes[0] = nodes[0].copy(connectTop = false)
             nodes[nodes.lastIndex] = nodes[nodes.lastIndex].copy(connectBottom = false)
         }
-        return nodes
+        return uniqueIds(nodes)
     }
 
     /** A merged reply → ordered part nodes + a footer (always emitted, even tool-only).

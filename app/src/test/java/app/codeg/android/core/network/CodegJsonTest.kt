@@ -68,7 +68,7 @@ class CodegJsonTest {
             """{"id":1,"folder_id":1,"agent_type":"brand_new_agent","status":"weird_status",
                "message_count":0,"created_at":"2024-01-02T03:04:05Z","updated_at":"2024-01-02T03:04:05Z"}""",
         )
-        assertEquals(AgentType.CLAUDE_CODE, c.agentType)
+        assertEquals(AgentType.UNKNOWN, c.agentType)
         assertEquals(ConversationStatus.OTHER, c.status)
     }
 

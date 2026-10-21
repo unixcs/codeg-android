@@ -197,7 +197,7 @@ class SessionDetailViewModel @Inject constructor(
                         .sortedBy { it.sortOrder }
                         .map { it.agentType }
                         .distinct()
-                        .ifEmpty { AgentType.entries.toList() }
+                        .ifEmpty { AgentType.entries.filter { it != AgentType.UNKNOWN } }
                     folder = allFolders.firstOrNull { it.id == folderIdArg }
                         ?: topLevel.firstOrNull()
                         ?: allFolders.maxByOrNull { it.lastOpenedAt ?: Instant.MIN }

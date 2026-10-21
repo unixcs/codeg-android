@@ -101,6 +101,28 @@ class TranscriptTimelineTest {
     }
 
     @Test
+    fun `a reused ACP tool id across replies gets a unique node id`() {
+        // ZCode's todo tool reuses one ACP id (`acp-plan`) on every reply; the second
+        // occurrence must still get its own LazyColumn key or the transcript crashes.
+        val plan = listOf(
+            ContentBlock.ToolUse("acp-plan", "Todos", "{}"),
+            ContentBlock.ToolResult("acp-plan", "[]", false),
+        )
+        val turns = listOf(
+            user("u1", "a"),
+            assistant("a1", plan),
+            user("u2", "b"),
+            assistant("a2", plan),
+        )
+        val nodes = TranscriptTimeline.build(turns, emptyList(), null, agent)
+        val ids = nodes.map { it.id }
+        assertEquals("node ids must be unique", ids.size, ids.toSet().size)
+        assertEquals(2, nodes.count { it.content is NodeContent.Tool })
+        assertTrue(nodes.any { it.id == "tool-acp-plan" })
+        assertTrue(nodes.any { it.id == "tool-acp-plan#2" })
+    }
+
+    @Test
     fun `a multi-block assistant reply splits into per-block nodes with rail head-middle-tail`() {
         val turns = listOf(
             user("u1", "hi"),

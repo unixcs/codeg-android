@@ -97,6 +97,7 @@ class AgentsViewModel @Inject constructor(
     /** Instant enable/disable toggle (from the list row or the detail header). */
     fun setEnabled(agent: AcpAgentInfo, enabled: Boolean) {
         val c = client ?: return
+        if (agent.agentType == AgentType.UNKNOWN) return
         val wasEnabled = agent.enabled
         applyEnabled(agent.agentType, enabled) // optimistic, covers list + detail
         viewModelScope.launch {
@@ -232,6 +233,12 @@ class AgentsViewModel @Inject constructor(
         val c = client ?: return
         if (state.missingProvider) {
             updateDetail { it.copy(saveError = "Select a model provider first.") }
+            return
+        }
+        // UNKNOWN is display-only: this build has no idea what wire payload that
+        // agent expects, so never write anything for it.
+        if (state.agentType == AgentType.UNKNOWN) {
+            updateDetail { it.copy(saveError = "This build can't configure this agent.") }
             return
         }
         // Reject an unparseable config.json BEFORE any write (a merge agent would otherwise
@@ -448,6 +455,19 @@ class AgentsViewModel @Inject constructor(
                 codexConfigToml = null,
                 cursorCliConfigJson = cursorCliConfigForSave(draft, original),
                 cursorStructured = cursorStructuredForSave(draft, original),
+            )
+            // Qoder's native file is settings.json, written verbatim (the server
+            // replaces the whole document), so the Advanced text is passed through
+            // as-is instead of being re-serialized like the shared config.json.
+            // Sent only when the user actually edited it, and never as empty text —
+            // a blank document would leave the CLI without its settings.
+            AgentType.QODER -> ConfigPayload(
+                configJson = draft.configText.takeIf {
+                    it.trim().isNotEmpty() && it != (original.configJson ?: "")
+                },
+                opencodeAuthJson = null,
+                codexAuthJson = null,
+                codexConfigToml = null,
             )
             // Grok is handled separately in save() via grokConfigTomlForSave() (it needs a
             // fresh re-read of the live config.toml as the patch base), so it never

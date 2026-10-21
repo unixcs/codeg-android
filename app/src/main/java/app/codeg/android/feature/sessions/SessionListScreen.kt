@@ -1,10 +1,13 @@
 package app.codeg.android.feature.sessions
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -17,24 +20,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,9 +43,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,14 +63,18 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
+import app.codeg.android.core.datastore.ChatListDisplayStore
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
+import app.codeg.android.core.designsystem.component.ServerSwitcher
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.theme.colorFromHex
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.feature.main.LocalBarsVisible
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * The Chats tab: the grouped session list for the selected server (Pinned /
@@ -76,8 +84,14 @@ import app.codeg.android.feature.main.LocalBarsVisible
  * section header to fold/unfold its rows. The grouping itself is computed off the main
  * thread ([SessionListViewModel.sections]) and the list is virtualized with per-type
  * recycling, so a very large session list stays smooth.
+ *
+ * Folder sections can be **hidden** (long-press a header): hidden groups vanish from
+ * the list but stay reachable — a dim "N hidden" row at the bottom opens a manage
+ * sheet to restore them. Hidden + collapsed state is per-server, persisted locally
+ * ([ChatListDisplayStore]); the Activity tab is never filtered, so a hidden group's
+ * live sessions still surface there.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SessionListScreen(
     servers: List<ServerProfile>,
@@ -89,14 +103,30 @@ fun SessionListScreen(
     viewModel: SessionListViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
-    val sections by viewModel.sections.collectAsStateWithLifecycle()
-    // Collapsed section ids. In the composable (not the VM) so collapsing never
-    // re-runs the grouping flow; rememberSaveable keeps the fold state across
-    // rotation / process death.
-    var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    val allSections by viewModel.sections.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
     val selectedName = servers.firstOrNull { it.id == selectedId }?.name
         ?: stringResource(R.string.app_name)
+
+    // Per-server display prefs (hidden sections + persisted fold state). Read as a
+    // flow so a change (hide/restore/collapse) recomposes the list immediately.
+    val displayStore = remember { viewModel.chatListDisplayStore }
+    val display by remember(selectedId) {
+        displayStore.display(selectedId ?: "")
+    }.collectAsState(initial = ChatListDisplayDefaults)
+    val scope = rememberCoroutineScope()
+
+    var collapsed by remember(selectedId, display) { mutableStateOf(display.collapsedSections) }
+    var hiddenTarget by remember { mutableStateOf<SessionSection?>(null) }
+    var showHiddenManager by remember { mutableStateOf(false) }
+
+    // Hideable = folder sections only (Pinned is a transient override bucket; Other
+    // holds orphans that would otherwise become unreachable from this list).
+    val hiddenSections = display.hiddenSections
+    val sections = remember(allSections, hiddenSections) {
+        allSections.filter { it.id !in hiddenSections }
+    }
+    val hiddenCount = hiddenSections.size
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -180,12 +210,19 @@ fun SessionListScreen(
                     ) {
                         SessionList(
                             sections = sections,
+                            hiddenCount = hiddenCount,
                             collapsed = collapsed,
                             onToggleSection = { id ->
-                                collapsed = if (id in collapsed) collapsed - id else collapsed + id
+                                val next = if (id in collapsed) collapsed - id else collapsed + id
+                                collapsed = next
+                                scope.launch {
+                                    displayStore.setCollapsed(selectedId ?: "", next)
+                                }
                             },
                             onOpenConversation = onOpenConversation,
                             onTogglePin = { conv -> viewModel.setPinned(conv, !conv.isPinned) },
+                            onLongPressSection = { section -> hiddenTarget = section },
+                            onOpenHiddenManager = { showHiddenManager = true },
                             // A refresh that failed over a still-populated list: surface
                             // it inline above the rows rather than swallowing it.
                             refreshError = ui.error,
@@ -197,15 +234,47 @@ fun SessionListScreen(
             }
         }
     }
+
+    hiddenTarget?.let { target ->
+        HideSectionSheet(
+            section = target,
+            onDismiss = { hiddenTarget = null },
+            onHide = {
+                scope.launch {
+                    displayStore.setHidden(selectedId ?: "", hiddenSections + target.id)
+                }
+                hiddenTarget = null
+            },
+        )
+    }
+
+    if (showHiddenManager) {
+        HiddenSectionsSheet(
+            hidden = hiddenSections,
+            sections = allSections,
+            onDismiss = { showHiddenManager = false },
+            onRestore = { id ->
+                scope.launch {
+                    displayStore.setHidden(selectedId ?: "", hiddenSections - id)
+                }
+            },
+        )
+    }
 }
+
+/** Initial collect value: nothing hidden, nothing collapsed. */
+private val ChatListDisplayDefaults = app.codeg.android.core.datastore.ChatListDisplay()
 
 @Composable
 private fun SessionList(
     sections: List<SessionSection>,
+    hiddenCount: Int,
     collapsed: Set<String>,
     onToggleSection: (String) -> Unit,
     onOpenConversation: (Int) -> Unit,
     onTogglePin: (ConversationSummary) -> Unit,
+    onLongPressSection: (SessionSection) -> Unit,
+    onOpenHiddenManager: () -> Unit,
     refreshError: String?,
     onRetry: () -> Unit,
     onDismissError: () -> Unit,
@@ -242,6 +311,7 @@ private fun SessionList(
                     collapsed = isCollapsed,
                     onToggle = { onToggleSection(section.id) },
                     collapsible = section.count > 0,
+                    onLongClick = { onLongPressSection(section) },
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -259,6 +329,16 @@ private fun SessionList(
                         onTogglePin = { onTogglePin(row.conversation) },
                     )
                 }
+            }
+        }
+
+        if (hiddenCount > 0) {
+            item(key = "hidden-manage", contentType = "hidden-footer") {
+                HiddenManageRow(
+                    count = hiddenCount,
+                    onClick = onOpenHiddenManager,
+                    modifier = Modifier.animateItem(),
+                )
             }
         }
     }
@@ -286,6 +366,125 @@ private fun sectionStyle(kind: SectionKind): SectionStyle {
             tint = colors.textSecondary,
             label = stringResource(R.string.sessions_other),
         )
+    }
+}
+
+/** Dim "N hidden" footer row — the non-intrusive way back to the manage sheet. */
+@Composable
+private fun HiddenManageRow(count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = CodegTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            Icons.Rounded.VisibilityOff,
+            contentDescription = null,
+            tint = colors.textTertiary,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = stringResource(R.string.sessions_hidden_manage, count),
+            style = MaterialTheme.typography.labelMedium,
+            color = colors.textTertiary,
+        )
+    }
+}
+
+/** Confirmation sheet for hiding one section (long-press on a header). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HideSectionSheet(
+    section: SessionSection,
+    onDismiss: () -> Unit,
+    onHide: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    val style = sectionStyle(section.kind)
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+            Text(
+                text = stringResource(R.string.sessions_hide_title, style.label),
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.textPrimary,
+            )
+            Text(
+                text = stringResource(R.string.sessions_hide_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.textSecondary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+            ) {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+                TextButton(onClick = onHide) {
+                    Text(stringResource(R.string.sessions_hide_action), color = colors.accent)
+                }
+            }
+        }
+    }
+}
+
+/** Manage sheet: restore any currently hidden section. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HiddenSectionsSheet(
+    hidden: Set<String>,
+    sections: List<SessionSection>,
+    onDismiss: () -> Unit,
+    onRestore: (String) -> Unit,
+) {
+    val colors = CodegTheme.colors
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
+            Text(
+                text = stringResource(R.string.sessions_hidden_manage, hidden.size),
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.textPrimary,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            if (hidden.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.sessions_hidden_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textSecondary,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                )
+            } else {
+                sections.filter { it.id in hidden }.forEach { section ->
+                    val style = sectionStyle(section.kind)
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable { onRestore(section.id) }
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(style.icon, null, tint = style.tint, modifier = Modifier.size(20.dp))
+                        Text(
+                            style.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = colors.textPrimary,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            stringResource(R.string.sessions_restore),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colors.accent,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -340,71 +539,6 @@ private fun RefreshErrorBanner(
                 contentDescription = stringResource(R.string.common_dismiss),
                 tint = colors.textTertiary,
                 modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ServerSwitcher(
-    name: String,
-    servers: List<ServerProfile>,
-    selectedId: String?,
-    onSelect: (String) -> Unit,
-    onManageServers: () -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    val colors = CodegTheme.colors
-    Box {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable { open = true }
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = name,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.textPrimary,
-            )
-            Icon(
-                Icons.Rounded.ExpandMore,
-                contentDescription = null,
-                tint = colors.textSecondary,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            servers.forEach { server ->
-                DropdownMenuItem(
-                    text = { Text(server.name) },
-                    onClick = {
-                        open = false
-                        if (server.id != selectedId) onSelect(server.id)
-                    },
-                    trailingIcon = {
-                        if (server.id == selectedId) {
-                            Icon(
-                                Icons.Rounded.Check,
-                                contentDescription = null,
-                                tint = colors.accent,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    },
-                )
-            }
-            HorizontalDivider()
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.home_manage_servers)) },
-                leadingIcon = { Icon(Icons.Rounded.Dns, contentDescription = null) },
-                onClick = {
-                    open = false
-                    onManageServers()
-                },
             )
         }
     }

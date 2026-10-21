@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
+import app.codeg.android.core.datastore.ChatListDisplayStore
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.ConversationSummary
@@ -44,6 +45,8 @@ import javax.inject.Inject
 class SessionListViewModel @Inject constructor(
     private val repository: ServerRepository,
     @ApplicationContext private val appContext: Context,
+    /** Per-server hidden/collapsed section prefs, read+written by the Chats screen. */
+    val chatListDisplayStore: ChatListDisplayStore,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(SessionListUiState())
