@@ -32,6 +32,41 @@ data class FilePreviewContent(
     val content: String,
 )
 
+/**
+ * A text file opened for editing (`read_file_for_edit`). [etag] is the server's
+ * concurrency token: pass it back as `expected_etag` on `save_file_content`, and
+ * a mismatch (HTTP 400, code `invalid_input`) means the file changed on disk.
+ */
+@Serializable
+data class FileEditContent(
+    val path: String,
+    val content: String,
+    val etag: String,
+    val mtimeMs: Long? = null,
+    // Wire key is `readonly` (one word); explicit name beats the snake_case strategy.
+    @SerialName("readonly") val readOnly: Boolean = false,
+    val lineEnding: String = "lf",
+)
+
+/** Result of a successful save (`save_file_content`); carries the fresh etag. */
+@Serializable
+data class FileSaveResult(
+    val path: String,
+    val etag: String,
+    val mtimeMs: Long? = null,
+    // Wire key is `readonly` (one word); explicit name beats the snake_case strategy.
+    @SerialName("readonly") val readOnly: Boolean = false,
+    val lineEnding: String = "lf",
+)
+
+/** Result of a completed workspace upload (`upload_workspace_file`). */
+@Serializable
+data class WorkspaceUploadResult(
+    val path: String,
+    val name: String,
+    val size: Long = 0,
+)
+
 /** One working-tree change (`git_status`). */
 @Serializable
 data class GitStatusEntry(

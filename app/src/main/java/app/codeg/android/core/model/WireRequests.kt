@@ -221,6 +221,41 @@ data class PathFileBody(val path: String, val file: String)
 @Serializable
 data class DeleteFileTreeEntryBody(val rootPath: String, val path: String)
 
+// MARK: - File management request bodies (root-relative paths, camelCase keys)
+
+/** Body for `read_file_for_edit` — opens a text file with its concurrency etag. */
+@Serializable
+data class ReadFileForEditBody(val rootPath: String, val path: String)
+
+/** Body for `save_file_content`. [expectedEtag] guards against lost updates. */
+@Serializable
+data class SaveFileContentBody(
+    val rootPath: String,
+    val path: String,
+    val content: String,
+    val expectedEtag: String? = null,
+)
+
+/** Body for `rename_file_tree_entry` — renames the entry at [path] to [newName]. */
+@Serializable
+data class RenameFileTreeEntryBody(val rootPath: String, val path: String, val newName: String)
+
+/** Body for `move_file_tree_entry` — moves [sourcePath] into directory [destDir]. */
+@Serializable
+data class MoveFileTreeEntryBody(val rootPath: String, val sourcePath: String, val destDir: String)
+
+/** Body for `create_file_tree_entry` — [kind] is "file" or "dir". */
+@Serializable
+data class CreateFileTreeEntryBody(val rootPath: String, val path: String, val name: String, val kind: String)
+
+/** Body for `read_workspace_file_base64` (images etc., max 100 MB server-side). */
+@Serializable
+data class ReadWorkspaceFileBase64Body(val rootPath: String, val path: String, val maxBytes: Int? = null)
+
+/** Body for `download_workspace_file` / `download_workspace_dir` (binary response). */
+@Serializable
+data class DownloadWorkspaceBody(val rootPath: String, val path: String)
+
 // MARK: - Settings request bodies
 
 @Serializable

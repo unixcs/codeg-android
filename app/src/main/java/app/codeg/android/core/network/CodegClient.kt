@@ -61,6 +61,16 @@ import app.codeg.android.core.model.PathFileBody
 import app.codeg.android.core.model.OpenWorktreeFolderBody
 import app.codeg.android.core.model.PathBody
 import app.codeg.android.core.model.ReadFilePreviewBody
+import app.codeg.android.core.model.FileEditContent
+import app.codeg.android.core.model.FileSaveResult
+import app.codeg.android.core.model.ReadWorkspaceFileBase64Body
+import app.codeg.android.core.model.WorkspaceUploadResult
+import app.codeg.android.core.model.DownloadWorkspaceBody
+import app.codeg.android.core.model.SaveFileContentBody
+import app.codeg.android.core.model.RenameFileTreeEntryBody
+import app.codeg.android.core.model.MoveFileTreeEntryBody
+import app.codeg.android.core.model.CreateFileTreeEntryBody
+import app.codeg.android.core.model.ReadFileForEditBody
 import app.codeg.android.core.model.ResolveWorktreeFolderBody
 import app.codeg.android.core.model.WorktreeResolution
 import app.codeg.android.core.model.EnabledFlag
@@ -123,6 +133,22 @@ import app.codeg.android.core.model.SetConfigOptionBody
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.forms.ChannelProvider
+import io.ktor.client.request.forms.formData
+import io.ktor.client.request.forms.submitFormWithBinaryData
+import io.ktor.client.request.preparePost
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.Headers
+import io.ktor.http.content.PartData
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.core.Buffer
+import io.ktor.utils.io.core.isEmpty
+import io.ktor.utils.io.core.readBytes
+import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.io.asSource
+import kotlinx.io.buffered
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -429,6 +455,150 @@ class CodegClient(
     suspend fun deleteFileTreeEntry(rootPath: String, path: String) {
         send("delete_file_tree_entry", encode(DeleteFileTreeEntryBody(rootPath, path)))
     }
+
+    /** Read a file for editing — content + concurrency [FileEditContent.etag]. */
+    suspend fun readFileForEdit(rootPath: String, path: String): FileEditContent =
+        decode(send("read_file_for_edit", encode(ReadFileForEditBody(rootPath, path))), FileEditContent.serializer())
+
+    /**
+     * Save a text file. Pass the [expectedEtag] from [readFileForEdit] to guard
+     * against overwriting a concurrent change: a mismatch surfaces as
+     * [ApiError.Server] with status 400 / code `invalid_input` — NOT 409, so use
+     * [isEtagConflict] rather than a status check to detect it.
+     */
+    suspend fun saveFileContent(rootPath: String, path: String, content: String, expectedEtag: String?): FileSaveResult =
+        decode(send("save_file_content", encode(SaveFileContentBody(rootPath, path, content, expectedEtag))), FileSaveResult.serializer())
+
+    /** Create an empty file ("file") or directory ("dir") in [path] (parent dir, root-relative). */
+    suspend fun createFileTreeEntry(rootPath: String, path: String, name: String, kind: String): String =
+        decode(send("create_file_tree_entry", encode(CreateFileTreeEntryBody(rootPath, path, name, kind))), String.serializer())
+
+    /** Rename the entry at [path] to [newName]; returns the new root-relative path. */
+    suspend fun renameFileTreeEntry(rootPath: String, path: String, newName: String): String =
+        decode(send("rename_file_tree_entry", encode(RenameFileTreeEntryBody(rootPath, path, newName))), String.serializer())
+
+    /** Move [sourcePath] into directory [destDir]; returns the new root-relative path. */
+    suspend fun moveFileTreeEntry(rootPath: String, sourcePath: String, destDir: String): String =
+        decode(send("move_file_tree_entry", encode(MoveFileTreeEntryBody(rootPath, sourcePath, destDir))), String.serializer())
+
+    /** Read a (binary) workspace file as base64, e.g. an image preview. Max 100 MB. */
+    suspend fun readWorkspaceFileBase64(rootPath: String, path: String, maxBytes: Int? = null): String =
+        decode(send("read_workspace_file_base64", encode(ReadWorkspaceFileBase64Body(rootPath, path, maxBytes))), String.serializer())
+
+    /**
+     * Upload one file into [targetDir] (root-relative, "" = root) via multipart.
+     * [fileName] becomes the name on the server; [size] is only a hint. Streams
+     * from [openInput] so a large file never sits fully in memory.
+     */
+    suspend fun uploadWorkspaceFile(
+        rootPath: String,
+        targetDir: String,
+        fileName: String,
+        size: Long,
+        openInput: () -> java.io.InputStream,
+    ): WorkspaceUploadResult {
+        val disposition = Headers.build {
+            append(HttpHeaders.ContentDisposition, "filename=\"${fileName.escapeMultipart()}\"")
+        }
+        val response = try {
+            http.submitFormWithBinaryData(
+                url = "$baseUrl/api/upload_workspace_file",
+                formData = formData {
+                    append("root_path", rootPath)
+                    append("target_path", targetDir)
+                    // Streamed part: the provider is only invoked when the request is
+                    // written, so the stream is never held fully in memory.
+                    append(
+                        key = "file",
+                        // ChannelProvider streams from the SAF descriptor; the
+                        // channel keeps large files out of memory.
+                        value = ChannelProvider { openInput().asByteReadChannel() },
+                        headers = disposition,
+                    )
+                },
+            ) {
+                header(HttpHeaders.Authorization, "Bearer $token")
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw ApiError.Transport(e.message ?: "Network error")
+        }
+        return decodeUploadResponse(response.status.value, response.bodyAsText())
+    }
+
+    private fun decodeUploadResponse(status: Int, text: String): WorkspaceUploadResult {
+        if (status !in 200..299) {
+            if (status == 401) throw ApiError.Unauthorized
+            val parsed = runCatching {
+                CodegJson.response.decodeFromString(ServerError.serializer(), text)
+            }.getOrNull()
+            throw ApiError.Server(status, parsed?.code, parsed?.message ?: "Upload failed ($status)")
+        }
+        return decode(text, WorkspaceUploadResult.serializer())
+    }
+
+    private fun String.escapeMultipart(): String = replace("\\", "\\\\").replace("\"", "\\\"")
+
+    /** Wrap an [java.io.InputStream] in a [ByteReadChannel] for a streamed multipart part. */
+    private fun java.io.InputStream.asByteReadChannel(): ByteReadChannel =
+        ByteReadChannel(this.asSource().buffered())
+
+    /**
+     * Stream a file (or a ZIP when [isDir]) into [sink], which receives successive
+     * chunks — used for downloads so the body never buffers in memory. Uses
+     * `preparePost` + `execute` so the channel is read inside the scoped call.
+     */
+    suspend fun downloadWorkspace(
+        rootPath: String,
+        path: String,
+        isDir: Boolean,
+        sink: suspend (ByteArray) -> Unit,
+    ) {
+        val endpoint = if (isDir) "download_workspace_dir" else "download_workspace_file"
+        try {
+            http.preparePost("$baseUrl/api/$endpoint") {
+                header(HttpHeaders.Authorization, "Bearer $token")
+                contentType(ContentType.Application.Json)
+                setBody(encode(DownloadWorkspaceBody(rootPath, path)))
+            }.execute { response ->
+                val status = response.status.value
+                if (status == 401) throw ApiError.Unauthorized
+                if (status !in 200..299) {
+                    val text = runCatching { response.bodyAsText() }.getOrDefault("")
+                    val parsed = runCatching {
+                        CodegJson.response.decodeFromString(ServerError.serializer(), text)
+                    }.getOrNull()
+                    throw ApiError.Server(status, parsed?.code, parsed?.message ?: "Download failed ($status)")
+                }
+                val channel = response.bodyAsChannel()
+                val buffer = ByteArray(64 * 1024)
+                while (!channel.isClosedForRead) {
+                    val packet = channel.readRemaining(buffer.size.toLong())
+                    while (!packet.isEmpty) {
+                        val bytes = packet.readBytes()
+                        sink(bytes)
+                    }
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: ApiError) {
+            throw e
+        } catch (e: Exception) {
+            throw ApiError.Transport(e.message ?: "Network error")
+        }
+    }
+
+    /**
+     * True when [e] is specifically the save-time etag conflict. The server reports
+     * it as a generic 400 `invalid_input` (same envelope as the symlink/binary/
+     * too-large save rejections), so the "changed on disk" message disambiguates —
+     * status+code alone would loop the overwrite dialog forever on those.
+     */
+    fun isEtagConflict(e: Throwable): Boolean =
+        e is ApiError.Server && e.status == 400 && e.code == "invalid_input" &&
+            e.serverMessage.contains("changed on disk", ignoreCase = true)
 
     /** Decode a bare JSON string response, tolerating empty/null as "". */
     private fun decodeBareString(text: String): String =

@@ -172,6 +172,22 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         }
     }
 
+    // Horizontal swipe between the bottom tabs: drag left → next tab, right →
+    // previous (HomeTab order). Only active on tab routes on narrow screens —
+    // full-screen pushes and the rail layout don't need it, and the gesture
+    // modifier itself skips the system back-gesture edge band.
+    val currentTabIndex = HomeTab.entries.indexOfFirst { it.route == currentRoute }
+    val swipeModifier = if (showBottomBar && !wide && currentTabIndex >= 0) {
+        Modifier.tabSwipeNavigation(enabled = true) { direction ->
+            val entries = HomeTab.entries
+            val next = when (direction) {
+                SwipeDirection.NEXT -> currentTabIndex + 1
+                SwipeDirection.PREVIOUS -> currentTabIndex - 1
+            }
+            if (next in entries.indices) onTab(entries[next])
+        }
+    } else Modifier
+
     // Handle incoming codeg:// deep links.
     val pendingLink by app.codeg.android.core.common.DeepLinkBus.pending.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(pendingLink) {
@@ -224,7 +240,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         // Only intercept scroll when the bottom bar is actually shown (a tab route on a
         // narrow screen); the side rail and full-screen routes don't hide-on-scroll.
         val contentModifier =
-            if (showBottomBar && !wide) Modifier.nestedScroll(barConnection) else Modifier
+            if (showBottomBar && !wide) Modifier.nestedScroll(barConnection).then(swipeModifier) else Modifier
         androidx.compose.foundation.layout.Row(
             Modifier.padding(padding).fillMaxSize().then(contentModifier),
         ) {
