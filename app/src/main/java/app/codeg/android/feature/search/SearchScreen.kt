@@ -63,12 +63,13 @@ fun SearchScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        // Like every other tab, a transparent TopAppBar — it carries the title and,
-        // crucially, applies the status-bar inset so the search field clears the
-        // system bar / camera cutout under edge-to-edge.
+        // Like every other tab, a transparent TopAppBar — it carries the title. On tab
+        // routes the app-global device bar (MainShell) owns the status-bar inset, so
+        // the bar here zeroes its own insets to keep the top gap single-height.
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.tab_search)) },
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = colors.textPrimary,

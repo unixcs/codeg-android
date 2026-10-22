@@ -7,18 +7,23 @@ import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.network.CodegClient
 import app.codeg.android.core.network.displayMessage
-import app.codeg.android.feature.sessions.SessionRowItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -30,8 +35,15 @@ import javax.inject.Inject
 
 /**
  * The Activity tab: a 25-second poll loop deriving the "Running" set (live
- * conversations) and "Last 24 Hours" set. Port of the iOS `ActivityModel`
- * (scoped to this screen rather than app-wide; resets when the server changes).
+ * conversations) and "Last 24 Hours" set. Port of the iOS `ActivityModel`.
+ *
+ * One polling entry drives both display modes — the plain per-device feed and the
+ * "All devices" aggregate ([ServerRepository.activityAll]). `combine(selectedProfile,
+ * activityAll, refreshTick)` restarts the loop whenever any of the three changes, so
+ * the two modes can never fight over the collector (a plain `onProfile` collector plus
+ * a separate aggregate collector would reset each other). Rows carry the owning
+ * server's id/name so the aggregate feed can label and hand-off correctly (folderId
+ * is only unique within one server, so folder names are resolved per device).
  */
 @HiltViewModel
 class ActivityViewModel @Inject constructor(
@@ -49,38 +61,54 @@ class ActivityViewModel @Inject constructor(
      */
     val sections: StateFlow<List<ActivitySection>> =
         _ui
-            .map { ActivityInput(it.conversations, it.folderNames) }
+            .map { it.conversations }
             .distinctUntilChanged()
-            .map { buildActivitySections(it.conversations, it.folderNames) }
+            .map { buildActivitySections(it) }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private data class ActivityInput(
-        val conversations: List<ConversationSummary>,
-        val folderNames: Map<Int, String>,
-    )
-
-    private var client: CodegClient? = null
     private var pollJob: Job? = null
+
+    /** Folder names per server — cache survives aggregate↔single switches so each
+     *  25s poll doesn't re-list folders on every device (folderId is server-local). */
+    private val folderCache = HashMap<String, Map<Int, String>>()
 
     init {
         viewModelScope.launch {
-            repository.selectedProfile.collectLatest { profile -> onProfile(profile) }
+            combine(
+                repository.selectedProfile,
+                repository.activityAll,
+                repository.activityRefreshTick,
+                ::Triple,
+            ).collectLatest { (profile, all, tick) ->
+                // First emission for a *mode* change resets the feed; a tick-only bump
+                // (pull-to-refresh while already in this mode) refreshes in place so
+                // the loaded list stays visible and the spinner runs its course.
+                val isReset = profile?.id != lastProfileId || all != lastAll
+                lastProfileId = profile?.id
+                lastAll = all
+                lastTick = tick
+                onMode(profile, all, reset = isReset)
+            }
         }
     }
 
-    private suspend fun onProfile(profile: ServerProfile?) {
+    private var lastProfileId: String? = null
+    private var lastAll: Boolean = false
+    private var lastTick: Int = 0
+
+    private suspend fun onMode(profile: ServerProfile?, all: Boolean, reset: Boolean) {
         pollJob?.cancel()
         if (profile == null) {
-            client = null
             _ui.value = ActivityUiState()
             return
         }
-        client = repository.client(profile)
-        _ui.value = ActivityUiState(loading = true)
+        if (reset) {
+            _ui.value = ActivityUiState(loading = true)
+        }
         pollJob = viewModelScope.launch {
             while (true) {
-                fetch()
+                fetch(profile, all)
                 delay(25_000)
             }
         }
@@ -88,19 +116,87 @@ class ActivityViewModel @Inject constructor(
 
     fun refresh() {
         if (_ui.value.refreshing) return
-        viewModelScope.launch { fetch(manual = true) }
+        // Run inside pollJob's scope (fresh child) so a mode switch cancels an
+        // in-flight refresh instead of letting its result land on the new mode.
+        val job = pollJob ?: return
+        viewModelScope.launch {
+            job.cancelAndJoin()
+            repository.selectedProfile.first()?.let { profile ->
+                fetch(profile, repository.activityAll.value, manual = true)
+            }
+        }
     }
 
-    private suspend fun fetch(manual: Boolean = false) {
-        val c = client ?: return
+    /** Refresh one device's feed (also resolves its folder names, once). */
+    private suspend fun fetchOne(
+        c: CodegClient,
+        serverId: String,
+    ): List<ActivityRow> {
+        val conversations = c.listConversations(sortBy = "updated").take(200)
+        val folders = folderCache.getOrPut(serverId) {
+            runCatching { c.listFolders() }.getOrDefault(emptyList()).associate { f -> f.id to f.name }
+        }
+        return conversations.map { conv -> ActivityRow(conv, serverId, "", folders[conv.folderId]) }
+    }
+
+    private suspend fun fetch(profile: ServerProfile, all: Boolean, manual: Boolean = false) {
         if (manual) _ui.update { it.copy(refreshing = true) }
         try {
-            val conversations = c.listConversations(sortBy = "updated")
-            if (_ui.value.folderNames.isEmpty()) {
-                val folders = runCatching { c.listFolders() }.getOrDefault(emptyList())
-                _ui.update { it.copy(folderNames = folders.associate { f -> f.id to f.name }) }
+            if (!all) {
+                val c = repository.client(profile)
+                if (c == null) {
+                    _ui.update {
+                        it.copy(loading = false, refreshing = false, hasLoaded = true, error = "No token for ${profile.name}")
+                    }
+                    return
+                }
+                val rows = fetchOne(c, profile.id).map { it.copy(serverName = profile.name) }
+                _ui.update {
+                    it.copy(
+                        conversations = rows,
+                        loading = false, refreshing = false, hasLoaded = true, error = null,
+                        lastRefreshed = Instant.now(),
+                    )
+                }
+            } else {
+                val servers = repository.profiles.first().orEmpty()
+                // Per-device scopes so folderId collisions across servers can't cross-
+                // contaminate; each device resolves its own folder names. A device that
+                // fails (offline / no token) is *counted*, never laundered into an
+                // empty feed — dell powering off must not read as "no activity".
+                var failed = 0
+                var reachable = 0
+                val rows: List<ActivityRow> = coroutineScope {
+                    servers.map { server ->
+                        async {
+                            val client = repository.client(server)
+                            if (client == null) {
+                                failed += 1
+                                return@async emptyList<ActivityRow>()
+                            }
+                            reachable += 1
+                            try {
+                                fetchOne(client, server.id).map { it.copy(serverName = server.name) }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {
+                                failed += 1
+                                emptyList()
+                            }
+                        }
+                    }.awaitAll().flatten()
+                }
+                _ui.update {
+                    it.copy(
+                        conversations = rows,
+                        failedDevices = failed,
+                        reachableDevices = reachable,
+                        loading = false, refreshing = false, hasLoaded = true,
+                        error = (if (reachable == 0 && failed > 0) "All devices unreachable" else null),
+                        lastRefreshed = Instant.now(),
+                    )
+                }
             }
-            _ui.update { it.copy(conversations = conversations, loading = false, refreshing = false, hasLoaded = true, error = null, lastRefreshed = Instant.now()) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -110,8 +206,10 @@ class ActivityViewModel @Inject constructor(
 }
 
 data class ActivityUiState(
-    val conversations: List<ConversationSummary> = emptyList(),
-    val folderNames: Map<Int, String> = emptyMap(),
+    val conversations: List<ActivityRow> = emptyList(),
+    /** Aggregate mode only: devices that could not be fetched this round. */
+    val failedDevices: Int = 0,
+    val reachableDevices: Int = 0,
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val hasLoaded: Boolean = false,
@@ -126,9 +224,18 @@ data class ActivityUiState(
     val isEmptyFeed: Boolean
         get() {
             val cutoff = Instant.now().minus(Duration.ofHours(24))
-            return conversations.none { it.status.isLive || it.updatedAt.isAfter(cutoff) }
+            return conversations.none { it.conversation.status.isLive || it.conversation.updatedAt.isAfter(cutoff) }
         }
 }
+
+/** One feed row: the conversation plus the device it came from. `folderName` is
+ *  pre-resolved per device in the aggregate feed (folderId is server-local). */
+data class ActivityRow(
+    val conversation: ConversationSummary,
+    val serverId: String,
+    val serverName: String,
+    val folderName: String? = null,
+)
 
 /** What an [ActivitySection] represents — drives its header icon / label / tint. */
 enum class ActivityKind { RUNNING, RECENT }
@@ -137,7 +244,7 @@ enum class ActivityKind { RUNNING, RECENT }
 data class ActivitySection(
     val id: String,
     val kind: ActivityKind,
-    val rows: List<SessionRowItem>,
+    val rows: List<ActivityRow>,
 ) {
     val count: Int get() = rows.size
 }
@@ -145,23 +252,20 @@ data class ActivitySection(
 /**
  * Split the conversation list into the Running (live, newest-first) and Last-24h
  * (non-live, updated within 24h, newest-first) sections, dropping an empty one. Pure;
- * the view model runs it on [Dispatchers.Default]. `folderName` is pre-resolved here so
- * the rows need no map lookup at compose time.
+ * the view model runs it on [Dispatchers.Default]. Rows carry their resolved folder
+ * and server labels so nothing needs a map lookup at compose time.
  */
 fun buildActivitySections(
-    conversations: List<ConversationSummary>,
-    folderNames: Map<Int, String>,
+    conversations: List<ActivityRow>,
 ): List<ActivitySection> {
-    fun row(c: ConversationSummary) = SessionRowItem(c, folderNames[c.folderId])
-
-    val running = conversations.filter { it.status.isLive }
-        .sortedByDescending { it.updatedAt }
+    val running = conversations.filter { it.conversation.status.isLive }
+        .sortedByDescending { it.conversation.updatedAt }
     val cutoff = Instant.now().minus(Duration.ofHours(24))
-    val recent = conversations.filter { !it.status.isLive && it.updatedAt.isAfter(cutoff) }
-        .sortedByDescending { it.updatedAt }
+    val recent = conversations.filter { !it.conversation.status.isLive && it.conversation.updatedAt.isAfter(cutoff) }
+        .sortedByDescending { it.conversation.updatedAt }
 
     val out = ArrayList<ActivitySection>(2)
-    if (running.isNotEmpty()) out += ActivitySection("running", ActivityKind.RUNNING, running.map(::row))
-    if (recent.isNotEmpty()) out += ActivitySection("recent", ActivityKind.RECENT, recent.map(::row))
+    if (running.isNotEmpty()) out += ActivitySection("running", ActivityKind.RUNNING, running)
+    if (recent.isNotEmpty()) out += ActivitySection("recent", ActivityKind.RECENT, recent)
     return out
 }

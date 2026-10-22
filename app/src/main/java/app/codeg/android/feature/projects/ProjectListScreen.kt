@@ -79,6 +79,7 @@ fun ProjectListScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.tab_folders)) },
+                windowInsets = WindowInsets(0, 0, 0, 0), // device bar in MainShell owns the status-bar inset
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = colors.textPrimary,

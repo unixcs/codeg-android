@@ -1,9 +1,6 @@
 package app.codeg.android.feature.activity
 
 import android.text.format.DateUtils
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,14 +9,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
-import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,11 +30,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -51,7 +42,6 @@ import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
-import app.codeg.android.core.designsystem.component.ServerSwitcher
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.sessions.CollapsibleSectionHeader
 import app.codeg.android.feature.sessions.SessionRow
@@ -75,6 +65,9 @@ fun ActivityScreen(
     onSelectServer: (String) -> Unit,
     onManageServers: () -> Unit,
     onOpenConversation: (Int) -> Unit,
+    allMode: Boolean = false,
+    onRefreshAll: () -> Unit = {},
+    onOpenRow: (serverId: String, conversationId: Int) -> Unit = { _, id -> onOpenConversation(id) },
     viewModel: ActivityViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -89,15 +82,8 @@ fun ActivityScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = {
-                    ServerSwitcher(
-                        name = selectedName,
-                        servers = servers,
-                        selectedId = selectedServerId,
-                        onSelect = onSelectServer,
-                        onManageServers = onManageServers,
-                    )
-                },
+                title = { Text(if (allMode) stringResource(R.string.activity_all) else selectedName) },
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, titleContentColor = colors.textPrimary),
             )
         },
@@ -125,17 +111,24 @@ fun ActivityScreen(
                         EmptyState(Icons.Rounded.Bedtime, stringResource(R.string.activity_empty_title), stringResource(R.string.activity_empty_message))
                     }
 
-                else -> PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
+                else -> PullToRefreshBox(
+                    isRefreshing = ui.refreshing,
+                    onRefresh = { if (allMode) onRefreshAll() else viewModel.refresh() },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                     val toggle: (String) -> Unit = { id ->
                         collapsed = if (id in collapsed) collapsed - id else collapsed + id
                     }
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) {
-                        if (servers.size > 1) {
-                            item(key = "server-chips", contentType = "chips") {
-                                ServerQuickSwitchChips(
-                                    servers = servers,
-                                    selectedId = selectedServerId,
-                                    onSelect = onSelectServer,
+                        // Aggregate mode: a device that couldn't be reached must not read
+                        // as "that device had nothing going on" — say so inline.
+                        if (allMode && ui.failedDevices > 0 && ui.reachableDevices > 0) {
+                            item(key = "partial-failure", contentType = "banner") {
+                                Text(
+                                    text = stringResource(R.string.activity_partial_failed, ui.failedDevices),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = CodegTheme.colors.danger,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
                                 )
                             }
                         }
@@ -154,12 +147,16 @@ fun ActivityScreen(
                                 )
                             }
                             if (!isCollapsed) {
-                                items(section.rows, key = { "row-${it.conversation.id}" }, contentType = { "row" }) { row ->
+                                items(section.rows, key = { "row-${it.serverId}-${it.conversation.id}" }, contentType = { "row" }) { row ->
                                     SessionRow(
                                         row.conversation,
-                                        onClick = { onOpenConversation(row.conversation.id) },
+                                        onClick = {
+                                            if (allMode) onOpenRow(row.serverId, row.conversation.id)
+                                            else onOpenConversation(row.conversation.id)
+                                        },
                                         modifier = Modifier.animateItem(),
                                         folderName = row.folderName,
+                                        serverName = if (allMode) row.serverName else null,
                                     )
                                 }
                             }
@@ -169,57 +166,6 @@ fun ActivityScreen(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-/**
- * One chip per saved server — the fastest switcher for the three-server routine:
- * tap and the whole feed (Running + Last 24h) refetches for that server. Single-server
- * setups don't render the row at all (nothing to switch to).
- */
-@Composable
-private fun ServerQuickSwitchChips(
-    servers: List<ServerProfile>,
-    selectedId: String?,
-    onSelect: (String) -> Unit,
-) {
-    val colors = CodegTheme.colors
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-    ) {
-        items(servers, key = { it.id }) { server ->
-            val selected = server.id == selectedId
-            val shape = RoundedCornerShape(50)
-            Row(
-                modifier = Modifier
-                    .clip(shape)
-                    .background(if (selected) colors.accent.copy(alpha = 0.18f) else Color.Transparent)
-                    .border(
-                        width = 1.dp,
-                        color = if (selected) colors.accent.copy(alpha = 0.5f) else colors.surfaceStroke,
-                        shape = shape,
-                    )
-                    .clickable { if (!selected) onSelect(server.id) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    Icons.Rounded.Dns,
-                    contentDescription = null,
-                    tint = if (selected) colors.accent else colors.textTertiary,
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    text = server.name,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) colors.accent else colors.textSecondary,
-                    maxLines = 1,
-                )
             }
         }
     }

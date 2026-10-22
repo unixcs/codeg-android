@@ -68,7 +68,6 @@ import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
-import app.codeg.android.core.designsystem.component.ServerSwitcher
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.theme.colorFromHex
 import app.codeg.android.core.model.ConversationSummary
@@ -96,7 +95,6 @@ import kotlinx.coroutines.launch
 fun SessionListScreen(
     servers: List<ServerProfile>,
     selectedId: String?,
-    onSelectServer: (String) -> Unit,
     onManageServers: () -> Unit,
     onOpenConversation: (Int) -> Unit,
     onNewTask: () -> Unit,
@@ -133,15 +131,9 @@ fun SessionListScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = {
-                    ServerSwitcher(
-                        name = selectedName,
-                        servers = servers,
-                        selectedId = selectedId,
-                        onSelect = onSelectServer,
-                        onManageServers = onManageServers,
-                    )
-                },
+                // The app-global device bar (MainShell) owns server switching now —
+                // the title is a plain label, and the Dns icon keeps the manage entry.
+                title = { Text(selectedName) },
                 actions = {
                     IconButton(onClick = onManageServers) {
                         Icon(
@@ -151,6 +143,9 @@ fun SessionListScreen(
                         )
                     }
                 },
+                // The app-global device bar (MainShell) already owns the status-bar
+                // inset on tab routes; applying it here too doubles the top gap.
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = colors.textPrimary,

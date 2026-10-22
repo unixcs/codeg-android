@@ -91,6 +91,9 @@
     <string name="activity_empty_message">运行中和最近的会话会显示在这里。</string>
     <string name="activity_updated">更新于 %1$s</string>
     <string name="activity_load_failed">动态加载失败</string>
+    <string name="activity_all">全部设备</string>
+    <string name="activity_partial_failed">%1$d 台设备无法连接</string>
+    <string name="devicebar_manage">管理服务器</string>
 
     <!-- Search -->
     <string name="search_placeholder">搜索会话</string>

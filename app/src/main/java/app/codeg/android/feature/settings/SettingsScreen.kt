@@ -115,6 +115,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = colors.textPrimary)
                     }
                 },
+                windowInsets = WindowInsets(0, 0, 0, 0), // device bar in MainShell owns the status-bar inset
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, titleContentColor = colors.textPrimary),
             )
         },

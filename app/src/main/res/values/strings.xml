@@ -91,6 +91,9 @@
     <string name="activity_empty_message">Running and recent sessions show up here.</string>
     <string name="activity_updated">Updated %1$s</string>
     <string name="activity_load_failed">Couldn\'t load activity</string>
+    <string name="activity_all">All Devices</string>
+    <string name="activity_partial_failed">%1$d device(s) unreachable</string>
+    <string name="devicebar_manage">Manage servers</string>
 
     <!-- Search -->
     <string name="search_placeholder">Search sessions</string>

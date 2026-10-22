@@ -59,9 +59,11 @@ fun SessionRow(
     folderName: String? = null,
     selected: Boolean = false,
     onTogglePin: (() -> Unit)? = null,
+    serverName: String? = null,
 ) {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
+    val hasMenu = onTogglePin != null
 
     Box {
         Row(
@@ -73,7 +75,7 @@ fun SessionRow(
                 )
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = if (onTogglePin != null) {
+                    onLongClick = if (hasMenu) {
                         { menuOpen = true }
                     } else {
                         null
@@ -104,6 +106,17 @@ fun SessionRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+
+            if (serverName != null) {
+                Text(
+                    text = serverName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 72.dp),
+                )
+            }
 
             if (folderName != null) {
                 Row(
@@ -138,24 +151,26 @@ fun SessionRow(
             }
         }
 
-        if (onTogglePin != null) {
+        if (hasMenu) {
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (conversation.isPinned) {
-                                stringResource(R.string.session_unpin)
-                            } else {
-                                stringResource(R.string.session_pin)
-                            },
-                        )
-                    },
-                    leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null) },
-                    onClick = {
-                        menuOpen = false
-                        onTogglePin()
-                    },
-                )
+                if (onTogglePin != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (conversation.isPinned) {
+                                    stringResource(R.string.session_unpin)
+                                } else {
+                                    stringResource(R.string.session_pin)
+                                },
+                            )
+                        },
+                        leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onTogglePin()
+                        },
+                    )
+                }
             }
         }
     }

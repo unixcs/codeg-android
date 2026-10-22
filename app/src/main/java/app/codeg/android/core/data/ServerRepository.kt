@@ -9,8 +9,11 @@ import app.codeg.android.core.network.EventStream
 import app.codeg.android.core.security.SecretStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -49,6 +52,21 @@ class ServerRepository @Inject constructor(
 
     val selectedProfile: Flow<ServerProfile?> =
         combine(profiles, selectedId) { list, id -> list.firstOrNull { it.id == id } }
+
+    // Activity "All devices" aggregate mode. Lives here (a @Singleton both feature
+    // ViewModels already inject) because Hilt ViewModels cannot inject each other.
+    // Not persisted: a killed process comes back on single-device mode, which is the
+    // predictable default.
+    private val _activityAll = MutableStateFlow(false)
+    val activityAll: StateFlow<Boolean> = _activityAll.asStateFlow()
+
+    fun setActivityAll(all: Boolean) { _activityAll.value = all }
+
+    /** Pull-to-refresh tick for the "All devices" feed (increment = refetch now). */
+    private val _activityRefreshTick = MutableStateFlow(0)
+    val activityRefreshTick: StateFlow<Int> = _activityRefreshTick.asStateFlow()
+
+    fun requestActivityRefresh() { _activityRefreshTick.value += 1 }
 
     /** The token for a profile, read off the IO dispatcher (Keystore decrypt). */
     suspend fun token(id: String): String? =

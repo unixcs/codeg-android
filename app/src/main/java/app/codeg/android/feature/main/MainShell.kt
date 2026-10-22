@@ -61,6 +61,7 @@ import kotlin.math.roundToInt
 import app.codeg.android.R
 import app.codeg.android.app.AppViewModel
 import app.codeg.android.core.datastore.ServerProfile
+import app.codeg.android.core.designsystem.component.GlobalDeviceBar
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.activity.ActivityScreen
 import app.codeg.android.feature.projects.ProjectDetailScreen
@@ -115,6 +116,13 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     val showBottomBar = HomeTab.entries.any { it.route == currentRoute }
     val tabRoutes = remember { HomeTab.entries.map { it.route }.toSet() }
     val selectedProfile by appViewModel.selectedProfile.collectAsStateWithLifecycle()
+    // Aggregate "All devices" mode (Activity tab), owned by ServerRepository so the
+    // ActivityViewModel can react without ViewModel-to-ViewModel injection.
+    val activityAll by appViewModel.activityAll.collectAsStateWithLifecycle()
+    // Single-flight for the aggregate row tap (leave All → select device → push the
+    // conversation). Double-taps would otherwise stack two detail pages resolved
+    // against whichever selection landed last.
+    var handoffInFlight by remember { mutableStateOf(false) }
     // Wide screens (tablets / landscape) use a side NavigationRail instead of the bottom bar.
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
 
@@ -241,10 +249,36 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         // narrow screen); the side rail and full-screen routes don't hide-on-scroll.
         val contentModifier =
             if (showBottomBar && !wide) Modifier.nestedScroll(barConnection).then(swipeModifier) else Modifier
-        androidx.compose.foundation.layout.Row(
+        // The app-global device bar rides above every tab's content (hidden on
+        // full-screen routes and for single-server setups, where there is nothing
+        // to switch). It owns the status-bar inset; each tab's TopAppBar is told
+        // to stop applying it too (windowInsets zeroed) so the height isn't doubled.
+        androidx.compose.foundation.layout.Column(
             Modifier.padding(padding).fillMaxSize().then(contentModifier),
         ) {
-            if (showBottomBar && wide) CodegNavRail(currentRoute, onTab)
+            if (showBottomBar && servers.size > 1) {
+                GlobalDeviceBar(
+                    servers = servers,
+                    selectedId = selectedProfile?.id,
+                    allSelected = activityAll && currentRoute == HomeTab.ACTIVITY.route,
+                    showAll = currentRoute == HomeTab.ACTIVITY.route,
+                    onSelectServer = { id ->
+                        // Tapping the already-focused device (or "All" while a device
+                        // is focused) must not restart the feed — the aggregate poll
+                        // treats any profile/tick emission as a mode change.
+                        if (activityAll || id != selectedProfile?.id) {
+                            appViewModel.setActivityAll(false)
+                            appViewModel.selectServer(id)
+                        }
+                    },
+                    onSelectAll = {
+                        if (activityAll) appViewModel.refreshActivityAll() else appViewModel.setActivityAll(true)
+                    },
+                    onManageServers = { nav.navigate(ROUTE_SERVERS) },
+                )
+            }
+            androidx.compose.foundation.layout.Row {
+                if (showBottomBar && wide) CodegNavRail(currentRoute, onTab)
             NavHost(
                 navController = nav,
                 startDestination = HomeTab.CHATS.route,
@@ -279,7 +313,6 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     SessionListScreen(
                         servers = servers,
                         selectedId = selectedProfile?.id,
-                        onSelectServer = appViewModel::selectServer,
                         onManageServers = { nav.navigate(ROUTE_SERVERS) },
                         onOpenConversation = { id -> nav.navigate("conversation/$id") },
                         onNewTask = { nav.navigate(ROUTE_NEW_TASK) },
@@ -293,6 +326,21 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 ActivityScreen(
                     servers = servers,
                     selectedServerId = selectedProfile?.id,
+                    allMode = activityAll,
+                    onRefreshAll = appViewModel::refreshActivityAll,
+                    // In aggregate mode a row tap focuses that device: leave "All",
+                    // wait for the selection to land, then push the conversation
+                    // (session detail reads selectedProfile exactly once on entry).
+                    onOpenRow = { serverId, conversationId ->
+                        if (!handoffInFlight) {
+                            handoffInFlight = true
+                            appViewModel.setActivityAll(false)
+                            appViewModel.selectServerAndWait(serverId) {
+                                handoffInFlight = false
+                                nav.navigate("conversation/$conversationId")
+                            }
+                        }
+                    },
                     onSelectServer = appViewModel::selectServer,
                     onManageServers = { nav.navigate(ROUTE_SERVERS) },
                     onOpenConversation = { id -> nav.navigate("conversation/$id") },
@@ -358,6 +406,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 ),
             ) {
                 ServerEditorScreen(onDone = { nav.popBackStack() })
+            }
             }
             }
         }
