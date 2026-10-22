@@ -55,7 +55,15 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.DirectoryEntry
 import kotlinx.coroutines.launch
 
-/** Full-screen server-filesystem browser used by Open Folder + Clone. Port of iOS `DirectoryBrowserView`. */
+/**
+ * Full-screen server-filesystem browser used by Open Folder + Clone. Port of iOS
+ * `DirectoryBrowserView`.
+ *
+ * [showRoot] adds a "Root /" entry so the user can land on the filesystem root and
+ * then descend (e.g. into /mnt). Pass `true` for Open Folder / Clone (absolute server
+ * paths are the point); leave `false` for upload-target browsing, where the workspace-
+ * relative contract makes a root pick meaningless.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DirectoryBrowserSheet(
@@ -65,6 +73,7 @@ fun DirectoryBrowserSheet(
     loadDirs: suspend (String) -> List<DirectoryEntry>,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
+    showRoot: Boolean = false,
 ) {
     val colors = CodegTheme.colors
     val scope = rememberCoroutineScope()
@@ -101,9 +110,15 @@ fun DirectoryBrowserSheet(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.accent) }
                 } else {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp)) {
-                        val parent = path.substringBeforeLast('/', "")
-                        if (parent.isNotEmpty() && parent != path) {
+                        // ".." computes the parent even at depth 1 ("/mnt" -> "/"): the old
+                        // substringBeforeLast( "").ifEmpty{"/"} shape left "/" unreachable,
+                        // making any wrong first turn a dead end. "/" itself has no parent.
+                        val parent = path.substringBeforeLast('/', "").ifEmpty { "/" }
+                        if (parent != path) {
                             item("up") { BrowserRow("..", hasChildren = false, icon = Icons.Rounded.ArrowUpward) { path = parent } }
+                        }
+                        if (showRoot && path != "/") {
+                            item("root") { BrowserRow("/", hasChildren = false, icon = Icons.Rounded.Home) { path = "/" } }
                         }
                         items(dirs, key = { it.path }) { entry ->
                             BrowserRow(entry.name, entry.hasChildren, Icons.Rounded.Folder) { path = entry.path }

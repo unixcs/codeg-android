@@ -156,6 +156,7 @@ fun ProjectListScreen(
             loadDirs = viewModel::listDirectories,
             onSelect = { path -> showBrowser = false; viewModel.openFolder(path) {} },
             onDismiss = { showBrowser = false },
+            showRoot = true,
         )
     }
     if (showClone) {

@@ -616,6 +616,11 @@
     <string name="compose_message_placeholder">输入消息</string>
     <string name="compose_stop">停止</string>
     <string name="compose_send">发送</string>
+    <string name="compose_expand">展开</string>
+    <string name="compose_edit_fullscreen">编辑提示词</string>
+    <string name="common_close">关闭</string>
+    <string name="session_toc_open">消息列表</string>
+    <string name="session_toc_image">[图片]</string>
 
     <!-- ===== Session Detail · Ask / Permission / Tool / Plan / Timeline ===== -->
     <string name="ask_needs_input_title">智能体需要你的输入</string>
@@ -673,6 +678,7 @@
     <string name="files_empty_file">空文件</string>
     <string name="files_preview_rendered">渲染</string>
     <string name="files_preview_source">源码</string>
+    <string name="files_preview_fullscreen">全屏</string>
     <string name="files_empty_file_message">该文件没有内容。</string>
     <string name="commits_not_a_git_repo">不是 Git 仓库</string>
     <string name="commits_not_a_git_repo_message">该文件夹不是 git 仓库。</string>
@@ -860,6 +866,7 @@
     <string name="files_new_folder">新建文件夹</string>
     <string name="files_new_title">在 %1$s 中新建</string>
     <string name="files_new_name">名称</string>
+    <string name="files_new_content_label">初始内容（可选）</string>
     <string name="files_upload">上传文件</string>
     <string name="files_upload_title">上传到…</string>
     <string name="files_upload_pick_target">选好文件夹后选择文件</string>

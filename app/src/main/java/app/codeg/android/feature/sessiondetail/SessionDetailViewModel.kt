@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.DraftStore
 import app.codeg.android.core.datastore.SelectorPrefs
 import app.codeg.android.core.datastore.SelectorPrefsStore
 import app.codeg.android.core.datastore.ServerProfile
@@ -80,6 +81,11 @@ private const val RECONCILE_ATTEMPTS = 6
  *  localized (see the app's i18n notes). */
 private const val STATUS_THINKING = "Thinking…"
 
+/** Keystroke → DataStore debounce for the composer draft (the Element X / Compose
+ *  convention: 300–1000ms; fast enough that a process kill mid-typing loses at
+ *  most this window of text). */
+private const val DRAFT_SAVE_DEBOUNCE_MS = 500L
+
 /**
  * Drives the session detail screen end to end: loads the persisted transcript,
  * then runs the live ACP lifecycle — resolve/open a connection, attach to the
@@ -92,6 +98,7 @@ private const val STATUS_THINKING = "Thinking…"
 class SessionDetailViewModel @Inject constructor(
     private val repository: ServerRepository,
     private val selectorPrefs: SelectorPrefsStore,
+    private val draftStore: DraftStore,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
@@ -148,6 +155,39 @@ class SessionDetailViewModel @Inject constructor(
     init {
         load()
     }
+
+    // region Draft persistence (survives leaving the screen AND a process kill)
+
+    /** DataStore key for this screen's composer text, resolved FRESH on every access: an
+     *  existing conversation keys by its id, the new-task screen keys by folder (the
+     *  conversation row only exists after the first send lands). A `lazy` would freeze
+     *  both the pre-load profile (null → "?" server slot) and the pre-send conversation
+     *  id, sending post-creation keystrokes to a stale key. */
+    private fun currentDraftKey(): String =
+        conversationId?.let { DraftStore.conversationKey(profile?.id, it) }
+            ?: DraftStore.newTaskKey(profile?.id, folderIdArg ?: -1)
+
+    /** Initial composer text (persisted draft), read once by the screen on entry. */
+    suspend fun loadPersistedDraft(): String = draftStore.draftNow(currentDraftKey()).text
+
+    /** Debounced save on every keystroke; empty text deletes the entry (a send or a
+     *  manual clear must not resurrect the text on the next visit). */
+    fun saveDraft(text: String) {
+        draftSaveJob?.cancel()
+        draftSaveJob = viewModelScope.launch {
+            delay(DRAFT_SAVE_DEBOUNCE_MS)
+            runCatching { draftStore.setText(currentDraftKey(), text) }
+        }
+    }
+
+    private var draftSaveJob: Job? = null
+
+    private suspend fun clearPersistedDraft() {
+        draftSaveJob?.cancel()
+        runCatching { draftStore.setText(currentDraftKey(), "") }
+    }
+
+    // endregion
 
     fun load() {
         _ui.update { it.copy(loading = true, error = null) }
@@ -282,6 +322,9 @@ class SessionDetailViewModel @Inject constructor(
             )
         }
         sendJob = viewModelScope.launch { runSend(trimmed, userTurn, attachments, wasNew) }
+        // The screen empties its composer on send; keep the persisted draft in sync
+        // so the sent text can't resurrect on the next visit.
+        if (withAttachments) viewModelScope.launch { clearPersistedDraft() }
     }
 
     private suspend fun runSend(
@@ -1007,10 +1050,14 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    /** The screen consumes [SessionDetailUiState.restoreDraft] back into the composer once,
-     *  then calls this so a recomposition doesn't re-apply it. */
-    fun consumeRestoredDraft() {
-        if (_ui.value.restoreDraft != null) _ui.update { it.copy(restoreDraft = null) }
+    /** The screen consumes [SessionDetailUiState.restoreDraft] back into the composer once.
+     *  [applied] tells whether the composer actually took the text (it refuses when the
+     *  user already typed a fresher draft during the in-flight window) — only then is the
+     *  returned text re-persisted, so a stale failed-send copy can never overwrite it. */
+    fun consumeRestoredDraft(applied: Boolean) {
+        val restored = _ui.value.restoreDraft ?: return
+        _ui.update { it.copy(restoreDraft = null) }
+        if (applied) saveDraft(restored)
     }
 
     fun dismissNotice() = _ui.update { it.copy(notice = null) }

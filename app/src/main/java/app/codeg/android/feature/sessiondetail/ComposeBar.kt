@@ -1,12 +1,15 @@
 package app.codeg.android.feature.sessiondetail
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,9 +24,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -31,6 +36,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,6 +56,12 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
  * scale-and-fade transition and an accent↔danger colour tween. All actions are
  * Material [FilledIconButton] / [FilledTonalIconButton]s, so they carry native
  * ripples and 40dp touch targets.
+ *
+ * Two overflow affordances keep long content comfortable without crowding the
+ * row: [onTocClick] renders a small square "message list" button embedded in the
+ * field's top-right corner (the row stays at five controls), and [onExpandClick]
+ * surfaces a compact "expand" pill below the field once the draft grows past
+ * ~2 lines / 120 chars — it opens the fullscreen editor owned by the screen.
  */
 @Composable
 fun ComposeBar(
@@ -61,6 +73,8 @@ fun ComposeBar(
     modifier: Modifier = Modifier,
     onPlus: (() -> Unit)? = null,
     onAttach: (() -> Unit)? = null,
+    onTocClick: (() -> Unit)? = null,
+    onExpandClick: (() -> Unit)? = null,
     canSendOverride: Boolean = false,
 ) {
     val colors = CodegTheme.colors
@@ -70,6 +84,7 @@ fun ComposeBar(
         animationSpec = tween(220),
         label = "send-container",
     )
+    val showExpand = text.length > 120 || text.count { it == '\n' } >= 2
 
     Column(modifier = modifier.fillMaxWidth()) {
         // A hairline setting the composer off from the timeline above it — the same
@@ -80,7 +95,7 @@ fun ComposeBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(colors.bgElevated.copy(alpha = 0.92f))
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -112,14 +127,14 @@ fun ComposeBar(
                     .heightIn(min = 40.dp)
                     .background(colors.codeSurface, RoundedCornerShape(20.dp))
                     .border(0.5.dp, colors.surfaceStroke, RoundedCornerShape(20.dp))
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                contentAlignment = Alignment.CenterStart,
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 if (text.isEmpty()) {
                     Text(
                         stringResource(R.string.compose_message_placeholder),
                         color = colors.textTertiary,
                         style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.align(Alignment.CenterStart),
                     )
                 }
                 BasicTextField(
@@ -128,8 +143,31 @@ fun ComposeBar(
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.textPrimary),
                     cursorBrush = SolidColor(colors.accent),
                     maxLines = 6,
-                    modifier = Modifier.fillMaxWidth(),
+                    // Reserve a right gutter so text never flows under the overlaid TOC
+                    // button — no dimmed line tails, no blocked cursor taps at full width.
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = if (onTocClick != null) 30.dp else 0.dp),
                 )
+                if (onTocClick != null) {
+                    FilledTonalIconButton(
+                        onClick = onTocClick,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 1.dp, end = 1.dp)
+                            .size(26.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = colors.textPrimary.copy(alpha = 0.08f),
+                            contentColor = colors.textSecondary,
+                        ),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.FormatListBulleted,
+                            contentDescription = stringResource(R.string.session_toc_open),
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
+                }
             }
 
             FilledIconButton(
@@ -155,6 +193,46 @@ fun ComposeBar(
                         contentDescription = if (inFlight) stringResource(R.string.compose_stop) else stringResource(R.string.compose_send),
                         modifier = Modifier.size(20.dp),
                     )
+                }
+            }
+        }
+        // The expand affordance lives BELOW the field (Telegram's placement): it only
+        // exists once the draft is long enough that the 6-line field feels cramped, so
+        // it never taxes the common one-liner case.
+        AnimatedVisibility(
+            visible = showExpand && onExpandClick != null,
+            enter = expandVertically(tween(160)) + fadeIn(tween(160)),
+            exit = shrinkVertically(tween(160)) + fadeOut(tween(160)),
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.bgElevated.copy(alpha = 0.92f))
+                    .padding(end = 12.dp, bottom = 6.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Surface(
+                    onClick = { onExpandClick?.invoke() },
+                    shape = RoundedCornerShape(14.dp),
+                    color = colors.textPrimary.copy(alpha = 0.08f),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.OpenInFull,
+                            contentDescription = null,
+                            modifier = Modifier.size(13.dp),
+                            tint = colors.textSecondary,
+                        )
+                        Text(
+                            stringResource(R.string.compose_expand),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textSecondary,
+                        )
+                    }
                 }
             }
         }

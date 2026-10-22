@@ -12,13 +12,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -34,6 +37,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NoteAdd
@@ -50,12 +54,14 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,8 +102,11 @@ import kotlinx.coroutines.withContext
 fun FolderFilesView(client: CodegClient, rootPath: String) {
     val colors = CodegTheme.colors
     var stack by remember { mutableStateOf(listOf(rootPath)) }
-    var previewPath by remember { mutableStateOf<String?>(null) }
-    var editPath by remember { mutableStateOf<String?>(null) }
+    // Saveable: preview/edit survive rotation.
+    var previewPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var editPath by rememberSaveable { mutableStateOf<String?>(null) }
+    // Content recovered from a failed create-with-content; consumed once by the editor.
+    var pastedRecovery by remember { mutableStateOf<String?>(null) }
     var editorDirty by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
 
@@ -117,7 +126,11 @@ fun FolderFilesView(client: CodegClient, rootPath: String) {
             onDirtyChange = { editorDirty = it },
             onClose = { editPath = null },
             onDirtyClose = { editPath = null; confirmDiscard = true },
+            initialText = pastedRecovery,
         )
+        // One-shot seed: once consumed (or the user backs out without the editor taking
+        // it), the paste must not reappear in a later unrelated edit.
+        pastedRecovery = null
         return
     }
 
@@ -126,7 +139,6 @@ fun FolderFilesView(client: CodegClient, rootPath: String) {
         FilePreview(client, rootPath, preview, onEdit = { editPath = preview })
         return
     }
-
     val dir = stack.last()
     var result by remember(dir) { mutableStateOf<Result<List<DirectoryItem>>?>(null) }
     var refreshTick by remember(dir) { mutableStateOf(0) }
@@ -143,6 +155,8 @@ fun FolderFilesView(client: CodegClient, rootPath: String) {
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val outsideWorkspaceMsg = stringResource(R.string.files_outside_workspace)
+    val genericErrorMsg = stringResource(R.string.files_error)
+    val tooLargeMsg = stringResource(R.string.files_too_large_edit)
 
     // SAF multi-pick. The target dir is chosen first (server browser, stored relative),
     // then files. Per-file failures are counted, not aborting the batch.
@@ -272,11 +286,32 @@ fun FolderFilesView(client: CodegClient, rootPath: String) {
     if (showNewSheet) {
         NewEntrySheet(
             parentPath = dir,
-            onCreate = { name, isDir ->
+            onCreate = { name, isDir, content ->
                 showNewSheet = false
                 // path param is the parent dir, workspace-relative ("" = root).
                 runFileAction(scope, refresh, { actionError = it }) {
+                    // Same 2MB ceiling the editor enforces — a multi-MB paste goes to the
+                    // editor (re-opened with the text) rather than a doomed save.
+                    if (!isDir && content.length > MAX_EDIT_CHARS) {
+                        actionError = tooLargeMsg
+                        editPath = dir.let { d -> if (d.endsWith("/")) "$d$name" else "$d/$name" }
+                        return@runFileAction
+                    }
                     client.createFileTreeEntry(rootPath, relPathOrNull(rootPath, dir) ?: "", name, if (isDir) "dir" else "file")
+                    // A file created WITH content: create returns no etag context, so chain a
+                    // read-for-edit (fetches a valid etag for the 0-byte file) then a save.
+                    // A save failure auto-opens the editor seeded with the pasted text.
+                    if (!isDir && content.isNotEmpty()) {
+                        val relNew = (relPathOrNull(rootPath, dir) ?: "").let { if (it.isEmpty()) name else "$it/$name" }
+                        try {
+                            val edit = client.readFileForEdit(rootPath, relNew)
+                            client.saveFileContent(rootPath, relNew, content, edit.etag)
+                        } catch (e: Exception) {
+                            actionError = e.message ?: genericErrorMsg
+                            editPath = dir.let { d -> if (d.endsWith("/")) "$d$name" else "$d/$name" }
+                            pastedRecovery = content
+                        }
+                    }
                 }
             },
             onDismiss = { showNewSheet = false },
@@ -589,12 +624,14 @@ private fun ActionRow(icon: ImageVector, label: String, tint: Color = CodegTheme
     }
 }
 
-/** New file / new folder prompt. */
+/** New file / new folder prompt. For files, an optional content box (hidden while the
+ *  folder kind is selected — the typed text is kept, not cleared, on kind switch). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NewEntrySheet(parentPath: String, onCreate: (String, Boolean) -> Unit, onDismiss: () -> Unit) {
+private fun NewEntrySheet(parentPath: String, onCreate: (String, Boolean, String) -> Unit, onDismiss: () -> Unit) {
     val colors = CodegTheme.colors
     var name by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
     var isDir by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
@@ -616,9 +653,22 @@ private fun NewEntrySheet(parentPath: String, onCreate: (String, Boolean) -> Uni
                 mono = true,
                 modifier = Modifier.padding(top = 12.dp),
             )
+            androidx.compose.animation.AnimatedVisibility(visible = !isDir) {
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = { Text(stringResource(R.string.files_new_content_label)) },
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, color = colors.textPrimary),
+                    minLines = 3,
+                    maxLines = 8,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                )
+            }
             PrimaryButton(
                 text = stringResource(R.string.common_create),
-                onClick = { onCreate(name, isDir) },
+                onClick = { onCreate(name, isDir, content) },
                 enabled = name.isNotBlank() && !name.contains('/') && name != "." && name != "..",
                 modifier = Modifier.padding(top = 16.dp),
             )
@@ -694,8 +744,13 @@ private fun FilePreview(client: CodegClient, rootPath: String, absPath: String, 
     // Rendered vs raw: Markdown files default to rendered; everything else is raw-only.
     val kind = remember(absPath) { previewKindOf(absPath) }
     var rendered by remember(absPath, kind) { mutableStateOf(kind == PreviewKind.MARKDOWN) }
+    // Fullscreen toggle. The fetched [result] / [rendered] state lives here so both the
+    // inline and fullscreen renderings share one source of truth — and only ONE of them
+    // mounts at a time (the inline branch renders an empty shell while fullscreen is up),
+    // so there are never two WebViews alive for the same file.
+    var fullscreen by rememberSaveable(absPath) { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize()) {
+    val header: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(rel, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (kind == PreviewKind.TEXT && result?.getOrNull()?.isNotEmpty() == true) {
@@ -704,8 +759,14 @@ private fun FilePreview(client: CodegClient, rootPath: String, absPath: String, 
             if (kind == PreviewKind.MARKDOWN && result?.getOrNull()?.isNotEmpty() == true) {
                 FilePreviewModeToggle(rendered = rendered, onToggle = { rendered = it })
             }
+            if (kind != PreviewKind.IMAGE && result?.getOrNull()?.isNotEmpty() == true) {
+                IconButton(onClick = { fullscreen = true }) { Icon(Icons.Rounded.Fullscreen, contentDescription = stringResource(R.string.files_preview_fullscreen), tint = colors.textSecondary, modifier = Modifier.size(20.dp)) }
+            }
             result?.getOrNull()?.let { if (it.isNotEmpty()) CopyButton(it) }
         }
+    }
+    // The body render is shared verbatim by the inline pane and the fullscreen dialog.
+    val body: @Composable () -> Unit = {
         val r = result
         when {
             r == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
@@ -721,6 +782,28 @@ private fun FilePreview(client: CodegClient, rootPath: String, absPath: String, 
                     kind == PreviewKind.HTML -> HtmlPreview(absPath.substringAfterLast('/'), content)
                     else -> FileContent(content)
                 }
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        header()
+        if (!fullscreen) body()
+    }
+
+    if (fullscreen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { fullscreen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .background(colors.bg)
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
+            ) {
+                header()
+                Box(Modifier.weight(1f)) { body() }
             }
         }
     }
@@ -892,6 +975,7 @@ private fun FileEditorScreen(
     onDirtyChange: (Boolean) -> Unit,
     onClose: () -> Unit,
     onDirtyClose: () -> Unit,
+    initialText: String? = null,
 ) {
     val colors = CodegTheme.colors
     val scope = rememberCoroutineScope()
@@ -923,6 +1007,14 @@ private fun FileEditorScreen(
                     dirty = false
                     onDirtyChange(false)
                     conflict = false
+                    // A failed create-with-content handed us the pasted text: seed the
+                    // editor with it (marking dirty so a save is one tap away) instead of
+                    // showing the server's empty file and losing the paste.
+                    if (!initialText.isNullOrEmpty() && text.isEmpty() && !readOnly) {
+                        text = initialText.take(MAX_EDIT_CHARS)
+                        dirty = true
+                        onDirtyChange(true)
+                    }
                 }
             } catch (e: Exception) {
                 error = e.message ?: e.javaClass.simpleName

@@ -624,6 +624,11 @@
     <string name="compose_message_placeholder">Message</string>
     <string name="compose_stop">Stop</string>
     <string name="compose_send">Send</string>
+    <string name="compose_expand">Expand</string>
+    <string name="compose_edit_fullscreen">Edit prompt</string>
+    <string name="common_close">Close</string>
+    <string name="session_toc_open">Message list</string>
+    <string name="session_toc_image">[Image]</string>
 
     <!-- ===== Session Detail · Ask / Permission / Tool / Plan / Timeline ===== -->
     <string name="ask_needs_input_title">The agent needs your input</string>
@@ -681,6 +686,7 @@
     <string name="files_empty_file">Empty file</string>
     <string name="files_preview_rendered">Rendered</string>
     <string name="files_preview_source">Source</string>
+    <string name="files_preview_fullscreen">Fullscreen</string>
     <string name="files_empty_file_message">This file has no content.</string>
     <string name="commits_not_a_git_repo">Not a Git repository</string>
     <string name="commits_not_a_git_repo_message">This folder isn\'t a git repo.</string>
@@ -874,6 +880,7 @@
     <string name="files_new_folder">New folder</string>
     <string name="files_new_title">New in %1$s</string>
     <string name="files_new_name">Name</string>
+    <string name="files_new_content_label">Initial content (optional)</string>
     <string name="files_upload">Upload files</string>
     <string name="files_upload_title">Upload to…</string>
     <string name="files_upload_pick_target">Choose folder, then pick files</string>

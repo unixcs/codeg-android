@@ -129,6 +129,7 @@ fun CloneRepoSheet(
             loadDirs = loadDirs,
             onSelect = { parentDir = it; showBrowser = false },
             onDismiss = { showBrowser = false },
+            showRoot = true,
         )
     }
 }
