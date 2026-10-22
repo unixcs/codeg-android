@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Flavor-specific label so the Android 9 package is distinguishable from the
+         modern one when both are installed on the same device. -->
+    <string name="app_name">Codeg Legacy</string>
+</resources>

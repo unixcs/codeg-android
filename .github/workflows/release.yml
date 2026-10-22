@@ -37,8 +37,10 @@ jobs:
       - name: Validate release tag
         shell: bash
         run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Release tag must use the form v1.2.3." >&2
+          # Fork builds append a -fengx.N suffix to the upstream version, so accept
+          # both v1.2.3 and v1.2.3-fengx.4.
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-fengx\.[0-9]+)?$ ]]; then
+            echo "Release tag must use the form v1.2.3 or v1.2.3-fengx.4." >&2
             exit 1
           fi
 
@@ -71,49 +73,67 @@ jobs:
           } > keystore.properties
           chmod 600 keystore.properties
 
-      - name: Build the signed APK
-        run: ./gradlew :app:assembleRelease --no-daemon
+      - name: Build the signed APKs
+        run: ./gradlew :app:assembleModernRelease :app:assembleLegacyRelease --no-daemon
 
-      - name: Verify and package the APK
+      - name: Verify and package the APKs
         id: package
         shell: bash
         run: |
-          source_apk="app/build/outputs/apk/release/app-release.apk"
-          test -f "$source_apk"
+          modern_apk="app/build/outputs/apk/modern/release/app-modern-release.apk"
+          legacy_apk="app/build/outputs/apk/legacy/release/app-legacy-release.apk"
+          test -f "$modern_apk"
+          test -f "$legacy_apk"
 
           apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
           if [[ -z "$apksigner" ]]; then
             echo "Android apksigner was not found." >&2
             exit 1
           fi
-          signature_report=$("$apksigner" verify --verbose --print-certs "$source_apk")
-          printf '%s\n' "$signature_report"
-          if ! grep -Fqx 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$signature_report"; then
-            echo "Release APK is not signed with APK Signature Scheme v2." >&2
-            exit 1
-          fi
-
           aapt="$(dirname "$apksigner")/aapt"
-          version_name=$(
-            "$aapt" dump badging "$source_apk" |
-              sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p"
-          )
           expected_version="${GITHUB_REF_NAME#v}"
-          if [[ "$version_name" != "$expected_version" ]]; then
-            echo "Tag $GITHUB_REF_NAME does not match APK version $version_name." >&2
-            exit 1
-          fi
 
           release_dir="$RUNNER_TEMP/release"
-          release_apk="$release_dir/codeg-android-$GITHUB_REF_NAME.apk"
-          checksum="$release_apk.sha256"
           mkdir -p "$release_dir"
-          cp "$source_apk" "$release_apk"
-          (
-            cd "$release_dir"
-            sha256sum "$(basename "$release_apk")" > "$(basename "$checksum")"
-          )
-          printf 'apk=%s\nchecksum=%s\n' "$release_apk" "$checksum" >> "$GITHUB_OUTPUT"
+
+          package_apk() {
+            local source_apk="$1"
+            local expected_name="$2"
+            local release_apk="$3"
+
+            local signature_report
+            signature_report=$("$apksigner" verify --verbose --print-certs "$source_apk")
+            printf '%s\n' "$signature_report"
+            if ! grep -Fqx 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$signature_report"; then
+              echo "$source_apk is not signed with APK Signature Scheme v2." >&2
+              exit 1
+            fi
+
+            local version_name
+            version_name=$(
+              "$aapt" dump badging "$source_apk" |
+                sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p"
+            )
+            if [[ "$version_name" != "$expected_name" ]]; then
+              echo "Expected version $expected_name, found $version_name in $source_apk." >&2
+              exit 1
+            fi
+
+            cp "$source_apk" "$release_apk"
+            (
+              cd "$release_dir"
+              sha256sum "$(basename "$release_apk")" > "$(basename "$release_apk").sha256"
+            )
+          }
+
+          modern_release="$release_dir/codeg-android-$GITHUB_REF_NAME.apk"
+          legacy_release="$release_dir/codeg-android-$GITHUB_REF_NAME-legacy.apk"
+          package_apk "$modern_apk" "$expected_version" "$modern_release"
+          package_apk "$legacy_apk" "$expected_version-legacy" "$legacy_release"
+
+          printf 'apk=%s\nchecksum=%s\nlegacy_apk=%s\nlegacy_checksum=%s\n' \
+            "$modern_release" "$modern_release.sha256" \
+            "$legacy_release" "$legacy_release.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Remove signing material
         if: always()
@@ -126,6 +146,8 @@ jobs:
           path: |
             ${{ steps.package.outputs.apk }}
             ${{ steps.package.outputs.checksum }}
+            ${{ steps.package.outputs.legacy_apk }}
+            ${{ steps.package.outputs.legacy_checksum }}
           if-no-files-found: error
           retention-days: 30
 
@@ -153,10 +175,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           APK_PATH: ${{ steps.package.outputs.apk }}
           CHECKSUM_PATH: ${{ steps.package.outputs.checksum }}
+          LEGACY_APK_PATH: ${{ steps.package.outputs.legacy_apk }}
+          LEGACY_CHECKSUM_PATH: ${{ steps.package.outputs.legacy_checksum }}
         run: |
           gh release upload "$GITHUB_REF_NAME" \
-            "$APK_PATH#Android APK" \
-            "$CHECKSUM_PATH#SHA-256 checksum" \
+            "$APK_PATH#Android 12+ APK" \
+            "$CHECKSUM_PATH#SHA-256 checksum (Android 12+)" \
+            "$LEGACY_APK_PATH#Android 9+ APK (legacy)" \
+            "$LEGACY_CHECKSUM_PATH#SHA-256 checksum (Android 9+)" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
@@ -191,7 +217,7 @@ jobs:
           done
           latest_tag=$(
             printf '%s\n' "$release_tags" |
-              grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
+              grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-fengx\.[0-9]+)?$' |
               sort -V |
               tail -n 1
           )

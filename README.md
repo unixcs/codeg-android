@@ -38,7 +38,16 @@ server.
 The build currently pins Gradle 8.14.3, Android Gradle Plugin 8.11.0, Kotlin
 2.0.21, Compose BOM 2024.12.01, Ktor 3.0.3, and Hilt 2.52.
 
-The application supports Android 12 and later (`minSdk 31`) and targets API 36.
+The app ships as two permanent packages built from the same source tree and
+targets API 36:
+
+- `modern` — Android 12 and later (`minSdk 31`), applicationId
+  `app.codeg.android.fengx`;
+- `legacy` — Android 9 and later (`minSdk 28`), applicationId
+  `app.codeg.android.fengx.legacy`.
+
+Both are signed with the same release key and are installable side by side.
+Every feature iteration must build and publish both APKs.
 
 ## Build and test
 
@@ -46,14 +55,20 @@ Android Studio normally creates `local.properties` with the local Android SDK
 path. That file is machine-specific and ignored by Git.
 
 ```bash
-# Debug APK
+# Debug APKs (both flavors)
 ./gradlew :app:assembleDebug
 
-# JVM unit tests
-./gradlew :app:testDebugUnitTest
+# JVM unit tests (both flavors)
+./gradlew :app:testModernDebugUnitTest :app:testLegacyDebugUnitTest
 
-# Install on a connected emulator or device
-./gradlew :app:installDebug
+# Install one flavor on a connected emulator or device
+./gradlew :app:installModernDebug
+./gradlew :app:installLegacyDebug
+
+# Release APKs (both flavors)
+./gradlew :app:assembleModernRelease :app:assembleLegacyRelease
+# -> app/build/outputs/apk/modern/release/app-modern-release.apk  (Android 12+)
+# -> app/build/outputs/apk/legacy/release/app-legacy-release.apk  (Android 9+)
 ```
 
 A release build can optionally use a root-level `keystore.properties` file and

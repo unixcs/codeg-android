@@ -38,10 +38,27 @@ android {
         applicationId = "app.codeg.android.fengx"
         minSdk = 31
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.0.1-fengx.7"
+        versionCode = 10
+        versionName = "1.0.1-fengx.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Two permanent packages from one source tree. `modern` keeps the original
+    // applicationId and minSdk 31 (Android 12+); `legacy` targets Android 9
+    // (API 28) and uses a distinct applicationId so both can be installed on the
+    // same device. Every feature iteration ships both APKs.
+    flavorDimensions += "platform"
+    productFlavors {
+        create("modern") {
+            dimension = "platform"
+        }
+        create("legacy") {
+            dimension = "platform"
+            minSdk = 28
+            applicationIdSuffix = ".legacy"
+            versionNameSuffix = "-legacy"
+        }
     }
 
     // App-UI localizations: English (default) + Simplified Chinese, mirroring the
@@ -115,7 +132,10 @@ kotlin {
 
 licenseReport {
     projects = arrayOf(project)
-    configurations = arrayOf("releaseRuntimeClasspath")
+    // Flavor-specific configurations: `releaseRuntimeClasspath` no longer exists
+    // once product flavors are declared. Both flavors share the same dependency
+    // graph, and the plugin merges the two without duplicating entries.
+    configurations = arrayOf("modernReleaseRuntimeClasspath", "legacyReleaseRuntimeClasspath")
     outputDir = generatedThirdPartyLicensesDir.get().asFile.absolutePath
     // Parent POMs may advertise licenses for a wider project family that do not
     // apply to the resolved artifact (see config/licenses/LICENSE_REVIEW.md).
@@ -139,6 +159,16 @@ val cleanGeneratedThirdPartyLicenseReport by tasks.registering(Delete::class) {
 
 tasks.named("generateLicenseReport") {
     dependsOn(cleanGeneratedThirdPartyLicenseReport)
+    doFirst {
+        // The plugin silently renders an empty report for an unknown configuration
+        // name, and syncThirdPartyLicenseReport would then overwrite the checked-in
+        // bundle with it. Fail loudly instead.
+        listOf("modernReleaseRuntimeClasspath", "legacyReleaseRuntimeClasspath").forEach { name ->
+            require(project.configurations.findByName(name) != null) {
+                "License report configuration '$name' is missing; update licenseReport.configurations."
+            }
+        }
+    }
     inputs.files(
         rootProject.file("LICENSE"),
         rootProject.file("NOTICE"),
@@ -148,6 +178,12 @@ tasks.named("generateLicenseReport") {
     outputs.dir(generatedThirdPartyLicensesDir)
     doLast {
         val reportDir = generatedThirdPartyLicensesDir.get()
+        val dependenciesReport = reportDir.file("DEPENDENCIES.md").asFile
+        if (!dependenciesReport.isFile || dependenciesReport.length() == 0L) {
+            throw GradleException(
+                "Third-party license report is empty; check licenseReport.configurations.",
+            )
+        }
         val copiedSources = listOf(
             rootProject.file("LICENSE") to "project/LICENSE",
             rootProject.file("NOTICE") to "project/NOTICE",
@@ -238,7 +274,7 @@ tasks.named("check") {
     dependsOn(verifyThirdPartyLicenseReport)
 }
 
-tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+tasks.matching { it.name.startsWith("pre") && it.name.endsWith("ReleaseBuild") }.configureEach {
     dependsOn(verifyThirdPartyLicenseReport)
 }
 
