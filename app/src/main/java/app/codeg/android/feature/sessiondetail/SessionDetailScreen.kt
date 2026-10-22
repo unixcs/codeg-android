@@ -122,6 +122,7 @@ import java.time.Instant
 fun SessionDetailScreen(
     onBack: () -> Unit,
     onOpenSession: (Int) -> Unit = {},
+    seedText: String? = null,
     viewModel: SessionDetailViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -135,6 +136,17 @@ fun SessionDetailScreen(
         if (!ui.loading) {
             val persisted = viewModel.loadPersistedDraft()
             if (draft.isEmpty() && persisted.isNotEmpty()) draft = persisted
+        }
+    }
+    // Handoff seed (「接手到新会话继续」): the serialized `codeg://session/<id>`
+    // reference lands in the composer verbatim, like the web's add-to-session. A
+    // fresh navigation gets a new composition, so `remember { seedText }` is
+    // enough — no saveable (re-entering this route must re-seed, not restore).
+    // After process death the persisted draft (edits made before the crash) wins
+    // over the raw seed, so an entry that was already saved-as-draft isn't reset.
+    LaunchedEffect(seedText) {
+        if (!seedText.isNullOrEmpty() && draft.isEmpty() && viewModel.loadPersistedDraft().isEmpty()) {
+            draft = seedText
         }
     }
     var showInsert by remember { mutableStateOf(false) }

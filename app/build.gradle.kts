@@ -38,8 +38,8 @@ android {
         applicationId = "app.codeg.android.fengx"
         minSdk = 31
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.0.1-fengx.6"
+        versionCode = 9
+        versionName = "1.0.1-fengx.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

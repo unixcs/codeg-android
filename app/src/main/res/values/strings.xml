@@ -53,6 +53,8 @@
     <string name="session_new_task">New Task</string>
     <string name="session_pin">Pin</string>
     <string name="session_unpin">Unpin</string>
+    <string name="session_handoff">Handoff to new session</string>
+    <string name="session_copy_reference">Copy session reference</string>
     <string name="sessions_pinned">Pinned</string>
     <string name="sessions_other">Other</string>
     <string name="sessions_load_failed">Couldn\'t load sessions</string>

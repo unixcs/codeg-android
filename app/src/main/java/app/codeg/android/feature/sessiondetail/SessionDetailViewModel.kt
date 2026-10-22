@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.ConversationSelectorStore
 import app.codeg.android.core.datastore.DraftStore
 import app.codeg.android.core.datastore.SelectorPrefs
 import app.codeg.android.core.datastore.SelectorPrefsStore
@@ -98,6 +99,7 @@ private const val DRAFT_SAVE_DEBOUNCE_MS = 500L
 class SessionDetailViewModel @Inject constructor(
     private val repository: ServerRepository,
     private val selectorPrefs: SelectorPrefsStore,
+    private val conversationPrefs: ConversationSelectorStore,
     private val draftStore: DraftStore,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
@@ -399,15 +401,25 @@ class SessionDetailViewModel @Inject constructor(
 
     /** `acp_connect` for a specific agent/folder (defaulting to the session's current ones),
      *  carrying that agent's remembered mode/config (per-agent [SelectorPrefsStore]) so the
-     *  server applies them before reporting state. The explicit [connectAgent]/[connectFolder]
-     *  let the options path pin the context captured before any suspension, so a draft
-     *  agent/folder switch mid-connect can't retarget the connection. web/iOS parity. */
+     *  server applies them before reporting state. A per-conversation override
+     *  ([ConversationSelectorStore]) wins when THIS conversation has its own picks — that's
+     *  the model lock: one conversation's model change never leaks into other sessions.
+     *  The explicit [connectAgent]/[connectFolder] let the options path pin the context
+     *  captured before any suspension, so a draft agent/folder switch mid-connect can't
+     *  retarget the connection. web/iOS parity. */
     private suspend fun connectWithPreferences(
         c: CodegClient,
         connectAgent: AgentType = agent,
         connectFolder: FolderDetail? = folder,
     ): String {
-        val prefs = runCatching { selectorPrefs.prefs(connectAgent) }.getOrNull() ?: SelectorPrefs()
+        val convId = conversationId
+        val prefs = (if (convId != null) {
+            runCatching { conversationPrefs.prefs(profile?.id, convId, connectAgent) }.getOrNull()
+                // The conversation never diverged — fall through to the global agent prefs.
+                ?.takeIf { it.modeId != null || !it.configValues.isNullOrEmpty() }
+        } else null)
+            ?: runCatching { selectorPrefs.prefs(connectAgent) }.getOrNull()
+            ?: SelectorPrefs()
         return c.connect(
             agentType = connectAgent,
             workingDir = connectFolder?.path,
@@ -1390,7 +1402,14 @@ class SessionDetailViewModel @Inject constructor(
         val described = runCatching { c.describeAgentOptions(agent, folder?.path) }.getOrNull()
         val modes = described?.modes
         val options = described?.configOptions.orEmpty()
-        val prefs = runCatching { selectorPrefs.prefs(agent) }.getOrNull() ?: SelectorPrefs()
+        // Same resolution as [connectWithPreferences]: when THIS conversation has its own
+        // locked picks the sheet pre-selects those; otherwise the global per-agent pref.
+        val prefs = (if (convId != null) {
+            runCatching { conversationPrefs.prefs(profile?.id, convId, agent) }.getOrNull()
+                ?.takeIf { it.modeId != null || !it.configValues.isNullOrEmpty() }
+        } else null)
+            ?: runCatching { selectorPrefs.prefs(agent) }.getOrNull()
+            ?: SelectorPrefs()
         val modeId = prefs.modeId?.takeIf { saved -> modes?.availableModes?.any { it.id == saved } == true }
             ?: modes?.currentModeId
         val config = options.associate { opt ->
@@ -1467,7 +1486,14 @@ class SessionDetailViewModel @Inject constructor(
         // switch mid-apply can't save the pref under the wrong agent or retarget the connect.
         val forAgent = agent
         val forFolder = folder
-        runCatching { selectorPrefs.saveMode(forAgent, modeId) }
+        val convId = conversationId
+        // Model-lock layering, same as [applyConfig]: a live conversation keeps its mode to
+        // itself; a fresh draft seeds the global per-agent pref.
+        if (convId != null) {
+            runCatching { conversationPrefs.saveMode(profile?.id, convId, forAgent, modeId) }
+        } else {
+            runCatching { selectorPrefs.saveMode(forAgent, modeId) }
+        }
         val c = client ?: return null
         val conn = optionsConnection(forAgent, forFolder) ?: return null
         return try {
@@ -1482,11 +1508,20 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     /** Apply a config-option pick. Same contract as [applyMode] (remember, connect, apply,
-     *  reconcile); returns the confirmed/normalized value or null. */
+     *  reconcile); returns the confirmed/normalized value or null.
+     *  Model lock: an existing conversation saves the pick to ITS own layer
+     *  ([ConversationSelectorStore]) so it only ever applies back to this conversation;
+     *  a fresh draft (no conversation yet) saves to the global per-agent prefs, which the
+     *  conversation layer will then shadow from the first send on. */
     suspend fun applyConfig(configId: String, valueId: String): String? {
         val forAgent = agent
         val forFolder = folder
-        runCatching { selectorPrefs.saveConfig(forAgent, configId, valueId) }
+        val convId = conversationId
+        if (convId != null) {
+            runCatching { conversationPrefs.saveConfig(profile?.id, convId, forAgent, configId, valueId) }
+        } else {
+            runCatching { selectorPrefs.saveConfig(forAgent, configId, valueId) }
+        }
         val c = client ?: return null
         val conn = optionsConnection(forAgent, forFolder) ?: return null
         return try {

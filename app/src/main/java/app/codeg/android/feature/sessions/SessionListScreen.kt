@@ -98,6 +98,7 @@ fun SessionListScreen(
     onManageServers: () -> Unit,
     onOpenConversation: (Int) -> Unit,
     onNewTask: () -> Unit,
+    onHandoff: (folderId: Int, reference: String) -> Unit = { _, _ -> },
     viewModel: SessionListViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -216,6 +217,7 @@ fun SessionListScreen(
                             },
                             onOpenConversation = onOpenConversation,
                             onTogglePin = { conv -> viewModel.setPinned(conv, !conv.isPinned) },
+                            onHandoff = onHandoff,
                             onLongPressSection = { section -> hiddenTarget = section },
                             onOpenHiddenManager = { showHiddenManager = true },
                             // A refresh that failed over a still-populated list: surface
@@ -268,6 +270,7 @@ private fun SessionList(
     onToggleSection: (String) -> Unit,
     onOpenConversation: (Int) -> Unit,
     onTogglePin: (ConversationSummary) -> Unit,
+    onHandoff: (folderId: Int, reference: String) -> Unit,
     onLongPressSection: (SessionSection) -> Unit,
     onOpenHiddenManager: () -> Unit,
     refreshError: String?,
@@ -322,6 +325,7 @@ private fun SessionList(
                         modifier = Modifier.animateItem(),
                         folderName = row.folderName,
                         onTogglePin = { onTogglePin(row.conversation) },
+                        onHandoff = { ref -> onHandoff(row.conversation.folderId, ref) },
                     )
                 }
             }

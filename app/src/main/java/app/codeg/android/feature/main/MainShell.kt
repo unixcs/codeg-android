@@ -95,6 +95,23 @@ private const val ROUTE_SERVERS = "servers"
 private const val ROUTE_EDITOR = "editor"
 private const val ROUTE_NEW_TASK = "conversation_new"
 
+/** Build the new-task route pre-seeded with a handoff reference (and optionally the
+ *  source conversation's folder, so the new session starts in the same workspace —
+ *  "接手" continues in-place). The reference (`[title](codeg://session/<id>)`) is
+ *  URL-encoded — it contains brackets/parens that would otherwise be eaten as
+ *  route path/arg syntax. */
+internal fun handoffRoute(folderId: Int, reference: String): String {
+    val q = buildString {
+        append("handoff=")
+        append(android.net.Uri.encode(reference))
+        if (folderId > 0) {
+            append("&folderId=")
+            append(folderId)
+        }
+    }
+    return "$ROUTE_NEW_TASK?$q"
+}
+
 /**
  * Whether the bottom bar — and, by extension, the New Task FAB — is currently
  * shown. Driven by scroll direction in [MainShell] and read by the Chats screen
@@ -316,6 +333,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         onManageServers = { nav.navigate(ROUTE_SERVERS) },
                         onOpenConversation = { id -> nav.navigate("conversation/$id") },
                         onNewTask = { nav.navigate(ROUTE_NEW_TASK) },
+                        onHandoff = { folderId, ref -> nav.navigate(handoffRoute(folderId, ref)) },
                     )
                 }
             }
@@ -374,6 +392,30 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 SessionDetailScreen(
                     onBack = { nav.popBackStack() },
                     onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
+                )
+            }
+            composable(
+                route = "$ROUTE_NEW_TASK?folderId={folderId}&handoff={handoff}",
+                arguments = listOf(
+                    navArgument("folderId") {
+                        type = NavType.IntType
+                        defaultValue = -1
+                    },
+                    navArgument("handoff") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                // The handoff entry sits directly above the list, so Back lands there
+                // naturally; its arguments also survive process death and re-seed the
+                // composer (draft is remembered-empty then, seed re-applies). No stack
+                // surgery needed.
+                SessionDetailScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
+                    seedText = entry.arguments?.getString("handoff"),
                 )
             }
 
