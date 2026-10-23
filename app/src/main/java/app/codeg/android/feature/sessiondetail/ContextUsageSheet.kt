@@ -93,7 +93,10 @@ fun ContextUsageSheet(ui: SessionDetailUiState, onDismiss: () -> Unit) {
             StatLine(stringResource(R.string.context_usage_output), usage?.outputTokens?.let { formatTokens(it.toLong()) } ?: "—")
             StatLine(stringResource(R.string.context_usage_cache_read), usage?.cacheReadInputTokens?.let { formatTokens(it.toLong()) } ?: "—")
             StatLine(stringResource(R.string.context_usage_cache_write), usage?.cacheCreationInputTokens?.let { formatTokens(it.toLong()) } ?: "—")
-            StatLine(stringResource(R.string.context_usage_total), usage?.total?.let { formatTokens(it.toLong()) } ?: "—")
+            // `total_tokens` is the server's own cumulative figure; fall back to the
+            // per-turn usage sum when an older server doesn't report it.
+            val totalTokens = stats?.totalTokens?.toLong() ?: usage?.total?.toLong()
+            StatLine(stringResource(R.string.context_usage_total), totalTokens?.let(::formatTokens) ?: "—")
         }
     }
 }

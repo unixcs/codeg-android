@@ -26,7 +26,8 @@ jobs:
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
       - name: Check, test, and assemble the app
-        run: ./gradlew :app:check :app:assembleDebug :app:assembleRelease --no-daemon
+        # Two workers: four variants compiling at once OOMs the runner.
+        run: ./gradlew :app:check :app:assembleDebug :app:assembleRelease --no-daemon --max-workers=2
 
       - name: Assert both release packages were produced
         run: |

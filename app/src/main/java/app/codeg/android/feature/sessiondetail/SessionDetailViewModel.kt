@@ -1737,6 +1737,11 @@ class SessionDetailViewModel @Inject constructor(
             showNotice(appContext.getString(R.string.session_info_unavailable))
             return
         }
+        if ((externalId ?: _ui.value.externalId).isNullOrBlank()) {
+            // Reconnecting without a CLI id would silently start a brand-new session.
+            showNotice(appContext.getString(R.string.session_info_no_id))
+            return
+        }
         viewModelScope.launch {
             _ui.update { it.copy(isReconnecting = true) }
             // The old connection is about to go away, so its stream must stop folding

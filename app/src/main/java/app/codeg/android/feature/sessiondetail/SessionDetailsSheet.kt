@@ -122,7 +122,9 @@ fun SessionDetailsSheet(
                 }
                 Button(
                     onClick = viewModel::reconnectSession,
-                    enabled = !ui.isReconnecting && !workingDir.isNullOrBlank(),
+                    // Without a CLI session id there is nothing to re-attach: the button
+                    // would silently start a brand-new CLI session instead.
+                    enabled = !ui.isReconnecting && !workingDir.isNullOrBlank() && !cliId.isNullOrBlank(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.accent,
                         contentColor = colors.onAccent,

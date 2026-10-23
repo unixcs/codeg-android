@@ -101,7 +101,9 @@ fun ComposeBar(
         emptyList()
     } else {
         val query = slashQuery.removePrefix("/")
-        commandSuggestions.filter { it.name.removePrefix("/").startsWith(query, ignoreCase = true) }
+        commandSuggestions
+            .filter { it.name.removePrefix("/").startsWith(query, ignoreCase = true) }
+            .take(6)
     }
 
     Column(modifier = modifier.fillMaxWidth()) {

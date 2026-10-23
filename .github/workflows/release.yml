@@ -50,7 +50,8 @@ jobs:
           fi
 
       - name: Check the app
-        run: ./gradlew :app:check --no-daemon
+        # Two workers: four variants compiling at once OOMs the runner.
+        run: ./gradlew :app:check --no-daemon --max-workers=2
 
       - name: Restore release signing key
         shell: bash
@@ -79,7 +80,7 @@ jobs:
           chmod 600 keystore.properties
 
       - name: Build the signed APKs
-        run: ./gradlew :app:assembleModernRelease :app:assembleLegacyRelease --no-daemon
+        run: ./gradlew :app:assembleModernRelease :app:assembleLegacyRelease --no-daemon --max-workers=2
 
       - name: Verify and package the APKs
         id: package
