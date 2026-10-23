@@ -909,4 +909,39 @@
     <string name="files_discard_message">这个文件还有未保存的改动。</string>
     <string name="files_discard_confirm">放弃</string>
     <string name="common_create">创建</string>
+
+    <!-- ===== Session Detail · live status / context / session info ===== -->
+    <string name="reasoning_title">思考过程</string>
+    <string name="session_status_generating">生成中</string>
+    <string name="elapsed_hours_minutes">%1$d 小时 %2$d 分</string>
+    <string name="elapsed_minutes_seconds">%1$d 分 %2$d 秒</string>
+    <string name="elapsed_seconds">%1$d 秒</string>
+    <string name="context_usage_chip">上下文 %1$s</string>
+    <string name="context_usage_title">上下文窗口</string>
+    <string name="context_usage_used_max">%1$s / %2$s</string>
+    <string name="context_usage_cache_hit">缓存命中率</string>
+    <string name="context_usage_tokens">Token 用量</string>
+    <string name="context_usage_input">输入</string>
+    <string name="context_usage_output">输出</string>
+    <string name="context_usage_cache_read">缓存读取</string>
+    <string name="context_usage_cache_write">缓存写入</string>
+    <string name="context_usage_total">总计</string>
+    <string name="session_info_chip">会话信息</string>
+    <string name="session_info_working_dir">工作目录</string>
+    <string name="session_info_cli_id">CLI 会话 ID</string>
+    <string name="session_info_codeg_id">Codeg 会话 ID</string>
+    <string name="session_info_note">会话由服务器持有；重连只会重新接入当前视图。</string>
+    <string name="session_info_copy">复制</string>
+    <string name="session_info_copied">已复制</string>
+    <string name="session_info_export">导出会话 JSON</string>
+    <string name="session_info_exporting">导出中…</string>
+    <string name="session_info_export_hint">把完整对话写入项目目录 .codeg-handoff/，并复制服务器路径。</string>
+    <string name="session_info_export_done">已导出：%1$s</string>
+    <string name="session_info_export_failed">导出失败：%1$s</string>
+    <string name="session_info_reconnect">重新连接</string>
+    <string name="session_info_reconnecting">重连中…</string>
+    <string name="session_info_reconnected">已重新连接</string>
+    <string name="session_info_reconnect_failed">重连失败：%1$s</string>
+    <string name="session_info_unavailable">会话建立工作目录后才可用。</string>
+    <string name="session_info_no_id">尚未上报</string>
 </resources>

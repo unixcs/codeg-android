@@ -1090,6 +1090,15 @@ class CodegClient(
         send("acp_set_config_option", encode(SetConfigOptionBody(connectionId, configId, valueId)))
     }
 
+    /**
+     * Tear down one live ACP connection. The server's `AcpDisconnectParams` is
+     * `#[serde(rename_all = "camelCase")]`, so the field is `connectionId` — a
+     * snake_case body is rejected and leaves the old connection alive.
+     */
+    suspend fun disconnect(connectionId: String) {
+        send("acp_disconnect", buildJsonObject { put("connectionId", connectionId) }.toString())
+    }
+
     // endregion
 
     // endregion

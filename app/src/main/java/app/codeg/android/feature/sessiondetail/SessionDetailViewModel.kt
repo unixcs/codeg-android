@@ -1,5 +1,7 @@
 package app.codeg.android.feature.sessiondetail
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -59,6 +61,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import java.io.File
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -72,6 +79,9 @@ private const val MAX_STREAM_RECONNECTS = 6
 
 /** The selector key used for the session mode (config options key by their own id). */
 private const val MODE_KEY = "mode"
+
+/** Server-side folder (inside the working directory) that receives session handoff JSON. */
+private const val HANDOFF_DIR = ".codeg-handoff"
 
 /** Bounded snapshot poll after an options apply (~2.3s total) — `set_*` only enqueues
  *  the change server-side, so we reconcile against the authoritative snapshot. */
@@ -216,6 +226,7 @@ class SessionDetailViewModel @Inject constructor(
                             serverName = p.name,
                             turns = detail.turns,
                             sessionStats = detail.sessionStats,
+                            externalId = detail.summary.externalId,
                             agent = detail.summary.agentType,
                             folderName = folder?.let { f -> FolderVisibility.displayName(f, allFolders) },
                             folderPath = folder?.path,
@@ -262,6 +273,10 @@ class SessionDetailViewModel @Inject constructor(
                         )
                     }
                 }
+                // Slash commands for the composer popup: live snapshot → conversation
+                // snapshot → agent catalog. Runs for an idle existing session (no live
+                // event will arrive) and for a draft (no conversation id yet).
+                viewModelScope.launch { loadSlashCommands() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -318,6 +333,7 @@ class SessionDetailViewModel @Inject constructor(
                 live = builder.snapshot(),
                 liveFromReattach = false,
                 isInFlight = true,
+                runStartedAt = System.currentTimeMillis(),
                 sendStatus = "Connecting…",
                 notice = null,
                 restoreDraft = null,
@@ -612,11 +628,14 @@ class SessionDetailViewModel @Inject constructor(
                 scheduleLiveEmit()
             }
             is AcpEvent.PlanUpdate -> { builder?.updatePlan(event.entries); scheduleLiveEmit() }
-            is AcpEvent.UsageUpdate -> _ui.update {
+            is AcpEvent.UsageUpdate -> if (event.used > 0 && event.size > 0) _ui.update {
+                val max = event.size.toInt()
+                val used = event.used.toInt()
                 it.copy(
                     sessionStats = (it.sessionStats ?: SessionStats()).copy(
-                        contextWindowUsedTokens = event.used.toInt(),
-                        contextWindowMaxTokens = event.size.toInt(),
+                        contextWindowUsedTokens = used,
+                        contextWindowMaxTokens = max,
+                        contextWindowUsagePercent = (used.toDouble() / max * 100.0).coerceIn(0.0, 100.0),
                     ),
                 )
             }
@@ -655,7 +674,14 @@ class SessionDetailViewModel @Inject constructor(
             is AcpEvent.PlanApprovalResolved -> _ui.update {
                 if (it.pendingPlanApproval?.approvalId == event.approvalId) it.copy(pendingPlanApproval = null) else it
             }
-            else -> Unit // session_started / user_message / etc. are informational
+            is AcpEvent.SessionStarted -> {
+                // The CLI reports its own session id here (and again on reconnects); the
+                // session-info card and the handoff JSON both read it.
+                externalId = event.sessionId
+                _ui.update { it.copy(externalId = event.sessionId) }
+            }
+            is AcpEvent.AvailableCommands -> _ui.update { it.copy(availableCommands = event.commands) }
+            else -> Unit // user_message / etc. are informational
         }
     }
 
@@ -675,6 +701,7 @@ class SessionDetailViewModel @Inject constructor(
         _ui.update {
             it.copy(
                 isInFlight = false,
+                runStartedAt = null,
                 sendStatus = null,
                 pendingPermission = null,
                 pendingQuestion = null,
@@ -796,7 +823,17 @@ class SessionDetailViewModel @Inject constructor(
         // actually produced content. A pending-only snapshot (a permission/question with no
         // assistant message yet) seeds nothing, so hiding the transcript there could drop a
         // persisted reply with no live copy to show in its place.
-        _ui.update { it.copy(live = builder.snapshot(), liveFromReattach = !builder.isEmpty) }
+        _ui.update {
+            it.copy(
+                live = builder.snapshot(),
+                liveFromReattach = !builder.isEmpty,
+                // The server owns the turn clock; using it here keeps the elapsed time
+                // continuous across a mid-turn reattach (a local clock would restart).
+                runStartedAt = snap.liveMessage?.startedAt ?: it.runStartedAt,
+                externalId = snap.externalId ?: it.externalId,
+                availableCommands = snap.availableCommands.ifEmpty { it.availableCommands },
+            )
+        }
         return true
     }
 
@@ -807,7 +844,7 @@ class SessionDetailViewModel @Inject constructor(
         pendingReattachSeed = false
         connectionId = null
         liveBuilder = null
-        _ui.update { it.copy(isInFlight = false, sendStatus = null, live = null, liveFromReattach = false) }
+        _ui.update { it.copy(isInFlight = false, runStartedAt = null, sendStatus = null, live = null, liveFromReattach = false) }
         closeStream()
         reconcileAfterMissedLive()
     }
@@ -827,6 +864,12 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     private fun restorePending(snap: app.codeg.android.core.model.LiveSessionSnapshot) {
+        _ui.update {
+            it.copy(
+                externalId = snap.externalId ?: it.externalId,
+                availableCommands = snap.availableCommands.ifEmpty { it.availableCommands },
+            )
+        }
         snap.pendingPermission?.let { p ->
             _ui.update { it.copy(pendingPermission = PendingPermissionUi(p.requestId, ParsedPermission.parse(p.toolCall), p.options)) }
         }
@@ -966,6 +1009,7 @@ class SessionDetailViewModel @Inject constructor(
                             live = null,
                             liveFromReattach = false,
                             isInFlight = false,
+                            runStartedAt = null,
                             sendStatus = null,
                             pendingPermission = null,
                             pendingQuestion = null,
@@ -1010,6 +1054,7 @@ class SessionDetailViewModel @Inject constructor(
                 live = null,
                 liveFromReattach = false,
                 isInFlight = false,
+                runStartedAt = null,
                 sendStatus = null,
             )
         }
@@ -1050,6 +1095,7 @@ class SessionDetailViewModel @Inject constructor(
                 pendingUserTurns = it.pendingUserTurns.filterNot { t -> t.id == userTurn.id },
                 live = null,
                 isInFlight = false,
+                runStartedAt = null,
                 sendStatus = null,
                 notice = notice,
                 // Restore the composer so a failed send never silently loses the user's work —
@@ -1186,15 +1232,40 @@ class SessionDetailViewModel @Inject constructor(
         return runCatching { c.expertsListForAgent(agent) }.getOrDefault(emptyList())
     }
 
-    /** Slash commands from the live snapshot, excluding expert-backed names. Returns
+    /** Slash commands advertised for this session, excluding expert-backed names. Returns
      *  the commands plus the known-expert id set (so the UI can strip an existing
-     *  expert mention when inserting another). */
+     *  expert mention when inserting another).
+     *
+     *  Order: the live WS event/snapshot → the per-conversation snapshot RPC → the
+     *  per-agent catalog probe. The last step is what makes a draft (no conversation
+     *  id yet) show commands at all. */
     suspend fun loadSlashCommands(): List<AvailableCommandInfo> {
         val c = client ?: return emptyList()
-        val id = conversationId ?: return emptyList()
-        val snapshot = runCatching { c.sessionSnapshotByConversation(id) }.getOrNull() ?: return emptyList()
+        val live = _ui.value.availableCommands
+        val commands = if (live.isNotEmpty()) {
+            live
+        } else {
+            val id = conversationId
+            val fromSnapshot = id
+                ?.let { runCatching { c.sessionSnapshotByConversation(it) }.getOrNull() }
+                ?.availableCommands
+                .orEmpty()
+            fromSnapshot.ifEmpty {
+                runCatching { c.describeAgentOptions(agent, folder?.path) }
+                    .getOrNull()
+                    ?.availableCommands
+                    .orEmpty()
+            }
+        }
+        if (commands.isEmpty()) return emptyList()
         val knownExperts = runCatching { c.expertsList().map { it.id }.toSet() }.getOrDefault(emptySet())
-        return snapshot.availableCommands.filter { it.name !in knownExperts }
+        val filtered = commands.filter { it.name !in knownExperts }
+        // Store the filtered list: the composer popup reads `ui.availableCommands`, and an
+        // expert-backed name must not surface there as a slash command.
+        if (filtered.isNotEmpty() && _ui.value.availableCommands.isEmpty()) {
+            _ui.update { it.copy(availableCommands = filtered) }
+        }
+        return filtered
     }
 
     suspend fun knownExpertIds(): Set<String> =
@@ -1565,6 +1636,194 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     // endregion
+
+    // region Session handoff (copy / JSON export / reconnect)
+
+    /** Surface a one-shot message in the snackbar. */
+    fun showNotice(text: String) {
+        _ui.update { it.copy(notice = text) }
+    }
+
+    /** Copy [text] and confirm it, for values the sheet already knows are present. */
+    fun copyText(text: String) {
+        copyToClipboard(text)
+        showNotice(appContext.getString(R.string.session_info_copied))
+    }
+
+    /** Copy the CLI's own session id (`external_id`) so it can seed a fresh session. */
+    fun copySessionId() {
+        val id = externalId ?: _ui.value.externalId
+        if (id.isNullOrBlank()) {
+            showNotice(appContext.getString(R.string.session_info_no_id))
+            return
+        }
+        copyToClipboard(id)
+        showNotice(appContext.getString(R.string.session_info_copied))
+    }
+
+    /** Copy the agent's working directory (the server-side absolute path). */
+    fun copyWorkingDir() {
+        val path = folder?.path ?: _ui.value.folderPath
+        if (path.isNullOrBlank()) {
+            showNotice(appContext.getString(R.string.session_info_unavailable))
+            return
+        }
+        copyToClipboard(path)
+        showNotice(appContext.getString(R.string.session_info_copied))
+    }
+
+    /**
+     * Write a self-contained handoff JSON into the server-side working directory and copy
+     * its absolute path, so a NEW session on any client can read the effective context
+     * (agent, working dir, CLI session id, branch, transcript) without the phone's storage.
+     */
+    fun exportSessionJson() {
+        if (_ui.value.isExporting) return
+        val c = client
+        val state = _ui.value
+        val root = folder?.path ?: state.folderPath
+        if (c == null || root.isNullOrBlank()) {
+            showNotice(appContext.getString(R.string.session_info_unavailable))
+            return
+        }
+        viewModelScope.launch {
+            _ui.update { it.copy(isExporting = true) }
+            val temp = File(appContext.cacheDir, "handoff-${System.currentTimeMillis()}.json")
+            try {
+                temp.writeText(buildSessionHandoffJson(state))
+                val name = "session-${externalId ?: conversationId ?: "draft"}-${System.currentTimeMillis()}.json"
+                val uploaded = c.uploadWorkspaceFile(
+                    rootPath = root,
+                    targetDir = HANDOFF_DIR,
+                    fileName = name,
+                    size = temp.length(),
+                    openInput = { temp.inputStream() },
+                )
+                val absolute = root.trimEnd('/') + "/" + uploaded.path.trimStart('/')
+                copyToClipboard(absolute)
+                _ui.update {
+                    it.copy(
+                        isExporting = false,
+                        notice = appContext.getString(R.string.session_info_export_done, absolute),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update {
+                    it.copy(
+                        isExporting = false,
+                        notice = appContext.getString(R.string.session_info_export_failed, e.displayMessage()),
+                    )
+                }
+            } finally {
+                runCatching { temp.delete() }
+            }
+        }
+    }
+
+    /**
+     * Drop the current ACP connection and rebuild it from scratch, then re-attach the event
+     * stream. The manual escape hatch for a wedged CLI process: it bypasses
+     * `findConnection` (which would happily adopt a dead id forever) and resets the event
+     * cursor so the fresh stream is seeded from its own snapshot.
+     */
+    fun reconnectSession() {
+        if (_ui.value.isReconnecting) return
+        val c = client
+        val root = folder?.path ?: _ui.value.folderPath
+        val previous = connectionId
+        if (c == null || root.isNullOrBlank()) {
+            showNotice(appContext.getString(R.string.session_info_unavailable))
+            return
+        }
+        viewModelScope.launch {
+            _ui.update { it.copy(isReconnecting = true) }
+            // The old connection is about to go away, so its stream must stop folding
+            // events into the live turn before we tear it down.
+            sendJob?.cancel()
+            sendJob = null
+            reconcileJob?.cancel()
+            reconcileJob = null
+            closeStream()
+            connectionId = null
+            lastSeq = 0
+            if (!previous.isNullOrBlank()) {
+                runCatching { c.disconnect(previous) }
+            }
+            var failure: String? = null
+            val ok = runCatching {
+                val conn = connectFresh(c)
+                connectionId = conn
+                openStream(conn, seedOnAttach = true)
+            }.onFailure { failure = it.displayMessage() }.isSuccess
+            _ui.update {
+                it.copy(
+                    isReconnecting = false,
+                    notice = if (ok) {
+                        appContext.getString(R.string.session_info_reconnected)
+                    } else {
+                        appContext.getString(R.string.session_info_reconnect_failed, failure.orEmpty())
+                    },
+                )
+            }
+        }
+    }
+
+    /** The handoff document: enough for a fresh agent session to pick the work up. */
+    private fun buildSessionHandoffJson(state: SessionDetailUiState): String {
+        val turns = state.turns + state.pendingUserTurns
+        return buildJsonObject {
+            put("kind", "codeg-session-handoff")
+            put("version", 1)
+            put("exportedAt", Instant.now().toString())
+            put("server", state.serverName.orEmpty())
+            put("agent", agent.wire)
+            put("workingDir", folder?.path ?: state.folderPath.orEmpty())
+            put("cliSessionId", externalId ?: state.externalId.orEmpty())
+            put("codegConversationId", conversationId ?: 0)
+            put("title", state.summary?.trimmedTitle.orEmpty())
+            put("gitBranch", currentBranch ?: state.summary?.gitBranch.orEmpty())
+            putJsonArray("turns") {
+                for (turn in turns) {
+                    add(
+                        buildJsonObject {
+                            put("role", turn.role.wire)
+                            put("timestamp", turn.timestamp.toString())
+                            put(
+                                "text",
+                                turn.blocks.filterIsInstance<ContentBlock.Text>()
+                                    .joinToString("\n") { it.text },
+                            )
+                            val thinking = turn.blocks.filterIsInstance<ContentBlock.Thinking>()
+                                .joinToString("\n") { it.text }
+                            if (thinking.isNotEmpty()) put("thinking", thinking)
+                            val tools = turn.blocks.filterIsInstance<ContentBlock.ToolUse>()
+                            if (tools.isNotEmpty()) {
+                                putJsonArray("tools") {
+                                    for (tool in tools) {
+                                        add(
+                                            buildJsonObject {
+                                                put("name", tool.name)
+                                                tool.inputPreview?.let { preview -> put("inputPreview", preview) }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+        }.toString()
+    }
+
+    private fun copyToClipboard(text: String) {
+        val manager = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        manager.setPrimaryClip(ClipData.newPlainText("codeg-handoff", text))
+    }
+
+    // endregion
 }
 
 /** Thrown when the event-stream handshake ends (detached/closed) before the server
@@ -1630,6 +1889,16 @@ data class SessionDetailUiState(
     /** The live turn was rebuilt from a reattach snapshot (owns the in-flight reply). */
     val liveFromReattach: Boolean = false,
     val sessionStats: SessionStats? = null,
+    /** The agent CLI's own session id (`external_id`), for handoff / reconnects. */
+    val externalId: String? = null,
+    /** When the running turn started (server `started_at`, else the local send time). */
+    val runStartedAt: Long? = null,
+    /** Slash commands advertised by the agent for this session. */
+    val availableCommands: List<AvailableCommandInfo> = emptyList(),
+    /** The session-JSON export is in flight. */
+    val isExporting: Boolean = false,
+    /** A manual reconnect is in flight. */
+    val isReconnecting: Boolean = false,
     val agent: AgentType = AgentType.CLAUDE_CODE,
     val isInFlight: Boolean = false,
     val sendStatus: String? = null,

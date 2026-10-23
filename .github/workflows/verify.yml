@@ -30,5 +30,7 @@ jobs:
 
       - name: Assert both release packages were produced
         run: |
-          test -f app/build/outputs/apk/modern/release/app-modern-release.apk
-          test -f app/build/outputs/apk/legacy/release/app-legacy-release.apk
+          # No signing key in CI, so the release APKs are the `-unsigned` variants.
+          ls -l app/build/outputs/apk/modern/release app/build/outputs/apk/legacy/release
+          compgen -G "app/build/outputs/apk/modern/release/app-*.apk" > /dev/null
+          compgen -G "app/build/outputs/apk/legacy/release/app-*.apk" > /dev/null

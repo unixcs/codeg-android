@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,10 +73,10 @@ private val SuccessGreen = Color(0xFF85D18F)
 @Composable
 fun ToolCallCard(vm: ToolCallVM, modifier: Modifier = Modifier, nested: Boolean = false) {
     val colors = CodegTheme.colors
-    val autoExpand = vm.state == ToolCallState.RUNNING ||
-        vm.state == ToolCallState.ERROR ||
-        (vm.diffFiles != null && (vm.diffFiles.sumOf { f -> f.hunks.sumOf { it.rows.size } } <= 40))
-    var expanded by remember(vm.id) { mutableStateOf(autoExpand) }
+    // Always starts collapsed — including while running. The header keeps the state
+    // icon and title visible; the body is one tap away. Keyed by the ACP tool id, so
+    // updates to the same call never reset the user's choice.
+    var expanded by rememberSaveable(vm.id) { mutableStateOf(false) }
     val hasBody = vm.diffFiles != null || !vm.input.isNullOrBlank() || vm.hasOutput
 
     Column(
@@ -265,7 +266,7 @@ fun ToolGroupCard(items: List<ToolCallVM>, modifier: Modifier = Modifier, stream
     val colors = CodegTheme.colors
     // Key on the stable first-tool id, not the items' value: live grouped tools rebuild
     // their VMs every flush, and remember(items) would reset the expand state each time.
-    var expanded by remember(items.firstOrNull()?.id) { mutableStateOf(false) }
+    var expanded by rememberSaveable(items.firstOrNull()?.id) { mutableStateOf(false) }
     val errorCount = items.count { it.state == ToolCallState.ERROR }
 
     Column(

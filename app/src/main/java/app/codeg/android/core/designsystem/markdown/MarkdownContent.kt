@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.core.designsystem.component.CodeBlock
@@ -35,8 +37,9 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 @Composable
 fun MarkdownContent(raw: String, modifier: Modifier = Modifier) {
     // Slot-scoped parse only. The shared [MarkdownCache] is reserved for the persisted
-    // node-build path; routing streaming callers (e.g. an auto-expanded ReasoningBlock)
-    // through it would churn/evict persisted entries with dead growing-tail prefixes.
+    // node-build path; routing streaming callers (e.g. a collapsed ReasoningBlock that
+    // the user expands mid-stream) through it would churn/evict persisted entries with
+    // dead growing-tail prefixes.
     val blocks = remember(raw) { parseMarkdownBlocks(raw) }
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -129,37 +132,61 @@ private fun ListRow(marker: String, content: String) {
 
 @Composable
 private fun MarkdownTable(table: MarkdownBlock.Table, modifier: Modifier = Modifier) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        // The parent's constraint is the usable width (LazyColumn content padding is
+        // already subtracted). Fall back to a phone-sized width if a future caller
+        // puts a table inside an unbounded horizontal scroller.
+        val available = if (maxWidth.value.isFinite()) maxWidth.value else 360f
+        val layout = remember(table, available) {
+            tableColumnWidths(estimateNaturalWidths(table.header, table.rows), available)
+        }
+        val total = layout.widths.sum().dp
+        if (layout.overflow) {
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                TableGrid(table, layout.widths, total)
+            }
+        } else {
+            TableGrid(table, layout.widths, total)
+        }
+    }
+}
+
+@Composable
+private fun TableGrid(table: MarkdownBlock.Table, widths: List<Float>, total: Dp) {
     val colors = CodegTheme.colors
-    Row(modifier.horizontalScroll(rememberScrollState())) {
-        Column(
-            Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(colors.codeSurface)
-                .border(0.5.dp, colors.hairline, RoundedCornerShape(10.dp)),
-        ) {
-            TableRow(table.header, isHeader = true)
-            Box(Modifier.fillMaxWidth().height(0.5.dp).background(colors.hairline))
-            table.rows.forEachIndexed { idx, cells ->
-                TableRow(cells, isHeader = false)
-                if (idx < table.rows.size - 1) {
-                    Box(Modifier.fillMaxWidth().height(0.5.dp).background(colors.hairline.copy(alpha = 0.5f)))
-                }
+    Column(
+        Modifier
+            .width(total)
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.codeSurface)
+            .border(0.5.dp, colors.hairline, RoundedCornerShape(10.dp)),
+    ) {
+        TableRow(table.header, widths, isHeader = true)
+        // An explicit width: `fillMaxWidth()` inside a horizontal scroll has an
+        // unbounded constraint and collapses to zero.
+        Box(Modifier.width(total).height(0.5.dp).background(colors.hairline))
+        table.rows.forEachIndexed { idx, cells ->
+            TableRow(cells, widths, isHeader = false)
+            if (idx < table.rows.size - 1) {
+                Box(Modifier.width(total).height(0.5.dp).background(colors.hairline.copy(alpha = 0.5f)))
             }
         }
     }
 }
 
 @Composable
-private fun TableRow(cells: List<String>, isHeader: Boolean) {
+private fun TableRow(cells: List<String>, widths: List<Float>, isHeader: Boolean) {
     val colors = CodegTheme.colors
     Row {
-        for (cell in cells) {
+        cells.forEachIndexed { index, cell ->
             Text(
                 text = rememberInlineMarkdown(cell),
                 fontSize = 12.sp,
                 fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (isHeader) colors.textPrimary else colors.textSecondary,
-                modifier = Modifier.width(130.dp).padding(horizontal = 8.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .width((widths.getOrElse(index) { 64f }).dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             )
         }
     }

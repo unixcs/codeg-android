@@ -923,4 +923,39 @@
     <string name="files_discard_message">You have unsaved edits to this file.</string>
     <string name="files_discard_confirm">Discard</string>
     <string name="common_create">Create</string>
+
+    <!-- ===== Session Detail · live status / context / session info ===== -->
+    <string name="reasoning_title">Reasoning</string>
+    <string name="session_status_generating">Generating</string>
+    <string name="elapsed_hours_minutes">%1$d h %2$d min</string>
+    <string name="elapsed_minutes_seconds">%1$d min %2$d s</string>
+    <string name="elapsed_seconds">%1$d s</string>
+    <string name="context_usage_chip">Context %1$s</string>
+    <string name="context_usage_title">Context window</string>
+    <string name="context_usage_used_max">%1$s / %2$s</string>
+    <string name="context_usage_cache_hit">Cache hit rate</string>
+    <string name="context_usage_tokens">Token usage</string>
+    <string name="context_usage_input">Input</string>
+    <string name="context_usage_output">Output</string>
+    <string name="context_usage_cache_read">Cache read</string>
+    <string name="context_usage_cache_write">Cache write</string>
+    <string name="context_usage_total">Total</string>
+    <string name="session_info_chip">Session info</string>
+    <string name="session_info_working_dir">Working directory</string>
+    <string name="session_info_cli_id">CLI session ID</string>
+    <string name="session_info_codeg_id">Codeg session ID</string>
+    <string name="session_info_note">The session lives on the server; reconnecting only re-attaches this view.</string>
+    <string name="session_info_copy">Copy</string>
+    <string name="session_info_copied">Copied</string>
+    <string name="session_info_export">Export session JSON</string>
+    <string name="session_info_exporting">Exporting…</string>
+    <string name="session_info_export_hint">Writes the full conversation to .codeg-handoff/ in the project directory and copies the server path.</string>
+    <string name="session_info_export_done">Exported: %1$s</string>
+    <string name="session_info_export_failed">Export failed: %1$s</string>
+    <string name="session_info_reconnect">Reconnect</string>
+    <string name="session_info_reconnecting">Reconnecting…</string>
+    <string name="session_info_reconnected">Reconnected</string>
+    <string name="session_info_reconnect_failed">Reconnect failed: %1$s</string>
+    <string name="session_info_unavailable">Available once the session has a working directory.</string>
+    <string name="session_info_no_id">Not reported yet</string>
 </resources>

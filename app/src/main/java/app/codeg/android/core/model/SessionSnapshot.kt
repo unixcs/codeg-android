@@ -79,4 +79,6 @@ data class SessionConfigSelectGroup(
 data class AgentOptionsSnapshot(
     val modes: SessionModeState? = null,
     val configOptions: List<SessionConfigOption> = emptyList(),
+    /** Slash commands the agent advertised during the probe (snake_case on the wire). */
+    val availableCommands: List<AvailableCommandInfo> = emptyList(),
 )

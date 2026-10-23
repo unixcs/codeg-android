@@ -18,13 +18,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,12 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.codeg.android.R
-import app.codeg.android.core.common.RelativeTime
-import app.codeg.android.core.designsystem.component.AgentAvatar
 import app.codeg.android.core.designsystem.component.statusColor
 import app.codeg.android.core.designsystem.component.statusLabel
 import app.codeg.android.core.designsystem.theme.CodegTheme
@@ -139,30 +133,6 @@ fun SessionActionsMenu(
     }
 
     if (showDetails) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = { showDetails = false }, sheetState = sheetState, containerColor = colors.bgElevated) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    AgentAvatar(ui.agent, size = 40.dp)
-                    Text(summary.trimmedTitle ?: stringResource(R.string.sessionactions_untitled), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
-                }
-                DetailRow(stringResource(R.string.sessionactions_detail_status), statusLabel(summary.status), statusColor(summary.status))
-                ui.folderName?.let { DetailRow(stringResource(R.string.sessionactions_detail_folder), it) }
-                DetailRow(stringResource(R.string.sessionactions_detail_messages), summary.messageCount.toString())
-                summary.model?.takeIf { it.isNotBlank() }?.let { DetailRow(stringResource(R.string.sessionactions_detail_model), it) }
-                summary.gitBranch?.takeIf { it.isNotBlank() }?.let { DetailRow(stringResource(R.string.sessionactions_detail_branch), it) }
-                DetailRow(stringResource(R.string.sessionactions_detail_created), RelativeTime.compact(summary.createdAt))
-                DetailRow(stringResource(R.string.sessionactions_detail_updated), RelativeTime.compact(summary.updatedAt))
-            }
-        }
-    }
-}
-
-@Composable
-private fun DetailRow(label: String, value: String, valueColor: androidx.compose.ui.graphics.Color? = null) {
-    val colors = CodegTheme.colors
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 14.sp, color = colors.textSecondary)
-        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = valueColor ?: colors.textPrimary)
+        SessionDetailsSheet(ui = ui, viewModel = viewModel, onDismiss = { showDetails = false })
     }
 }

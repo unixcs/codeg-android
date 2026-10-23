@@ -46,9 +46,11 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -108,6 +110,7 @@ import app.codeg.android.core.designsystem.component.AgentAvatar
 import app.codeg.android.core.designsystem.component.AgentVisuals
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
+import app.codeg.android.core.designsystem.component.LivePulse
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.ContentBlock
@@ -164,6 +167,8 @@ fun SessionDetailScreen(
     }
     var showInsert by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
+    var showContextUsage by remember { mutableStateOf(false) }
+    var showSessionDetails by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -185,6 +190,12 @@ fun SessionDetailScreen(
         onOpenSession = onOpenSession,
         onDismiss = { showOptions = false },
     )
+    if (showContextUsage) {
+        ContextUsageSheet(ui = ui, onDismiss = { showContextUsage = false })
+    }
+    if (showSessionDetails) {
+        SessionDetailsSheet(ui = ui, viewModel = viewModel, onDismiss = { showSessionDetails = false })
+    }
     val pickImages = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(AttachmentPrep.MAX_COUNT),
     ) { uris -> if (uris.isNotEmpty()) viewModel.addAttachments(uris, context.contentResolver) }
@@ -354,13 +365,6 @@ fun SessionDetailScreen(
                 ) {
                     NoticeBanner(lastNotice, onDismiss = viewModel::dismissNotice)
                 }
-                AnimatedVisibility(
-                    visible = ui.sendStatus != null && ui.isInFlight,
-                    enter = fadeIn(tween(160)),
-                    exit = fadeOut(tween(160)),
-                ) {
-                    SendStatusLine(ui.sendStatus ?: "")
-                }
                 if (ui.attachments.isNotEmpty()) AttachmentStrip(ui.attachments, onRemove = viewModel::removeAttachment)
                 ComposeBar(
                     text = draft,
@@ -379,7 +383,24 @@ fun SessionDetailScreen(
                     onTocClick = if (tocEntries.isNotEmpty()) ({ showToc = true }) else null,
                     onExpandClick = { showFullscreenEditor = true },
                     canSendOverride = ui.attachments.isNotEmpty(),
-                    contextBar = { SessionContextChips(ui = ui, viewModel = viewModel, onOpenOptions = { showOptions = true }) },
+                    statusBar = { SessionStatusRow(ui = ui) },
+                    contextBar = {
+                        SessionContextChips(
+                            ui = ui,
+                            viewModel = viewModel,
+                            onOpenOptions = { showOptions = true },
+                            onOpenContextUsage = { showContextUsage = true },
+                            onOpenSessionDetails = { showSessionDetails = true },
+                        )
+                    },
+                    commandSuggestions = ui.availableCommands,
+                    onPickCommand = { command ->
+                        // Insert rather than send: the user reviews the command before firing,
+                        // and a command that takes arguments keeps the cursor after the space.
+                        val next = "/" + command.name.removePrefix("/") + " "
+                        draft = next
+                        viewModel.saveDraft(next)
+                    },
                 )
             }
         },
@@ -659,17 +680,58 @@ private fun JumpToLatestButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun SendStatusLine(status: String) {
+private fun SessionStatusRow(ui: SessionDetailUiState) {
     val colors = CodegTheme.colors
-    Text(
-        text = status,
-        fontSize = 12.sp,
-        color = colors.textTertiary,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(colors.bgElevated.copy(alpha = 0.92f))
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-    )
+    AnimatedVisibility(
+        visible = ui.isInFlight,
+        enter = fadeIn(tween(160)),
+        exit = fadeOut(tween(160)),
+    ) {
+        // A 1s ticker drives the elapsed clock; it only exists while the row is visible,
+        // so an idle session costs nothing.
+        var now by remember { mutableStateOf(System.currentTimeMillis()) }
+        LaunchedEffect(ui.runStartedAt, ui.isInFlight) {
+            while (ui.isInFlight) {
+                now = System.currentTimeMillis()
+                delay(1000)
+            }
+        }
+        val startedAt = ui.runStartedAt
+        val elapsed = startedAt?.let {
+            val parts = elapsedParts(now - it)
+            when {
+                parts.hours > 0 -> stringResource(
+                    R.string.elapsed_hours_minutes,
+                    parts.hours.toInt(),
+                    parts.minutes.toInt(),
+                )
+                parts.minutes > 0 -> stringResource(
+                    R.string.elapsed_minutes_seconds,
+                    parts.minutes.toInt(),
+                    parts.seconds.toInt(),
+                )
+                else -> stringResource(R.string.elapsed_seconds, parts.seconds.toInt())
+            }
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LivePulse(dotSize = 7.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(R.string.session_status_generating),
+                fontSize = 12.sp,
+                color = colors.textSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            if (elapsed != null) {
+                Text(elapsed, fontSize = 12.sp, color = colors.textTertiary)
+            }
+        }
+    }
 }
 
 @Composable
@@ -738,6 +800,8 @@ private fun SessionContextChips(
     ui: SessionDetailUiState,
     viewModel: SessionDetailViewModel,
     onOpenOptions: () -> Unit,
+    onOpenContextUsage: () -> Unit,
+    onOpenSessionDetails: () -> Unit,
 ) {
     val colors = CodegTheme.colors
     val editable = ui.isDraftEditable && !ui.isInFlight
@@ -748,6 +812,31 @@ private fun SessionContextChips(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Context-window gauge (the web client's above-composer popup trigger).
+        if (ui.sessionStats != null) {
+            item(key = "ctx-usage") {
+                ContextChip(
+                    icon = Icons.Rounded.DataUsage,
+                    label = stringResource(
+                        R.string.context_usage_chip,
+                        ui.sessionStats?.contextWindowUsagePercent?.let(::formatPercent) ?: "—",
+                    ),
+                    contentDescription = stringResource(R.string.context_usage_title),
+                    enabled = true,
+                    onClick = onOpenContextUsage,
+                )
+            }
+        }
+        // Session handoff card: working dir, CLI id, JSON export, reconnect.
+        item(key = "ctx-session-info") {
+            ContextChip(
+                icon = Icons.Rounded.Info,
+                label = stringResource(R.string.session_info_chip),
+                contentDescription = stringResource(R.string.session_info_chip),
+                enabled = true,
+                onClick = onOpenSessionDetails,
+            )
+        }
         // Device chip: read-only. A session is pinned to its server; switching devices
         // happens on the Servers tab, not mid-composer.
         if (ui.serverName != null) {

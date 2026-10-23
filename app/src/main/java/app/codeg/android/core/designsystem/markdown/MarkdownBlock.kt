@@ -84,7 +84,13 @@ fun parseMarkdownBlocks(raw: String): List<MarkdownBlock> {
             while (i < lines.size && lines[i].contains("|") && lines[i].trim().isNotEmpty()) {
                 rows.add(tableCells(lines[i])); i += 1
             }
-            blocks.add(MarkdownBlock.Table(header, rows))
+            // Ragged GFM rows are legal but the renderer aligns cells by index, so
+            // pad header and every row to the widest one. `maxOfOrNull` keeps a
+            // header-only table (no data rows) from crashing.
+            val columns = maxOf(header.size, rows.maxOfOrNull { it.size } ?: 0)
+            val paddedHeader = header + List(columns - header.size) { "" }
+            val paddedRows = rows.map { row -> row + List(columns - row.size) { "" } }
+            blocks.add(MarkdownBlock.Table(paddedHeader, paddedRows))
             continue
         }
 

@@ -24,26 +24,32 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.codeg.android.R
+import app.codeg.android.core.designsystem.component.LivePulse
 import app.codeg.android.core.designsystem.markdown.MarkdownContent
 import app.codeg.android.core.designsystem.theme.CodegTheme
 
 /**
  * A collapsible "Reasoning" disclosure for an agent's thinking text. Port of the
- * iOS `ReasoningBlock` (finalized state — default collapsed; live auto-expand
- * arrives in M4).
+ * iOS `ReasoningBlock`.
+ *
+ * Always starts collapsed — including while streaming. The state is keyed to the
+ * timeline item (not to [text]), so the deltas that grow the block during a turn
+ * cannot force it back open; once the user expands it they can collapse it again.
  */
 @Composable
-fun ReasoningBlock(text: String, modifier: Modifier = Modifier, initiallyExpanded: Boolean = false) {
+fun ReasoningBlock(text: String, modifier: Modifier = Modifier, streaming: Boolean = false) {
     val colors = CodegTheme.colors
-    var expanded by remember(text) { mutableStateOf(initiallyExpanded) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier
@@ -61,12 +67,16 @@ fun ReasoningBlock(text: String, modifier: Modifier = Modifier, initiallyExpande
         ) {
             Icon(Icons.Rounded.Psychology, null, tint = colors.textTertiary, modifier = Modifier.size(15.dp))
             Text(
-                "Reasoning",
+                stringResource(R.string.reasoning_title),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 color = colors.textSecondary,
                 modifier = Modifier.weight(1f),
             )
+            if (streaming && !expanded) {
+                // A quiet "still working" cue replaces the old forced auto-expand.
+                LivePulse(dotSize = 6.dp)
+            }
             Icon(
                 if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                 contentDescription = null,

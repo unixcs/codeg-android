@@ -86,7 +86,7 @@ fun NodeBody(node: TimelineNode, modifier: Modifier = Modifier) {
             } else {
                 SingleBlockView(c.block, modifier)
             }
-        is NodeContent.Reasoning -> ReasoningBlock(c.text, modifier, initiallyExpanded = c.streaming)
+        is NodeContent.Reasoning -> ReasoningBlock(c.text, modifier, streaming = c.streaming)
         is NodeContent.Tool -> ToolCallCard(c.vm, modifier)
         is NodeContent.ToolGroup -> ToolGroupCard(c.items, modifier, streaming = c.streaming)
         is NodeContent.Image -> InlineImage(c.image, c.caption, modifier)

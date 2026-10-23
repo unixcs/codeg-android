@@ -8,8 +8,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,8 +20,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.Add
@@ -41,10 +45,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.core.model.AvailableCommandInfo
 
 /**
  * The prompt composer pinned to the bottom of the session detail screen. Two-row
@@ -56,7 +64,9 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
  *
  * [contextBar] renders above the field (the session's context chips — device /
  * folder / agent — for a new-task draft); it shares the composer's background so
- * the whole bottom block reads as one surface.
+ * the whole bottom block reads as one surface. [statusBar] sits above it (the
+ * "generating + elapsed" run line). Typing a slash prefix opens the agent's
+ * [commandSuggestions] list above the field; picking one inserts it.
  */
 @Composable
 fun ComposeBar(
@@ -72,6 +82,9 @@ fun ComposeBar(
     onExpandClick: (() -> Unit)? = null,
     canSendOverride: Boolean = false,
     contextBar: (@Composable () -> Unit)? = null,
+    statusBar: (@Composable () -> Unit)? = null,
+    commandSuggestions: List<AvailableCommandInfo> = emptyList(),
+    onPickCommand: ((AvailableCommandInfo) -> Unit)? = null,
 ) {
     val colors = CodegTheme.colors
     val canSend = (text.isNotBlank() || canSendOverride) && !isInFlight
@@ -81,6 +94,15 @@ fun ComposeBar(
         label = "send-container",
     )
     val showExpand = text.length > 120 || text.count { it == '\n' } >= 2
+    // Only a bare slash prefix is a command query: "/compact" matches, "/compact now"
+    // does not (the command was already picked and the user is typing arguments).
+    val slashQuery = text.takeIf { it.startsWith("/") && it.none { c -> c == ' ' || c == '\n' } }
+    val matches = if (slashQuery == null || onPickCommand == null) {
+        emptyList()
+    } else {
+        val query = slashQuery.removePrefix("/")
+        commandSuggestions.filter { it.name.removePrefix("/").startsWith(query, ignoreCase = true) }
+    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         // A hairline setting the composer off from the timeline above it — the same
@@ -94,8 +116,16 @@ fun ComposeBar(
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            // Run status (generating + elapsed) — the web client's above-composer line.
+            if (statusBar != null) statusBar()
+
             // Context chips (device / folder / agent) — visible without tapping anything.
             if (contextBar != null) contextBar()
+
+            // Slash-command palette, opened by typing "/" (filtered as the user types).
+            if (matches.isNotEmpty()) {
+                CommandPalette(matches, onPick = onPickCommand!!)
+            }
 
             // The field: full width, nothing flanking it.
             Box(
@@ -210,6 +240,60 @@ fun ComposeBar(
                             imageVector = if (inFlight) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward,
                             contentDescription = if (inFlight) stringResource(R.string.compose_stop) else stringResource(R.string.compose_send),
                             modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The slash-command palette: the agent's advertised commands, filtered by the typed prefix. */
+@Composable
+private fun CommandPalette(
+    commands: List<AvailableCommandInfo>,
+    onPick: (AvailableCommandInfo) -> Unit,
+) {
+    val colors = CodegTheme.colors
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = colors.codeSurface,
+        border = BorderStroke(0.5.dp, colors.surfaceStroke),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
+            commands.forEach { command ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onPick(command) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "/" + command.name.removePrefix("/"),
+                            fontSize = 13.sp,
+                            color = colors.textPrimary,
+                        )
+                        command.description?.takeIf { it.isNotBlank() }?.let { description ->
+                            Text(
+                                description,
+                                fontSize = 11.sp,
+                                color = colors.textSecondary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    command.inputHint?.takeIf { it.isNotBlank() }?.let { hint ->
+                        Text(
+                            hint,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = colors.textTertiary,
+                            maxLines = 1,
                         )
                     }
                 }

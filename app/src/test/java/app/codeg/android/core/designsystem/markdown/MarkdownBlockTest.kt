@@ -43,6 +43,22 @@ class MarkdownBlockTest {
     }
 
     @Test
+    fun `ragged table rows are padded to the widest row`() {
+        val blocks = parseMarkdownBlocks("| A | B |\n| --- | --- |\n| 1 |\n| 1 | 2 | 3 |")
+        val table = blocks.single() as MarkdownBlock.Table
+        assertEquals(listOf("A", "B", ""), table.header)
+        assertEquals(listOf(listOf("1", "", ""), listOf("1", "2", "3")), table.rows)
+    }
+
+    @Test
+    fun `header only table parses without rows`() {
+        val blocks = parseMarkdownBlocks("| A | B |\n| --- | --- |")
+        val table = blocks.single() as MarkdownBlock.Table
+        assertEquals(listOf("A", "B"), table.header)
+        assertTrue(table.rows.isEmpty())
+    }
+
+    @Test
     fun `blockquote groups consecutive lines`() {
         val blocks = parseMarkdownBlocks("> line one\n> line two")
         assertTrue(blocks.single() is MarkdownBlock.Quote)

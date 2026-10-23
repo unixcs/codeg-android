@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.time.Instant
 
 /** Status of a live ACP connection (Rust `ConnectionStatus`). Unknown → [ERROR]. */
 enum class ConnectionStatus(val wire: String) {
@@ -121,6 +122,8 @@ sealed interface AcpEvent {
     data class PlanApprovalResolved(val approvalId: String) : AcpEvent
     /** The agent's live plan / TODO list (display only; does not block the turn). */
     data class PlanUpdate(val entries: List<PlanEntry>) : AcpEvent
+    /** The agent (re)published its slash commands for this session. */
+    data class AvailableCommands(val commands: List<AvailableCommandInfo>) : AcpEvent
     data class Unknown(val type: String) : AcpEvent
 
     companion object {
@@ -201,6 +204,9 @@ sealed interface AcpEvent {
                 "plan_update" -> PlanUpdate(
                     entries = decodeList(json, obj["entries"], PlanEntry.serializer()),
                 )
+                "available_commands" -> AvailableCommands(
+                    commands = decodeList(json, obj["commands"], AvailableCommandInfo.serializer()),
+                )
                 else -> Unknown(type)
             }
         }
@@ -208,13 +214,13 @@ sealed interface AcpEvent {
         private fun JsonObject.intOrZero(key: String): Int =
             (this[key] as? kotlinx.serialization.json.JsonPrimitive)
                 ?.let { runCatching { it.content.toInt() }.getOrNull() } ?: 0
-
-        private fun <T> decodeList(json: Json, element: JsonElement?, serializer: KSerializer<T>): List<T> {
-            val arr = element as? JsonArray ?: return emptyList()
-            return runCatching { json.decodeFromJsonElement(ListSerializer(serializer), arr) }
-                .getOrDefault(emptyList())
-        }
     }
+}
+
+private fun <T> decodeList(json: Json, element: JsonElement?, serializer: KSerializer<T>): List<T> {
+    val arr = element as? JsonArray ?: return emptyList()
+    return runCatching { json.decodeFromJsonElement(ListSerializer(serializer), arr) }
+        .getOrDefault(emptyList())
 }
 
 /**
@@ -258,6 +264,7 @@ data class LiveSessionSnapshot(
     val pendingPermission: PendingPermissionSnapshot?,
     val pendingQuestion: PendingQuestionSnapshot?,
     val pendingPlanApproval: PendingPlanApprovalSnapshot?,
+    val availableCommands: List<AvailableCommandInfo> = emptyList(),
 ) {
     companion object {
         fun fromWire(obj: JsonObject, json: Json): LiveSessionSnapshot =
@@ -279,6 +286,7 @@ data class LiveSessionSnapshot(
                     ?.let { PendingQuestionSnapshot.fromWire(it, json) },
                 pendingPlanApproval = obj.objectOrNull("pending_plan_approval")
                     ?.let(PendingPlanApprovalSnapshot::fromWire),
+                availableCommands = decodeList(json, obj["available_commands"], AvailableCommandInfo.serializer()),
             )
 
         private fun JsonObject.intOrNull(key: String): Int? =
@@ -288,13 +296,19 @@ data class LiveSessionSnapshot(
 }
 
 /** The in-flight assistant message carried by a snapshot (Rust `LiveMessage`). */
-data class LiveMessageSnapshot(val content: List<LiveContentBlockSnapshot>) {
+data class LiveMessageSnapshot(
+    val content: List<LiveContentBlockSnapshot>,
+    /** Server-side turn start (Rust `started_at`, an RFC 3339 string) in epoch millis. */
+    val startedAt: Long? = null,
+) {
     companion object {
         fun fromWire(obj: JsonObject, json: Json): LiveMessageSnapshot =
             LiveMessageSnapshot(
                 content = obj.arrayOrNull("content")
                     ?.mapNotNull { (it as? JsonObject)?.let { o -> LiveContentBlockSnapshot.fromWire(o, json) } }
                     ?: emptyList(),
+                startedAt = obj.stringOrNull("started_at")
+                    ?.let { raw -> runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull() },
             )
     }
 }

@@ -16,6 +16,11 @@ jobs:
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Job-level so the Telegram step can gate on `env.X != ''` (the secrets context
+    # is not available in step `if` conditions).
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -228,3 +233,47 @@ jobs:
           gh release edit "$latest_tag" \
             --repo "$GITHUB_REPOSITORY" \
             --latest
+
+      # Direct download links (not just the Release page) so a phone tap starts the
+      # download. Skipped silently when the Telegram secrets are not configured.
+      - name: Send the Release link to Telegram
+        if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          modern_url="$base/codeg-android-$GITHUB_REF_NAME.apk"
+          legacy_url="$base/codeg-android-$GITHUB_REF_NAME-legacy.apk"
+          page_url="https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+          modern_sha=$(cut -d' ' -f1 "${{ steps.package.outputs.checksum }}")
+          legacy_sha=$(cut -d' ' -f1 "${{ steps.package.outputs.legacy_checksum }}")
+
+          TG_TEXT=$(printf 'Codeg for Android %s\n\nAndroid 12+（现代版）\n%s\n\nAndroid 9+（兼容版）\n%s\n\nRelease 页\n%s\n\nSHA-256 现代版\n%s\nSHA-256 兼容版\n%s' \
+            "$GITHUB_REF_NAME" "$modern_url" "$legacy_url" "$page_url" "$modern_sha" "$legacy_sha")
+          export TG_TEXT
+
+          payload="$RUNNER_TEMP/telegram-payload.json"
+          config="$RUNNER_TEMP/telegram-curl.cfg"
+          cleanup() { rm -f "$payload" "$config"; }
+          trap cleanup EXIT
+          umask 077
+
+          # JSON body keeps the multi-line text intact; the token lives only in the
+          # 0600 curl config (never on a command line or in the payload).
+          python3 - "$payload" <<'PY'
+          import json, os, sys
+          with open(sys.argv[1], "w", encoding="utf-8") as fh:
+              json.dump({
+                  "chat_id": os.environ["TELEGRAM_CHAT_ID"],
+                  "text": os.environ["TG_TEXT"],
+                  "disable_web_page_preview": True,
+              }, fh, ensure_ascii=False)
+          PY
+          chmod 600 "$payload"
+          {
+            printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TELEGRAM_BOT_TOKEN"
+            printf 'header = "Content-Type: application/json"\n'
+            printf 'silent\nshow-error\nfail\n'
+          } > "$config"
+          chmod 600 "$config"
+          curl --config "$config" --data-binary "@$payload" > /dev/null
