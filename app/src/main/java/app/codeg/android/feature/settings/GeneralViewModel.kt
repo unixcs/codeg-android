@@ -3,15 +3,19 @@ package app.codeg.android.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.AppSettings
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.network.CodegClient
 import app.codeg.android.core.network.displayMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -25,10 +29,15 @@ import javax.inject.Inject
 @HiltViewModel
 class GeneralViewModel @Inject constructor(
     private val repository: ServerRepository,
+    private val appSettingsStore: AppSettingsStore,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(GeneralUiState())
     val ui: StateFlow<GeneralUiState> = _ui.asStateFlow()
+
+    /** Local shell prefs: bottom-tab order + cold-start tab. */
+    val settings: StateFlow<AppSettings> = appSettingsStore.settings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
 
     private var client: CodegClient? = null
     private var delegationRaw: JsonObject = JsonObject(emptyMap())
@@ -96,6 +105,14 @@ class GeneralViewModel @Inject constructor(
     }
 
     private fun reload() = load()
+
+    fun setHomeTabOrder(routes: List<String>) {
+        viewModelScope.launch { appSettingsStore.setHomeTabOrder(routes) }
+    }
+
+    fun setStartTab(route: String) {
+        viewModelScope.launch { appSettingsStore.setStartTab(route) }
+    }
 }
 
 data class GeneralUiState(

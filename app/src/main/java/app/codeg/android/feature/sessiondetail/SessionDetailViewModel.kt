@@ -213,6 +213,7 @@ class SessionDetailViewModel @Inject constructor(
                         it.copy(
                             loading = false,
                             summary = detail.summary,
+                            serverName = p.name,
                             turns = detail.turns,
                             sessionStats = detail.sessionStats,
                             agent = detail.summary.agentType,
@@ -249,6 +250,7 @@ class SessionDetailViewModel @Inject constructor(
                     _ui.update {
                         it.copy(
                             loading = false,
+                            serverName = p.name,
                             agent = agent,
                             folderName = folder?.let { f -> FolderVisibility.displayName(f, allFolders) },
                             folderPath = folder?.path,
@@ -1613,6 +1615,8 @@ data class SessionDetailUiState(
     val isNew: Boolean,
     val loading: Boolean = false,
     val summary: ConversationSummary? = null,
+    /** The connected server's display name — the "which device am I on" chip. */
+    val serverName: String? = null,
     val folderName: String? = null,
     val folderPath: String? = null,
     val selectedFolderId: Int? = null,

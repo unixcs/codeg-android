@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -40,14 +41,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.AltRoute
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -72,14 +79,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,6 +105,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.common.RelativeTime
 import app.codeg.android.core.designsystem.component.AgentAvatar
+import app.codeg.android.core.designsystem.component.AgentVisuals
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
@@ -366,6 +379,7 @@ fun SessionDetailScreen(
                     onTocClick = if (tocEntries.isNotEmpty()) ({ showToc = true }) else null,
                     onExpandClick = { showFullscreenEditor = true },
                     canSendOverride = ui.attachments.isNotEmpty(),
+                    contextBar = { SessionContextChips(ui = ui, viewModel = viewModel, onOpenOptions = { showOptions = true }) },
                 )
             }
         },
@@ -706,6 +720,195 @@ private fun AttachmentStrip(attachments: List<Attachment>, onRemove: (String) ->
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_remove), tint = colors.textPrimary, modifier = Modifier.size(12.dp)) }
             }
+        }
+    }
+}
+
+/**
+ * The composer's context chips (① in the batch-v106 plan): device · folder · agent,
+ * always visible so a new-task screen answers "where / what am I talking to" without a
+ * trip to the top-right avatar. On a draft the folder and agent chips are tappable
+ * pickers wired to the existing [SessionDetailViewModel.selectFolder]/[selectAgent];
+ * everything else (branch, mode/config, the same pickers with full descriptions)
+ * stays in AgentOptionsSheet via the trailing "⋯" chip — the top-right avatar remains
+ * the untouched fallback entry point.
+ */
+@Composable
+private fun SessionContextChips(
+    ui: SessionDetailUiState,
+    viewModel: SessionDetailViewModel,
+    onOpenOptions: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    val editable = ui.isDraftEditable && !ui.isInFlight
+    val agentDescription = stringResource(R.string.compose_ctx_agent)
+
+    LazyRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Device chip: read-only. A session is pinned to its server; switching devices
+        // happens on the Servers tab, not mid-composer.
+        if (ui.serverName != null) {
+            item(key = "ctx-device") {
+                ContextChip(
+                    icon = Icons.Rounded.Dns,
+                    label = ui.serverName,
+                    contentDescription = stringResource(R.string.compose_ctx_device),
+                    enabled = false,
+                )
+            }
+        }
+        // Folder chip: dropdown of the draft's available folders.
+        if (ui.folderName != null || editable) {
+            item(key = "ctx-folder") {
+                if (editable) {
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
+                        ContextChip(
+                            icon = Icons.Rounded.Folder,
+                            label = ui.folderName ?: stringResource(R.string.agentopts_choose_folder),
+                            contentDescription = stringResource(R.string.compose_ctx_folder),
+                            enabled = ui.availableFolders.isNotEmpty(),
+                            onClick = { expanded = true },
+                        )
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            ui.availableFolders.forEach { f ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(f.name, fontSize = 14.sp, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(f.path, fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = colors.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.Folder, null, tint = if (f.id == ui.selectedFolderId) colors.accent else colors.textTertiary, modifier = Modifier.size(16.dp)) },
+                                    onClick = { viewModel.selectFolder(f); expanded = false },
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    ContextChip(
+                        icon = Icons.Rounded.Folder,
+                        label = ui.folderName ?: "—",
+                        contentDescription = stringResource(R.string.compose_ctx_folder),
+                        enabled = false,
+                    )
+                }
+            }
+        }
+        // Branch chip: shows the resolved branch; tapping opens the full sheet (which
+        // hosts the worktree-aware branch picker — too heavy for a dropdown).
+        if (ui.currentBranch != null) {
+            item(key = "ctx-branch") {
+                ContextChip(
+                    icon = Icons.AutoMirrored.Rounded.AltRoute,
+                    label = ui.currentBranch,
+                    contentDescription = stringResource(R.string.agentopts_branch),
+                    enabled = true,
+                    onClick = onOpenOptions,
+                )
+            }
+        }
+        // Agent chip: horizontal avatar row of the draft's installed agents.
+        if (editable && ui.availableAgents.isNotEmpty()) {
+            item(key = "ctx-agent") {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.codeSurface)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        // One semantic control: "Agent — pick from these avatars".
+                        .semantics { contentDescription = agentDescription },
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ui.availableAgents.forEach { agent ->
+                        val selected = agent == ui.agent
+                        Box(
+                            Modifier
+                                .then(
+                                    if (selected) Modifier.border(
+                                        1.5.dp,
+                                        AgentVisuals.accent(agent),
+                                        CircleShape,
+                                    ) else Modifier,
+                                )
+                                .clip(CircleShape)
+                                .clickable { viewModel.selectAgent(agent) },
+                        ) {
+                            AgentAvatar(agent, size = 24.dp, modifier = Modifier.alpha(if (selected) 1f else 0.55f))
+                        }
+                    }
+                }
+            }
+        } else {
+            item(key = "ctx-agent-label") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AgentAvatar(ui.agent, size = 20.dp)
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        ui.agent.shortName,
+                        fontSize = 11.sp,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+        // Overflow chip → the full options sheet (mode/config/branch + the same pickers).
+        item(key = "ctx-more") {
+            ContextChip(
+                icon = Icons.Rounded.MoreHoriz,
+                label = null,
+                contentDescription = stringResource(R.string.session_agent_options),
+                enabled = true,
+                onClick = onOpenOptions,
+            )
+        }
+    }
+}
+
+/**
+ * One pill in the context row. Disabled = read-only context (device, a live session's
+ * locked folder); enabled = opens a picker. Long labels ellipsize rather than wrap —
+ * the row scrolls horizontally.
+ */
+@Composable
+private fun ContextChip(
+    icon: ImageVector,
+    label: String?,
+    contentDescription: String,
+    enabled: Boolean,
+    onClick: (() -> Unit)? = null,
+) {
+    val colors = CodegTheme.colors
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.codeSurface)
+            .then(if (enabled && onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .alpha(if (enabled) 1f else 0.7f),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) colors.accent else colors.textTertiary,
+            modifier = Modifier.size(13.dp),
+        )
+        if (!label.isNullOrBlank()) {
+            Text(
+                label,
+                fontSize = 11.sp,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 130.dp),
+            )
         }
     }
 }

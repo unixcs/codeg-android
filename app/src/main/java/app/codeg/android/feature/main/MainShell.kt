@@ -88,7 +88,19 @@ enum class HomeTab(
     FOLDERS("folders", R.string.tab_folders, Icons.Outlined.FolderOpen, Icons.Rounded.FolderOpen),
     ACTIVITY("activity", R.string.tab_activity, Icons.Outlined.Bolt, Icons.Rounded.Bolt),
     SEARCH("search", R.string.tab_search, Icons.Outlined.Search, Icons.Rounded.Search),
-    SETTINGS("settings", R.string.tab_settings, Icons.Outlined.Settings, Icons.Rounded.Settings),
+    SETTINGS("settings", R.string.tab_settings, Icons.Outlined.Settings, Icons.Rounded.Settings);
+
+    companion object {
+        /** Tabs in the user's saved order; unsaved/unknown routes keep enum order. */
+        fun orderedBy(savedOrder: List<String>): List<HomeTab> {
+            val known = savedOrder.mapNotNull { route -> entries.firstOrNull { it.route == route } }
+            val rest = entries.filterNot { known.contains(it) }
+            return known + rest
+        }
+
+        /** The tab matching a saved start route, falling back to [CHATS]. */
+        fun byRoute(route: String?): HomeTab = entries.firstOrNull { it.route == route } ?: CHATS
+    }
 }
 
 private const val ROUTE_SERVERS = "servers"
@@ -130,8 +142,19 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     val nav = rememberNavController()
     val backStackEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showBottomBar = HomeTab.entries.any { it.route == currentRoute }
-    val tabRoutes = remember { HomeTab.entries.map { it.route }.toSet() }
+    // User-customized bottom-tab order + cold-start tab (Settings → General). The
+    // enum is only the fallback; every render here goes through `homeTabs`. The
+    // shell holds until the settings flow has emitted once so the first frame is
+    // already in the saved order / start tab (no default-order flash on cold start).
+    val settingsLoaded by appViewModel.settingsLoaded.collectAsStateWithLifecycle()
+    val appSettings by appViewModel.settings.collectAsStateWithLifecycle()
+    val homeTabs = remember(appSettings.homeTabOrder) { HomeTab.orderedBy(appSettings.homeTabOrder) }
+    // The start destination is bound once per shell lifetime: NavHost rebuilds (and
+    // wipes) the whole graph when startDestination changes, so a runtime edit must
+    // not feed through here — it takes effect on the next cold start.
+    val startTab = remember { HomeTab.byRoute(appSettings.startTab) }
+    val showBottomBar = homeTabs.any { it.route == currentRoute }
+    val tabRoutes = remember(homeTabs) { homeTabs.map { it.route }.toSet() }
     val selectedProfile by appViewModel.selectedProfile.collectAsStateWithLifecycle()
     // Aggregate "All devices" mode (Activity tab), owned by ServerRepository so the
     // ActivityViewModel can react without ViewModel-to-ViewModel injection.
@@ -198,13 +221,13 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     }
 
     // Horizontal swipe between the bottom tabs: drag left → next tab, right →
-    // previous (HomeTab order). Only active on tab routes on narrow screens —
-    // full-screen pushes and the rail layout don't need it, and the gesture
-    // modifier itself skips the system back-gesture edge band.
-    val currentTabIndex = HomeTab.entries.indexOfFirst { it.route == currentRoute }
+    // previous (the user's HomeTab order). Only active on tab routes on narrow
+    // screens — full-screen pushes and the rail layout don't need it, and the
+    // gesture modifier itself skips the system back-gesture edge band.
+    val currentTabIndex = homeTabs.indexOfFirst { it.route == currentRoute }
     val swipeModifier = if (showBottomBar && !wide && currentTabIndex >= 0) {
         Modifier.tabSwipeNavigation(enabled = true) { direction ->
-            val entries = HomeTab.entries
+            val entries = homeTabs
             val next = when (direction) {
                 SwipeDirection.NEXT -> currentTabIndex + 1
                 SwipeDirection.PREVIOUS -> currentTabIndex - 1
@@ -244,6 +267,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             if (showBottomBar && !wide) {
                 CodegBottomBar(
                     currentRoute,
+                    homeTabs,
                     onTab,
                     // Report a shrinking height as the bar hides so the Scaffold gives the
                     // freed strip back to the content (the whole point — reclaim the space);
@@ -295,10 +319,10 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 )
             }
             androidx.compose.foundation.layout.Row {
-                if (showBottomBar && wide) CodegNavRail(currentRoute, onTab)
+                if (showBottomBar && wide) CodegNavRail(currentRoute, homeTabs, onTab)
             NavHost(
                 navController = nav,
-                startDestination = HomeTab.CHATS.route,
+                startDestination = startTab.route,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 // Material motion: lateral tab switches fade through; pushing a
                 // detail/editor slides in along the X axis (and back reverses it).
@@ -456,7 +480,11 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
 }
 
 @Composable
-private fun CodegNavRail(currentRoute: String?, onSelect: (HomeTab) -> Unit) {
+private fun CodegNavRail(
+    currentRoute: String?,
+    tabs: List<HomeTab>,
+    onSelect: (HomeTab) -> Unit,
+) {
     val colors = CodegTheme.colors
     // The wide-screen analogue of the bottom bar: the same frosted glass material,
     // delineated from the content by a trailing hairline rather than a top one.
@@ -464,7 +492,7 @@ private fun CodegNavRail(currentRoute: String?, onSelect: (HomeTab) -> Unit) {
         androidx.compose.material3.NavigationRail(
             containerColor = Color.Transparent,
         ) {
-            HomeTab.entries.forEach { tab ->
+            tabs.forEach { tab ->
                 val selected = currentRoute == tab.route
                 androidx.compose.material3.NavigationRailItem(
                     selected = selected,
@@ -497,6 +525,7 @@ private fun CodegNavRail(currentRoute: String?, onSelect: (HomeTab) -> Unit) {
 @Composable
 private fun CodegBottomBar(
     currentRoute: String?,
+    tabs: List<HomeTab>,
     onSelect: (HomeTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -514,7 +543,7 @@ private fun CodegBottomBar(
             containerColor = Color.Transparent,
             tonalElevation = 0.dp,
         ) {
-            HomeTab.entries.forEach { tab ->
+            tabs.forEach { tab ->
                 val selected = currentRoute == tab.route
                 NavigationBarItem(
                     selected = selected,

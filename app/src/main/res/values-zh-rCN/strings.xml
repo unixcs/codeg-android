@@ -323,6 +323,10 @@
     <string name="general_enable_delegation_subtitle">允许智能体将工作委派给子智能体。</string>
     <string name="general_max_depth_title">最大深度</string>
     <string name="general_max_depth_subtitle">智能体最多可委派的层级深度。</string>
+    <string name="general_shell_section">导航</string>
+    <string name="general_tab_order_title">底部标签排序</string>
+    <string name="general_tab_order_subtitle">点 ▲▼ 调整底部栏顺序；点行名把它设为启动时打开的页。</string>
+    <string name="general_start_tab_title">启动时默认打开</string>
 
     <!-- ===== Settings · Agents ===== -->
     <string name="agents_empty_title">暂无智能体</string>
@@ -620,6 +624,9 @@
     <string name="compose_send">发送</string>
     <string name="compose_expand">展开</string>
     <string name="compose_edit_fullscreen">编辑提示词</string>
+    <string name="compose_ctx_device">设备</string>
+    <string name="compose_ctx_folder">目录</string>
+    <string name="compose_ctx_agent">智能体</string>
     <string name="common_close">关闭</string>
     <string name="session_toc_open">消息列表</string>
     <string name="session_toc_image">[图片]</string>
@@ -703,6 +710,8 @@
     <string name="code_show_less">收起</string>
     <string name="code_show_more_lines">再显示 %1$d 行</string>
     <string name="code_copy">复制</string>
+    <string name="code_fullscreen">全屏</string>
+    <string name="code_line_count">%1$d 行</string>
 
     <!-- ===== Settings menu (navigation list) ===== -->
     <string name="settings_leaf_appearance">外观</string>

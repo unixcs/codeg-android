@@ -104,27 +104,47 @@ fun NodeBody(node: TimelineNode, modifier: Modifier = Modifier) {
     }
 }
 
-/** The user's prompt — a left-aligned faint-accent card filling the content column. */
+/**
+ * The user's prompt — a left-aligned faint-accent card filling the content column,
+ * with a copy affordance beneath it (② in batch-v106: sent prompts were previously
+ * uncopyable — the card is not text-selectable and had no button). Same CopyButton
+ * the reply footers use; joins every text block like TurnFooter does.
+ */
 @Composable
 private fun UserNodeBody(turn: MessageTurn, modifier: Modifier) {
     val colors = CodegTheme.colors
-    Column(
-        modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(colors.accent.copy(alpha = 0.12f))
-            .border(0.5.dp, colors.accent.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        for (block in turn.blocks) {
-            when (block) {
-                is ContentBlock.Text -> if (block.text.isNotBlank()) MarkdownContent(block.text)
-                is ContentBlock.Image -> InlineImage(block.image, null)
-                is ContentBlock.ImageGeneration ->
-                    if (block.image != null) InlineImage(block.image, block.revisedPrompt)
-                    else if (!block.revisedPrompt.isNullOrBlank()) MarkdownContent(block.revisedPrompt)
-                else -> {}
+    val copyText = remember(turn) {
+        turn.blocks
+            .mapNotNull { (it as? ContentBlock.Text)?.text?.takeIf { t -> t.isNotBlank() } }
+            .joinToString("\n\n")
+    }
+    Column(modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(colors.accent.copy(alpha = 0.12f))
+                .border(0.5.dp, colors.accent.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (block in turn.blocks) {
+                when (block) {
+                    is ContentBlock.Text -> if (block.text.isNotBlank()) MarkdownContent(block.text)
+                    is ContentBlock.Image -> InlineImage(block.image, null)
+                    is ContentBlock.ImageGeneration ->
+                        if (block.image != null) InlineImage(block.image, block.revisedPrompt)
+                        else if (!block.revisedPrompt.isNullOrBlank()) MarkdownContent(block.revisedPrompt)
+                    else -> {}
+                }
+            }
+        }
+        if (copyText.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                CopyButton(copyText)
             }
         }
     }

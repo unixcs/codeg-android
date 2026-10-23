@@ -29,13 +29,19 @@ import app.codeg.android.feature.server.ServerEditorScreen
 @Composable
 fun CodegApp(appViewModel: AppViewModel = hiltViewModel()) {
     val settings by appViewModel.settings.collectAsStateWithLifecycle()
+    val settingsLoaded by appViewModel.settingsLoaded.collectAsStateWithLifecycle()
 
     CodegTheme(themeMode = settings.themeMode, accentId = settings.accentId) {
         CodegBackground {
             val servers by appViewModel.servers.collectAsStateWithLifecycle()
-            when (val list = servers) {
-                null -> Splash()
-                else -> if (list.isEmpty()) OnboardingRoot() else MainShell(appViewModel, list)
+            // `settingsLoaded` keeps MainShell from composing on the DataStore
+            // defaults: the start tab / tab order must come from the saved values
+            // on the first frame (NavHost pins its start destination once).
+            val list = servers
+            when {
+                list == null || !settingsLoaded -> Splash()
+                list.isEmpty() -> OnboardingRoot()
+                else -> MainShell(appViewModel, list)
             }
         }
     }

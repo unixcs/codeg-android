@@ -1,15 +1,12 @@
 package app.codeg.android.feature.sessiondetail
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,7 +28,6 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -43,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -50,18 +47,16 @@ import app.codeg.android.R
 import app.codeg.android.core.designsystem.theme.CodegTheme
 
 /**
- * The prompt composer pinned to the bottom of the session detail screen: a
- * multiline text field flanked by an insert ("+"), attach, and send / stop
- * action. The send button morphs between Send and Stop with a Material
- * scale-and-fade transition and an accent↔danger colour tween. All actions are
- * Material [FilledIconButton] / [FilledTonalIconButton]s, so they carry native
- * ripples and 40dp touch targets.
+ * The prompt composer pinned to the bottom of the session detail screen. Two-row
+ * ChatGPT-style layout: the text field owns the FULL width in the top row (no
+ * side buttons stealing horizontal space), and every action sits in one bottom
+ * row — insert, attach on the left; expand (when the draft is long), send / stop
+ * on the right. The send button morphs between Send and Stop with a Material
+ * scale-and-fade transition and an accent↔danger colour tween.
  *
- * Two overflow affordances keep long content comfortable without crowding the
- * row: [onTocClick] renders a small square "message list" button embedded in the
- * field's top-right corner (the row stays at five controls), and [onExpandClick]
- * surfaces a compact "expand" pill below the field once the draft grows past
- * ~2 lines / 120 chars — it opens the fullscreen editor owned by the screen.
+ * [contextBar] renders above the field (the session's context chips — device /
+ * folder / agent — for a new-task draft); it shares the composer's background so
+ * the whole bottom block reads as one surface.
  */
 @Composable
 fun ComposeBar(
@@ -76,6 +71,7 @@ fun ComposeBar(
     onTocClick: (() -> Unit)? = null,
     onExpandClick: (() -> Unit)? = null,
     canSendOverride: Boolean = false,
+    contextBar: (@Composable () -> Unit)? = null,
 ) {
     val colors = CodegTheme.colors
     val canSend = (text.isNotBlank() || canSendOverride) && !isInFlight
@@ -91,39 +87,20 @@ fun ComposeBar(
         // separator the bottom navigation bar uses, so every bottom-chrome surface is
         // delineated from its content the same way.
         HorizontalDivider(thickness = Dp.Hairline, color = colors.surfaceStroke)
-        Row(
-            modifier = Modifier
+        Column(
+            Modifier
                 .fillMaxWidth()
                 .background(colors.bgElevated.copy(alpha = 0.92f))
                 .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (onPlus != null) {
-                FilledTonalIconButton(
-                    onClick = onPlus,
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = colors.textPrimary.copy(alpha = 0.06f),
-                        contentColor = colors.textSecondary,
-                    ),
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.compose_insert), modifier = Modifier.size(22.dp))
-                }
-            }
-            if (onAttach != null) {
-                FilledTonalIconButton(
-                    onClick = onAttach,
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = colors.textPrimary.copy(alpha = 0.06f),
-                        contentColor = colors.textSecondary,
-                    ),
-                ) {
-                    Icon(Icons.Rounded.Image, contentDescription = stringResource(R.string.compose_attach_image), modifier = Modifier.size(20.dp))
-                }
-            }
+            // Context chips (device / folder / agent) — visible without tapping anything.
+            if (contextBar != null) contextBar()
+
+            // The field: full width, nothing flanking it.
             Box(
                 Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .heightIn(min = 40.dp)
                     .background(colors.codeSurface, RoundedCornerShape(20.dp))
                     .border(0.5.dp, colors.surfaceStroke, RoundedCornerShape(20.dp))
@@ -150,13 +127,13 @@ fun ComposeBar(
                         .padding(end = if (onTocClick != null) 30.dp else 0.dp),
                 )
                 if (onTocClick != null) {
-                    FilledTonalIconButton(
+                    FilledIconButton(
                         onClick = onTocClick,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(top = 1.dp, end = 1.dp)
                             .size(26.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = colors.textPrimary.copy(alpha = 0.08f),
                             contentColor = colors.textSecondary,
                         ),
@@ -170,71 +147,88 @@ fun ComposeBar(
                 }
             }
 
-            FilledIconButton(
-                onClick = { if (isInFlight) onStop() else onSend() },
-                enabled = canSend || isInFlight,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = sendContainer,
-                    contentColor = colors.onAccent,
-                    disabledContainerColor = colors.accent.copy(alpha = 0.4f),
-                    disabledContentColor = colors.onAccent.copy(alpha = 0.7f),
-                ),
-            ) {
-                AnimatedContent(
-                    targetState = isInFlight,
-                    transitionSpec = {
-                        (fadeIn(tween(150)) + scaleIn(tween(150), initialScale = 0.6f)) togetherWith
-                            (fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.6f))
-                    },
-                    label = "send-stop-icon",
-                ) { inFlight ->
-                    Icon(
-                        imageVector = if (inFlight) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward,
-                        contentDescription = if (inFlight) stringResource(R.string.compose_stop) else stringResource(R.string.compose_send),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        }
-        // The expand affordance lives BELOW the field (Telegram's placement): it only
-        // exists once the draft is long enough that the 6-line field feels cramped, so
-        // it never taxes the common one-liner case.
-        AnimatedVisibility(
-            visible = showExpand && onExpandClick != null,
-            enter = expandVertically(tween(160)) + fadeIn(tween(160)),
-            exit = shrinkVertically(tween(160)) + fadeOut(tween(160)),
-        ) {
+            // One action row under the field: + / 🖼 left, expand + send right.
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(colors.bgElevated.copy(alpha = 0.92f))
-                    .padding(end = 12.dp, bottom = 6.dp),
-                horizontalArrangement = Arrangement.End,
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Surface(
-                    onClick = { onExpandClick?.invoke() },
-                    shape = RoundedCornerShape(14.dp),
-                    color = colors.textPrimary.copy(alpha = 0.08f),
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                if (onPlus != null) {
+                    ComposerAction(Icons.Rounded.Add, stringResource(R.string.compose_insert), onPlus)
+                }
+                if (onAttach != null) {
+                    ComposerAction(Icons.Rounded.Image, stringResource(R.string.compose_attach_image), onAttach)
+                }
+                Box(Modifier.weight(1f))
+                // The expand affordance moved INTO the action row (Telegram's compact
+                // pill was a separate band below the field; here it costs no extra
+                // vertical space and only appears once the draft is long).
+                if (showExpand && onExpandClick != null) {
+                    Surface(
+                        onClick = { onExpandClick?.invoke() },
+                        shape = RoundedCornerShape(14.dp),
+                        color = colors.textPrimary.copy(alpha = 0.08f),
                     ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                Icons.Rounded.OpenInFull,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = colors.textSecondary,
+                            )
+                            Text(
+                                stringResource(R.string.compose_expand),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.textSecondary,
+                            )
+                        }
+                    }
+                }
+                FilledIconButton(
+                    onClick = { if (isInFlight) onStop() else onSend() },
+                    enabled = canSend || isInFlight,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = sendContainer,
+                        contentColor = colors.onAccent,
+                        disabledContainerColor = colors.accent.copy(alpha = 0.4f),
+                        disabledContentColor = colors.onAccent.copy(alpha = 0.7f),
+                    ),
+                ) {
+                    AnimatedContent(
+                        targetState = isInFlight,
+                        transitionSpec = {
+                            (fadeIn(tween(150)) + scaleIn(tween(150), initialScale = 0.6f)) togetherWith
+                                (fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.6f))
+                        },
+                        label = "send-stop-icon",
+                    ) { inFlight ->
                         Icon(
-                            Icons.Rounded.OpenInFull,
-                            contentDescription = null,
-                            modifier = Modifier.size(13.dp),
-                            tint = colors.textSecondary,
-                        )
-                        Text(
-                            stringResource(R.string.compose_expand),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.textSecondary,
+                            imageVector = if (inFlight) Icons.Rounded.Stop else Icons.Rounded.ArrowUpward,
+                            contentDescription = if (inFlight) stringResource(R.string.compose_stop) else stringResource(R.string.compose_send),
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                 }
             }
         }
+    }
+}
+
+/** A small round action button in the composer's bottom row (insert / attach). */
+@Composable
+private fun ComposerAction(icon: ImageVector, description: String, onClick: () -> Unit) {
+    val colors = CodegTheme.colors
+    FilledIconButton(
+        onClick = onClick,
+        colors = IconButtonDefaults.filledIconButtonColors(
+            containerColor = colors.textPrimary.copy(alpha = 0.06f),
+            contentColor = colors.textSecondary,
+        ),
+    ) {
+        Icon(icon, contentDescription = description, modifier = Modifier.size(20.dp))
     }
 }

@@ -9,6 +9,7 @@ import app.codeg.android.core.datastore.ServerProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -20,11 +21,17 @@ import javax.inject.Inject
 @HiltViewModel
 class AppViewModel @Inject constructor(
     private val serverRepository: ServerRepository,
-    appSettingsStore: AppSettingsStore,
+    private val appSettingsStore: AppSettingsStore,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = appSettingsStore.settings
-        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings.INITIAL)
+
+    /** False until DataStore's first emission lands — the shell holds on it so the
+     *  start tab / tab order are applied from the real saved values, not defaults. */
+    val settingsLoaded: StateFlow<Boolean> = appSettingsStore.settings
+        .map { true }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** null = not loaded yet (show a splash); non-null = loaded (possibly empty). */
     val servers: StateFlow<List<ServerProfile>?> = serverRepository.profiles
@@ -61,5 +68,13 @@ class AppViewModel @Inject constructor(
 
     fun deleteServer(id: String) {
         viewModelScope.launch { serverRepository.delete(id) }
+    }
+
+    fun setHomeTabOrder(routes: List<String>) {
+        viewModelScope.launch { appSettingsStore.setHomeTabOrder(routes) }
+    }
+
+    fun setStartTab(route: String) {
+        viewModelScope.launch { appSettingsStore.setStartTab(route) }
     }
 }
