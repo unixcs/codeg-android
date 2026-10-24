@@ -106,7 +106,7 @@ import app.codeg.android.core.model.SkillSaveBody
 import app.codeg.android.core.model.SkillDeleteBody
 import app.codeg.android.core.model.ExpertListItem
 import app.codeg.android.core.model.ExpertInstallStatus
-import app.codeg.android.core.model.ExpertAgentBody
+import app.codeg.android.core.model.ExpertLinkState
 import app.codeg.android.core.model.ExpertLinkBody
 import app.codeg.android.core.model.ExpertIdBody
 import app.codeg.android.core.model.ChatChannelInfo
@@ -273,9 +273,10 @@ class CodegClient(
      * Inject [text] into a running turn's steering channel (web "live feedback").
      * Valid only while a turn is in flight — the server rejects idle calls with a
      * 400 `invalid_input` whose message reads `no active turn`.
+     * The route has NO `acp_` prefix: the server registers `/submit_session_feedback`.
      */
     suspend fun submitSessionFeedback(connectionId: String, text: String) {
-        send("acp_submit_session_feedback", encode(SubmitFeedbackBody(connectionId, text)))
+        send("submit_session_feedback", encode(SubmitFeedbackBody(connectionId, text)))
     }
 
     /** Send a prompt to a live connection. The reply streams over the WebSocket. */
@@ -961,9 +962,30 @@ class CodegClient(
     suspend fun expertsList(): List<ExpertListItem> =
         decode(send("experts_list", encode(EmptyBody)), ListSerializer(ExpertListItem.serializer()))
 
-    /** Experts linked to one agent — used by the compose "+" Expert Skills menu (M10). */
-    suspend fun expertsListForAgent(agentType: AgentType): List<ExpertListItem> =
-        decode(send("experts_list_for_agent", encode(ExpertAgentBody(agentType))), ListSerializer(ExpertListItem.serializer()))
+    /**
+     * Experts usable by [agentType] — the compose "+" Expert Skills menu set.
+     *
+     * The server has no per-agent catalog endpoint (its `experts_list_for_agent`
+     * was removed upstream in 566c27f2), so this crosses the full catalog with
+     * `experts_list_all_install_statuses`: an expert counts only when its
+     * `(expertId, agentType)` install state is `linked_to_codeg`. Failure
+     * semantics mirror the web client's `use-enabled-skill-ids`:
+     * - statuses request fails, or the agent has NO status rows at all (e.g. an
+     *   unmanaged agent) → the full catalog (fail-open; the insert sheet is an
+     *   entry point, not a permission boundary);
+     * - rows exist but none linked → an empty list (the user unlinked
+     *   everything — that choice must be honored).
+     */
+    suspend fun expertsListForAgent(agentType: AgentType): List<ExpertListItem> {
+        val experts = decode(send("experts_list", encode(EmptyBody)), ListSerializer(ExpertListItem.serializer()))
+        val statuses = runCatching {
+            decodeCamel(
+                send("experts_list_all_install_statuses", encode(EmptyBody)),
+                ListSerializer(ExpertInstallStatus.serializer()),
+            )
+        }.getOrDefault(null) ?: return experts
+        return filterLinkedExperts(experts, statuses, agentType)
+    }
 
     /** An expert's markdown content (`experts_read_content`, bare string). */
     suspend fun expertReadContent(expertId: String): String =
@@ -1217,4 +1239,20 @@ class CodegClient(
             coerceInputValues = true
         }
     }
+}
+
+/**
+ * Cross the full expert catalog with per-agent install statuses (see
+ * [CodegClient.expertsListForAgent] for the failure semantics). Top-level so
+ * the filtering rules are testable without a client instance.
+ */
+internal fun filterLinkedExperts(
+    experts: List<ExpertListItem>,
+    statuses: List<ExpertInstallStatus>,
+    agentType: AgentType,
+): List<ExpertListItem> {
+    val rows = statuses.filter { it.agentType == agentType }
+    if (rows.isEmpty()) return experts
+    val linked = rows.filter { it.state == ExpertLinkState.LINKED_TO_CODEG }.mapTo(mutableSetOf()) { it.expertId }
+    return experts.filter { it.id in linked }
 }

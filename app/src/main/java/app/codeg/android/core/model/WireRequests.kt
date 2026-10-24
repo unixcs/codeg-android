@@ -317,9 +317,6 @@ data class SkillSaveBody(
 data class SkillDeleteBody(val agentType: AgentType, val scope: String, val skillId: String, val workspacePath: String? = null)
 
 @Serializable
-data class ExpertAgentBody(val agentType: AgentType)
-
-@Serializable
 data class ExpertLinkBody(val expertId: String, val agentType: AgentType)
 
 @Serializable
@@ -389,9 +386,10 @@ data class SetModeBody(val connectionId: String, val modeId: String)
 data class SetConfigOptionBody(val connectionId: String, val configId: String, val valueId: String)
 
 /**
- * Body for `acp_submit_session_feedback` — injects text into a running turn's
+ * Body for `submit_session_feedback` — injects text into a running turn's
  * steering channel (the web "live feedback"). Only valid while a turn is in
- * flight; the server answers `no active turn` otherwise.
+ * flight; the server answers `no active turn` otherwise. Note the route has
+ * no `acp_` prefix.
  */
 @Serializable
 data class SubmitFeedbackBody(val connectionId: String, val text: String)

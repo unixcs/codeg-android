@@ -878,10 +878,12 @@ private fun AttachmentStrip(attachments: List<Attachment>, onRemove: (String) ->
  * The composer's context chips (① in the batch-v106 plan): device · folder · agent,
  * always visible so a new-task screen answers "where / what am I talking to" without a
  * trip to the top-right avatar. On a draft the folder and agent chips are tappable
- * pickers wired to the existing [SessionDetailViewModel.selectFolder]/[selectAgent];
- * everything else (branch, mode/config, the same pickers with full descriptions)
- * stays in AgentOptionsSheet via the trailing "⋯" chip — the top-right avatar remains
- * the untouched fallback entry point.
+ * pickers wired to the existing [SessionDetailViewModel.selectFolder]/[selectAgent].
+ * Order (batch v122): the two "doors" — 会话信息 then the "⋯" options sheet — lead the
+ * passive context; the agent avatar row opens a draft (live sessions show no agent
+ * chip; the header avatar already names the agent). Everything the chips don't show
+ * (branch, mode/config, full descriptions) stays in AgentOptionsSheet — the top-right
+ * avatar remains the untouched fallback entry point.
  */
 @Composable
 private fun SessionContextChips(
@@ -901,10 +903,10 @@ private fun SessionContextChips(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Agent picker FIRST (batch v121): it's the highest-frequency control on this
-        // row — every new session starts with an agent pick — and the row scrolls
-        // horizontally, so first position is the only slot that never needs a swipe.
-        // The usage/plan gauges are run-time info and read fine one swipe in.
+        // Agent picker — drafts only (it's the pick that starts the session). A live
+        // session gets NO agent label chip: the header's avatar (top bar, also the
+        // options entry) already identifies the agent, and a read-only name card
+        // here spent row space without doing anything.
         if (editable && ui.availableAgents.isNotEmpty()) {
             item(key = "ctx-agent") {
                 Row(
@@ -934,19 +936,6 @@ private fun SessionContextChips(
                             AgentAvatar(agent, size = 24.dp, modifier = Modifier.alpha(if (selected) 1f else 0.55f))
                         }
                     }
-                }
-            }
-        } else {
-            item(key = "ctx-agent-label") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AgentAvatar(ui.agent, size = 20.dp)
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        ui.agent.shortName,
-                        fontSize = 11.sp,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                    )
                 }
             }
         }
@@ -992,6 +981,18 @@ private fun SessionContextChips(
                 contentDescription = stringResource(R.string.session_info_chip),
                 enabled = true,
                 onClick = onOpenSessionDetails,
+            )
+        }
+        // Overflow chip → the full options sheet (mode/config/branch + the same
+        // pickers). Sits right after 会话信息 per the user's call: the row's two
+        // "doors" lead, everything after is passive context.
+        item(key = "ctx-more") {
+            ContextChip(
+                icon = Icons.Rounded.MoreHoriz,
+                label = null,
+                contentDescription = stringResource(R.string.session_agent_options),
+                enabled = true,
+                onClick = onOpenOptions,
             )
         }
         // Device chip: read-only. A session is pinned to its server; switching devices
@@ -1056,16 +1057,6 @@ private fun SessionContextChips(
                     onClick = onOpenOptions,
                 )
             }
-        }
-        // Overflow chip → the full options sheet (mode/config/branch + the same pickers).
-        item(key = "ctx-more") {
-            ContextChip(
-                icon = Icons.Rounded.MoreHoriz,
-                label = null,
-                contentDescription = stringResource(R.string.session_agent_options),
-                enabled = true,
-                onClick = onOpenOptions,
-            )
         }
     }
 }

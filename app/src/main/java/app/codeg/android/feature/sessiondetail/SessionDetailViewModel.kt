@@ -1252,8 +1252,16 @@ class SessionDetailViewModel @Inject constructor(
      * - injected → the row leaves the queue;
      * - `no active turn` (the turn ended between tap and post — message-text match,
      *   the HTTP layer folds every feedback error into 400 `invalid_input`) →
-     *   delivered as a normal send instead;
-     * - `live feedback is disabled` → the row stays queued with a notice.
+     *   the row STAYS queued and the queue flush runs; [maybeFlushQueue] sends the
+     *   head through the ordinary prompt path (with backoff retries). An immediate
+     *   [send] here would be silently dropped — `send` no-ops while
+     *   `isInFlight` is still true (the TurnComplete frame may not have landed
+     *   yet), which would delete the row and lose the message. The row is also
+     *   NOT deleted before flushing: if it isn't the queue head it waits for a
+     *   later turn end like any other queued draft (FIFO), instead of jumping ahead.
+     * - anything else (`live feedback is disabled`, stale connection, oversized
+     *   draft, network) → the row stays queued with a notice. Keeping the row is
+     *   deliberate: a later flush delivers it as a normal prompt, so nothing is lost.
      */
     fun insertQueuedNow(id: String) {
         val item = _ui.value.queue.firstOrNull { it.id == id } ?: return
@@ -1270,12 +1278,10 @@ class SessionDetailViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (e is ApiError.Server && e.serverMessage.contains("no active turn", ignoreCase = true)) {
-                    // The turn just ended — deliver it as an ordinary message.
-                    removeQueued(id)
-                    send(item.text)
+                if (isNoActiveTurnError(e)) {
+                    // The turn just ended — deliver through the queue flush.
+                    maybeFlushQueue()
                 } else {
-                    // FeedbackDisabled, network, anything else: keep the row queued.
                     _ui.update { it.copy(notice = appContext.getString(R.string.queue_insert_unsupported)) }
                 }
             }
@@ -1283,9 +1289,10 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     /**
-     * Try to flush the queue's head as a normal message. Called ONLY from
-     * [reconcileAfterTurn]'s advanced branch (finalizeTurn funnels through it, so a
-     * hook there would double-fire). The delay gives the reconcile room to finish —
+     * Try to flush the queue's head as a normal message. Called from
+     * [reconcileAfterTurn]'s advanced branch and from [insertQueuedNow]'s
+     * no-active-turn fallback (finalizeTurn funnels through reconcile, so a hook
+     * there would double-fire). The delay gives the reconcile room to finish —
      * an immediate send would cancel it mid-flight and fold the finished turn as a
      * `live-*` snapshot, losing its usage/duration/model/completedAt footer.
      */
@@ -2240,6 +2247,18 @@ data class QueuedDraft(
 
 /** Result of a queued-flush send attempt — see [SessionDetailViewModel.sendQueued]. */
 internal enum class SendOutcome { SENT, BUSY, FAILED }
+
+/**
+ * The server's stable rejection text for "submit live feedback with no turn running"
+ * (AcpError::NoActiveTurn, carried verbatim through the HTTP error envelope). That
+ * rejection IS recoverable — the row stays queued and the flush delivers it as an
+ * ordinary prompt. Anything else (FeedbackDisabled, stale connection, transport,
+ * the HTTP layer's generic `not_implemented` for a route this client name-mangled)
+ * is not: keep the row, surface the notice. Top-level so it's testable without a
+ * VM instance.
+ */
+internal fun isNoActiveTurnError(e: Exception): Boolean =
+    e is ApiError.Server && e.serverMessage.contains("no active turn", ignoreCase = true)
 
 /** What to do with a plan approval's revision notes — see [planFollowUpAction]. */
 internal enum class PlanFollowUp { PARK, SEND_NOW, DROP }
