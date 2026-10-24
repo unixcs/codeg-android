@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -81,6 +82,8 @@ fun ComposeBar(
     onTocClick: (() -> Unit)? = null,
     onExpandClick: (() -> Unit)? = null,
     canSendOverride: Boolean = false,
+    /** "Join queue" — shown only while a turn runs and the draft is non-empty. */
+    onQueue: (() -> Unit)? = null,
     contextBar: (@Composable () -> Unit)? = null,
     statusBar: (@Composable () -> Unit)? = null,
     commandSuggestions: List<AvailableCommandInfo> = emptyList(),
@@ -224,6 +227,12 @@ fun ComposeBar(
                             )
                         }
                     }
+                }
+                // Send-while-running: park the draft in the queue (it flushes when the
+                // turn ends). Only meaningful mid-run with something typed — the normal
+                // Send button covers the idle case.
+                if (onQueue != null && isInFlight && text.isNotBlank()) {
+                    ComposerAction(Icons.Rounded.PlaylistAdd, stringResource(R.string.queue_add), onQueue)
                 }
                 FilledIconButton(
                     onClick = { if (isInFlight) onStop() else onSend() },

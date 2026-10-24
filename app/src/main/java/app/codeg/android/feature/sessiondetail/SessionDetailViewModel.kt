@@ -101,6 +101,14 @@ private const val STATUS_THINKING = "Thinking…"
  *  most this window of text). */
 private const val DRAFT_SAVE_DEBOUNCE_MS = 500L
 
+/** Post-turn grace before the queue's auto-flush starts a new turn: the reconcile
+ *  that just swapped the finished reply into `turns` must finish first — an
+ *  immediate send cancels it and folds the turn as a lossy `live-*` snapshot. */
+private const val QUEUE_FLUSH_LEAD_MS = 2_000L
+
+/** Flush retries before giving up (with [flushBackoffMs] between tries: 5s/15s/45s). */
+private const val QUEUE_FLUSH_TRIES = 3
+
 /**
  * Drives the session detail screen end to end: loads the persisted transcript,
  * then runs the live ACP lifecycle — resolve/open a connection, attach to the
@@ -165,6 +173,9 @@ class SessionDetailViewModel @Inject constructor(
     private var liveBuilder: LiveTurnBuilder? = null
     private var liveFlushScheduled = false
     private var turnBaseline = 0
+    /** The queued-draft auto-flush. Single-flight: one flush at a time, restarted by
+     *  the NEXT turn's end (a flush that fires a send starts a new turn). */
+    private var flushJob: Job? = null
     /** Set in [onCleared]. A send still winding down on [appScope] checks it to skip
      *  the attach handshake — see [connectStream]. */
     @Volatile private var cleared = false
@@ -754,6 +765,11 @@ class SessionDetailViewModel @Inject constructor(
             is AcpEvent.SessionConfigOptions -> _ui.update {
                 if (event.options.isNotEmpty()) it.copy(configOptions = event.options) else it
             }
+            // Fork capability is fixed at spawn and only ever confirmed true (same
+            // never-downgrade rule as the web's feedback-tool availability).
+            is AcpEvent.ForkSupported -> _ui.update {
+                if (event.supported) it.copy(forkSupported = true) else it
+            }
             else -> Unit // user_message / etc. are informational
         }
     }
@@ -906,6 +922,7 @@ class SessionDetailViewModel @Inject constructor(
                 externalId = snap.externalId ?: it.externalId,
                 availableCommands = snap.availableCommands.ifEmpty { it.availableCommands },
                 configOptions = snap.configOptions.ifEmpty { it.configOptions },
+                forkSupported = snap.forkSupported || it.forkSupported,
             )
         }
         return true
@@ -943,6 +960,7 @@ class SessionDetailViewModel @Inject constructor(
                 externalId = snap.externalId ?: it.externalId,
                 availableCommands = snap.availableCommands.ifEmpty { it.availableCommands },
                 configOptions = snap.configOptions.ifEmpty { it.configOptions },
+                forkSupported = snap.forkSupported || it.forkSupported,
             )
         }
         snap.pendingPermission?.let { p ->
@@ -1097,6 +1115,8 @@ class SessionDetailViewModel @Inject constructor(
                         )
                     }
                     liveBuilder = null
+                    // The one flush trigger: the turn's transcript landed on the server.
+                    maybeFlushQueue()
                     return@launch
                 }
             }
@@ -1200,6 +1220,142 @@ class SessionDetailViewModel @Inject constructor(
 
     // endregion
 
+    // region Queued drafts (send-while-running; MindFS-style bar + auto flush)
+
+    /** Add [text] to the queue while a turn is running. The screen clears its composer
+     *  after calling this (same contract as [send]). No-op on blank text. */
+    fun enqueueDraft(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        _ui.update {
+            it.copy(queue = it.queue + QueuedDraft(UUID.randomUUID().toString(), trimmed, Instant.now()))
+        }
+    }
+
+    /** Pull a queued item back into the composer (edit-withdraw): the row leaves the
+     *  queue and its text rides the existing restoreDraft → composer chain. */
+    fun dequeueForEdit(id: String) {
+        val item = _ui.value.queue.firstOrNull { it.id == id } ?: return
+        _ui.update { it.copy(queue = it.queue.filterNot { d -> d.id == id }, restoreDraft = item.text) }
+    }
+
+    fun removeQueued(id: String) {
+        _ui.update { it.copy(queue = it.queue.filterNot { d -> d.id == id }) }
+    }
+
+    /**
+     * "Insert now" on a queued row: inject the text into the RUNNING turn's steering
+     * channel. Outcomes:
+     * - injected → the row leaves the queue;
+     * - `no active turn` (the turn ended between tap and post — message-text match,
+     *   the HTTP layer folds every feedback error into 400 `invalid_input`) →
+     *   delivered as a normal send instead;
+     * - `live feedback is disabled` → the row stays queued with a notice.
+     */
+    fun insertQueuedNow(id: String) {
+        val item = _ui.value.queue.firstOrNull { it.id == id } ?: return
+        val c = client ?: return
+        val conn = connectionId
+        if (conn == null) {
+            _ui.update { it.copy(notice = appContext.getString(R.string.queue_insert_unsupported)) }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                c.submitSessionFeedback(conn, item.text)
+                removeQueued(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is ApiError.Server && e.serverMessage.contains("no active turn", ignoreCase = true)) {
+                    // The turn just ended — deliver it as an ordinary message.
+                    removeQueued(id)
+                    send(item.text)
+                } else {
+                    // FeedbackDisabled, network, anything else: keep the row queued.
+                    _ui.update { it.copy(notice = appContext.getString(R.string.queue_insert_unsupported)) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Try to flush the queue's head as a normal message. Called ONLY from
+     * [reconcileAfterTurn]'s advanced branch (finalizeTurn funnels through it, so a
+     * hook there would double-fire). The delay gives the reconcile room to finish —
+     * an immediate send would cancel it mid-flight and fold the finished turn as a
+     * `live-*` snapshot, losing its usage/duration/model/completedAt footer.
+     */
+    private fun maybeFlushQueue() {
+        if (flushJob?.isActive == true) return
+        val c = client ?: return
+        val id = conversationId ?: return
+        flushJob = viewModelScope.launch {
+            // Let the post-turn reconcile settle before starting a new turn.
+            delay(QUEUE_FLUSH_LEAD_MS)
+            var attempt = 0
+            while (true) {
+                if (_ui.value.isInFlight) return@launch
+                val head = _ui.value.queue.firstOrNull() ?: return@launch
+                when (sendQueued(c, id, head.text)) {
+                    SendOutcome.SENT -> {
+                        removeQueued(head.id)
+                        return@launch
+                    }
+                    SendOutcome.BUSY -> return@launch
+                    SendOutcome.FAILED -> {
+                        attempt += 1
+                        if (attempt >= QUEUE_FLUSH_TRIES) {
+                            _ui.update { it.copy(notice = appContext.getString(R.string.queue_flush_failed)) }
+                            return@launch
+                        }
+                        delay(flushBackoffMs(attempt))
+                    }
+                }
+            }
+        }
+    }
+
+    /** The flush's send: same server path as [runSend] but no optimistic bubble (the
+     *  queued row is the visual), no conversation creation (the queue only exists on
+     *  a live session) and — critically — failures RETURN instead of discarding to
+     *  the composer, so the row never silently vanishes. */
+    private suspend fun sendQueued(c: CodegClient, conversation: Int, text: String): SendOutcome {
+        return try {
+            val conn = connectionId ?: run {
+                val info = runCatching { c.findConnection(conversation, externalId, agent) }.getOrNull()
+                    ?: return SendOutcome.FAILED
+                connectionId = info.connectionId
+                info.connectionId
+            }
+            openStream(conn)
+            c.prompt(
+                connectionId = conn,
+                blocks = listOf(PromptInputBlock.Text(text)),
+                folderId = folder?.id,
+                conversationId = conversation,
+                clientMessageId = UUID.randomUUID().toString(),
+            )
+            SendOutcome.SENT
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiError.TurnInProgress) {
+            SendOutcome.BUSY
+        } catch (e: Exception) {
+            SendOutcome.FAILED
+        }
+    }
+
+    /** 5s → 15s → 45s between flush retries (×3 per attempt, exponent capped).
+     *  Internal for tests. */
+    internal fun flushBackoffMs(attempt: Int): Long {
+        var ms = 5_000L
+        repeat((attempt - 1).coerceIn(0, 3)) { ms *= 3 }
+        return ms
+    }
+
+    // endregion
+
     // region Live emit coalescing (~50ms, matching iOS LiveTextRun)
 
     private fun scheduleLiveEmit() {
@@ -1293,6 +1449,39 @@ class SessionDetailViewModel @Inject constructor(
             runCatching { c.deleteConversation(id) }
                 .onSuccess { repository.notifyConversationsChanged(); onDeleted() }
                 .onFailure { e -> _ui.update { it.copy(notice = e.displayMessage()) } }
+        }
+    }
+
+    /**
+     * Fork this conversation into a new sibling session (server `acp_fork`). With
+     * [fromTurnId] the current row truncates at that turn and the full history moves
+     * to the sibling; without it the sibling is a plain full copy. After the fork the
+     * live connection (if this page holds one) belongs to the truncated row, so the
+     * session id and transcript are both re-fetched.
+     */
+    fun forkSession(fromTurnId: String? = null) {
+        val c = client ?: return
+        val id = conversationId ?: return
+        viewModelScope.launch {
+            val connectionId = runCatching { c.findConnection(id, _ui.value.externalId, agent) }
+                .getOrNull()?.connectionId
+            if (connectionId == null) {
+                _ui.update { it.copy(notice = appContext.getString(R.string.fork_no_connection)) }
+                return@launch
+            }
+            runCatching { c.forkSession(connectionId, conversationId = id, forkFromTurnId = fromTurnId) }
+                .onSuccess { result ->
+                    _ui.update { it.copy(externalId = result.forkedSessionId, notice = appContext.getString(R.string.fork_success)) }
+                    repository.notifyConversationsChanged()
+                    // Re-fetch: the current row's turns were truncated at the fork point.
+                    runCatching { c.conversationDetail(id) }.getOrNull()?.let { d ->
+                        _ui.update { it.copy(turns = d.turns, sessionStats = d.sessionStats ?: it.sessionStats, summary = d.summary) }
+                    }
+                }
+                .onFailure { e ->
+                    val message = if (e is ApiError.TurnInProgress) appContext.getString(R.string.fork_busy) else e.displayMessage()
+                    _ui.update { it.copy(notice = message) }
+                }
         }
     }
 
@@ -2048,6 +2237,8 @@ data class SessionDetailUiState(
      *  snapshot / `session_config_options` events / the agent catalog — drives the
      *  status line's current-model label. */
     val configOptions: List<SessionConfigOption> = emptyList(),
+    /** The agent supports `acp_fork` (attach snapshot `fork_supported`). Zcode doesn't. */
+    val forkSupported: Boolean = false,
     /** The session-JSON export is in flight. */
     val isExporting: Boolean = false,
     /** A manual reconnect is in flight. */
@@ -2063,7 +2254,20 @@ data class SessionDetailUiState(
     val pendingQuestion: PendingQuestionUi? = null,
     val pendingPlanApproval: PendingPlanApprovalUi? = null,
     val attachments: List<Attachment> = emptyList(),
+    /** Drafts typed while a turn was running, waiting for it to finish (in-memory,
+     *  like the web client's queue — a process kill loses them). */
+    val queue: List<QueuedDraft> = emptyList(),
 )
+
+/** One queued draft in the send-while-running bar. */
+data class QueuedDraft(
+    val id: String,
+    val text: String,
+    val queuedAt: Instant,
+)
+
+/** Result of a queued-flush send attempt — see [SessionDetailViewModel.sendQueued]. */
+internal enum class SendOutcome { SENT, BUSY, FAILED }
 
 /** What to do with a plan approval's revision notes — see [planFollowUpAction]. */
 internal enum class PlanFollowUp { PARK, SEND_NOW, DROP }

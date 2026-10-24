@@ -2,6 +2,9 @@ package app.codeg.android.feature.sessiondetail
 
 import app.codeg.android.core.model.SessionConfigKind
 import app.codeg.android.core.model.SessionConfigOption
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Hours/minutes/seconds breakdown of an elapsed span, for the run-status line. */
@@ -53,4 +56,22 @@ internal fun currentModelLabel(options: List<SessionConfigOption>): String? {
             .flatMap { g -> g.options.asSequence() }
             .firstOrNull { it.value == current }?.name?.takeIf { it.isNotBlank() }
     return named ?: current
+}
+
+/** Absolute completion time `HH:mm` (24h, system timezone) for a reply's footer. */
+internal fun completedAtLabel(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String =
+    DateTimeFormatter.ofPattern("HH:mm", Locale.US).withZone(zone).format(instant)
+
+/**
+ * Compact run duration for the footer's parenthesized span: `42s` under a minute,
+ * `2m13s` under an hour, `1h04m` beyond (seconds dropped — hour-long replies are
+ * navigated by minutes).
+ */
+internal fun turnDurationLabel(elapsedMs: Long): String {
+    val parts = elapsedParts(elapsedMs)
+    return when {
+        parts.hours > 0 -> String.format(Locale.US, "%dh%02dm", parts.hours, parts.minutes)
+        parts.minutes > 0 -> String.format(Locale.US, "%dm%02ds", parts.minutes, parts.seconds)
+        else -> "${parts.seconds}s"
+    }
 }

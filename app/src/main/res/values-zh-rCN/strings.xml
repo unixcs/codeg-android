@@ -55,6 +55,17 @@
     <string name="session_unpin">取消置顶</string>
     <string name="session_handoff">接手到新会话继续</string>
     <string name="session_copy_reference">复制会话引用</string>
+    <string name="fork_menu_item">Fork 为新会话</string>
+    <string name="fork_from_here">从此条回复 Fork</string>
+    <string name="fork_busy">回合仍在运行，等它结束再 Fork。</string>
+    <string name="fork_no_connection">请先打开一次该会话，再从这里 Fork。</string>
+    <string name="fork_success">已 Fork 出新会话</string>
+    <string name="queue_add">加入队列</string>
+    <string name="queue_insert_now">快速插入</string>
+    <string name="queue_edit">撤回编辑</string>
+    <string name="queue_delete">删除</string>
+    <string name="queue_insert_unsupported">当前会话不支持中途插入，消息已保留排队。</string>
+    <string name="queue_flush_failed">排队消息发送失败，已留在队列。</string>
     <string name="sessions_pinned">已置顶</string>
     <string name="sessions_other">其他</string>
     <string name="sessions_load_failed">无法加载会话</string>

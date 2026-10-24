@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.CallSplit
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -54,11 +55,13 @@ import app.codeg.android.core.designsystem.markdown.SingleBlockView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.ContentBlock
 import app.codeg.android.core.model.MessageTurn
+import app.codeg.android.feature.sessiondetail.completedAtLabel
 import app.codeg.android.feature.sessiondetail.rendering.InlineImage
 import app.codeg.android.feature.sessiondetail.rendering.LivePlanView
 import app.codeg.android.feature.sessiondetail.rendering.ReasoningBlock
 import app.codeg.android.feature.sessiondetail.rendering.ToolCallCard
 import app.codeg.android.feature.sessiondetail.rendering.ToolGroupCard
+import app.codeg.android.feature.sessiondetail.turnDurationLabel
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -66,6 +69,14 @@ private val SuccessGreen = Color(0xFF85D18F)
 
 /** Scrolls the timeline to a node id — used by the footer's jump-to-question button. */
 val LocalTimelineScroll = staticCompositionLocalOf<(String) -> Unit> { {} }
+
+/**
+ * Forks the conversation at the given persisted turn id (the footer's fork button),
+ * plus whether the button shows at all (the agent's `fork_supported`). Both empty/false
+ * wherever fork isn't offered — a draft, an agent without the capability, a live turn.
+ */
+val LocalTurnFork = staticCompositionLocalOf<(String) -> Unit> { {} }
+val LocalForkEnabled = staticCompositionLocalOf { false }
 
 /**
  * Renders a node's content to the right of the rail. A pure dispatcher that reuses
@@ -162,22 +173,31 @@ private fun SystemNodeBody(turn: MessageTurn, modifier: Modifier) {
     )
 }
 
-/** Per-reply action + metadata row: Copy · jump-to-question · model · time/tokens/duration. */
+/** Per-reply action + metadata row: Copy · fork-from-here · jump-to-question · model · time(tokens). */
 @Composable
 private fun TurnFooter(turn: MessageTurn, questionId: String?, modifier: Modifier) {
     val colors = CodegTheme.colors
-    // Copy text joins every block → memoize it. Meta stays live so the relative time
-    // ("47m") keeps ticking rather than freezing at whatever it was when first composed.
+    // Copy text joins every block → memoize it. Meta stays live so the clock
+    // ("02:46") keeps honest rather than freezing at first composition.
     val copyText = remember(turn) {
         turn.blocks
             .mapNotNull { (it as? ContentBlock.Text)?.text?.takeIf { t -> t.isNotBlank() } }
             .joinToString("\n\n")
     }
+    // `02:46(2m13s)` — absolute finish time with the run duration in parens (the
+    // MindFS footer shape). No completedAt → fall back to the relative compact time
+    // rather than inventing a wall-clock value; duration only when the server sent one.
     val meta = buildList {
-        add(RelativeTime.compact(turn.completedAt ?: turn.timestamp))
+        val at = turn.completedAt
+        if (at != null) {
+            val clock = completedAtLabel(at)
+            val duration = turn.durationMs?.takeIf { it > 0 }?.let { "(${turnDurationLabel(it.toLong())})" } ?: ""
+            add(clock + duration)
+        } else {
+            add(RelativeTime.compact(turn.timestamp))
+        }
         val tokens = turn.usage?.total ?: 0
         if (tokens > 0) add(compactTokens(tokens))
-        turn.durationMs?.let { if (it > 0) add(compactDuration(it)) }
     }.joinToString(" · ")
 
     Row(
@@ -186,6 +206,7 @@ private fun TurnFooter(turn: MessageTurn, questionId: String?, modifier: Modifie
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (copyText.isNotEmpty()) CopyButton(copyText)
+        if (LocalForkEnabled.current) ForkButton(turn.id)
         if (questionId != null) JumpToQuestionButton(questionId)
         Spacer(Modifier.weight(1f))
         turn.model?.takeIf { it.isNotBlank() }?.let {
@@ -239,6 +260,28 @@ private fun JumpToQuestionButton(questionId: String) {
             modifier = Modifier.size(13.dp),
         )
         Text(stringResource(R.string.timeline_question), fontSize = 11.sp, color = CodegTheme.colors.textTertiary)
+    }
+}
+
+/** "Fork from here" — truncates this row's session at [turnId], full history to a sibling. */
+@Composable
+private fun ForkButton(turnId: String) {
+    val onFork = LocalTurnFork.current
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { onFork(turnId) }
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Icon(
+            Icons.Rounded.CallSplit,
+            contentDescription = stringResource(R.string.fork_from_here),
+            tint = CodegTheme.colors.textTertiary,
+            modifier = Modifier.size(13.dp),
+        )
+        Text(stringResource(R.string.fork_from_here), fontSize = 11.sp, color = CodegTheme.colors.textTertiary)
     }
 }
 
@@ -344,12 +387,3 @@ private fun compactTokens(n: Int): String = when {
 }
 
 private fun trimNum(v: Double): String = if (v >= 100) v.roundToInt().toString() else String.format("%.1f", v)
-
-private fun compactDuration(ms: Int): String {
-    val seconds = ms / 1000.0
-    if (seconds < 60) return String.format("%.1fs", seconds)
-    val whole = seconds.roundToInt()
-    val m = whole / 60
-    val s = whole % 60
-    return if (s == 0) "${m}m" else "${m}m ${s}s"
-}

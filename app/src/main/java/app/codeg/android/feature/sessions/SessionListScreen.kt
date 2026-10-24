@@ -118,6 +118,7 @@ fun SessionListScreen(
     var collapsed by remember(selectedId, display) { mutableStateOf(display.collapsedSections) }
     var hiddenTarget by remember { mutableStateOf<SessionSection?>(null) }
     var showHiddenManager by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<ConversationSummary?>(null) }
 
     // Hideable = folder sections only (Pinned is a transient override bucket; Other
     // holds orphans that would otherwise become unreachable from this list).
@@ -218,6 +219,8 @@ fun SessionListScreen(
                             onOpenConversation = onOpenConversation,
                             onTogglePin = { conv -> viewModel.setPinned(conv, !conv.isPinned) },
                             onHandoff = onHandoff,
+                            onFork = { conv -> viewModel.fork(conv) },
+                            onDelete = { conv -> pendingDelete = conv },
                             onLongPressSection = { section -> hiddenTarget = section },
                             onOpenHiddenManager = { showHiddenManager = true },
                             // A refresh that failed over a still-populated list: surface
@@ -257,6 +260,16 @@ fun SessionListScreen(
             },
         )
     }
+
+    pendingDelete?.let { conversation ->
+        SessionDeleteDialog(
+            onConfirm = {
+                viewModel.delete(conversation)
+                pendingDelete = null
+            },
+            onDismiss = { pendingDelete = null },
+        )
+    }
 }
 
 /** Initial collect value: nothing hidden, nothing collapsed. */
@@ -271,6 +284,8 @@ private fun SessionList(
     onOpenConversation: (Int) -> Unit,
     onTogglePin: (ConversationSummary) -> Unit,
     onHandoff: (folderId: Int, reference: String) -> Unit,
+    onFork: (ConversationSummary) -> Unit,
+    onDelete: (ConversationSummary) -> Unit,
     onLongPressSection: (SessionSection) -> Unit,
     onOpenHiddenManager: () -> Unit,
     refreshError: String?,
@@ -326,6 +341,8 @@ private fun SessionList(
                         folderName = row.folderName,
                         onTogglePin = { onTogglePin(row.conversation) },
                         onHandoff = { ref -> onHandoff(row.conversation.folderId, ref) },
+                        onFork = { onFork(row.conversation) },
+                        onDelete = { onDelete(row.conversation) },
                     )
                 }
             }

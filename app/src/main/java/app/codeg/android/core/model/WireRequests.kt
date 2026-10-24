@@ -388,6 +388,35 @@ data class SetModeBody(val connectionId: String, val modeId: String)
 @Serializable
 data class SetConfigOptionBody(val connectionId: String, val configId: String, val valueId: String)
 
+/** Body for `acp_fork` — copies a conversation into a new sibling session. */
+@Serializable
+data class ForkBody(
+    val connectionId: String,
+    val conversationId: Int? = null,
+    val folderId: Int? = null,
+    val forkFromTurnId: String? = null,
+)
+
+/**
+ * Body for `acp_submit_session_feedback` — injects text into a running turn's
+ * steering channel (the web "live feedback"). Only valid while a turn is in
+ * flight; the server answers `no active turn` otherwise.
+ */
+@Serializable
+data class SubmitFeedbackBody(val connectionId: String, val text: String)
+
+/**
+ * Server `ForkResultInfo` for `acp_fork` — **camelCase wire** (the Rust side uses
+ * `#[serde(rename_all = "camelCase")]`), so decode with the camel Json, never the
+ * snake_case response strategy.
+ */
+@Serializable
+data class ForkResult(
+    val forkedSessionId: String,
+    val originalSessionId: String,
+    val siblingConversationId: Int,
+)
+
 // MARK: - GitHub credential request bodies
 
 /** Body for `validate_github_token`. */

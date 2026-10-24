@@ -26,6 +26,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,6 +45,7 @@ import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.sessions.CollapsibleSectionHeader
+import app.codeg.android.feature.sessions.SessionDeleteDialog
 import app.codeg.android.feature.sessions.SessionRow
 import java.time.Instant
 
@@ -73,6 +75,7 @@ fun ActivityScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val sections by viewModel.sections.collectAsStateWithLifecycle()
     var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var pendingDelete by remember { mutableStateOf<ActivityRow?>(null) }
     val colors = CodegTheme.colors
     val selectedName = servers.firstOrNull { it.id == selectedServerId }?.name
         ?: stringResource(R.string.app_name)
@@ -157,6 +160,8 @@ fun ActivityScreen(
                                         modifier = Modifier.animateItem(),
                                         folderName = row.folderName,
                                         serverName = if (allMode) row.serverName else null,
+                                        onFork = { viewModel.fork(row) },
+                                        onDelete = { pendingDelete = row },
                                     )
                                 }
                             }
@@ -168,6 +173,16 @@ fun ActivityScreen(
                 }
             }
         }
+    }
+
+    pendingDelete?.let { row ->
+        SessionDeleteDialog(
+            onConfirm = {
+                viewModel.delete(row)
+                pendingDelete = null
+            },
+            onDismiss = { pendingDelete = null },
+        )
     }
 }
 

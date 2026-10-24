@@ -127,6 +127,7 @@ sealed interface AcpEvent {
     /** The session's config options (re)published — the model selector and its current
      *  value ride in here (`SessionConfigOption` with a select `kind`). */
     data class SessionConfigOptions(val options: List<SessionConfigOption>) : AcpEvent
+    data class ForkSupported(val supported: Boolean) : AcpEvent
     data class Unknown(val type: String) : AcpEvent
 
     companion object {
@@ -213,6 +214,9 @@ sealed interface AcpEvent {
                 "session_config_options" -> SessionConfigOptions(
                     options = decodeList(json, obj["config_options"], SessionConfigOption.serializer()),
                 )
+                "fork_supported" -> ForkSupported(
+                    supported = (obj["supported"] as? JsonPrimitive)?.content == "true",
+                )
                 else -> Unknown(type)
             }
         }
@@ -272,6 +276,11 @@ data class LiveSessionSnapshot(
     val pendingPlanApproval: PendingPlanApprovalSnapshot?,
     val availableCommands: List<AvailableCommandInfo> = emptyList(),
     val configOptions: List<SessionConfigOption> = emptyList(),
+    val forkSupported: Boolean = false,
+    /** Native steering channel or the `check_user_feedback` pull tool — either lets
+     *  text be injected into a running turn (`submit_session_feedback`). */
+    val nativeSteeringAvailable: Boolean = false,
+    val feedbackToolAvailable: Boolean = false,
 ) {
     companion object {
         fun fromWire(obj: JsonObject, json: Json): LiveSessionSnapshot =
@@ -295,6 +304,9 @@ data class LiveSessionSnapshot(
                     ?.let(PendingPlanApprovalSnapshot::fromWire),
                 availableCommands = decodeList(json, obj["available_commands"], AvailableCommandInfo.serializer()),
                 configOptions = decodeList(json, obj["config_options"], SessionConfigOption.serializer()),
+                forkSupported = (obj["fork_supported"] as? JsonPrimitive)?.content == "true",
+                nativeSteeringAvailable = (obj["native_steering_available"] as? JsonPrimitive)?.content == "true",
+                feedbackToolAvailable = (obj["feedback_tool_available"] as? JsonPrimitive)?.content == "true",
             )
 
         private fun JsonObject.intOrNull(key: String): Int? =

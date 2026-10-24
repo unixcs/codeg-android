@@ -55,6 +55,17 @@
     <string name="session_unpin">Unpin</string>
     <string name="session_handoff">Handoff to new session</string>
     <string name="session_copy_reference">Copy session reference</string>
+    <string name="fork_menu_item">Fork to new session</string>
+    <string name="fork_from_here">Fork from this reply</string>
+    <string name="fork_busy">A turn is still running — wait for it to finish before forking.</string>
+    <string name="fork_no_connection">Open the session once before forking from here.</string>
+    <string name="fork_success">Forked to a new session</string>
+    <string name="queue_add">Queue</string>
+    <string name="queue_insert_now">Insert now</string>
+    <string name="queue_edit">Edit</string>
+    <string name="queue_delete">Remove</string>
+    <string name="queue_insert_unsupported">This session can\'t take mid-run inserts — the message stays queued.</string>
+    <string name="queue_flush_failed">Queued message failed to send; it\'s still in the queue.</string>
     <string name="sessions_pinned">Pinned</string>
     <string name="sessions_other">Other</string>
     <string name="sessions_load_failed">Couldn\'t load sessions</string>

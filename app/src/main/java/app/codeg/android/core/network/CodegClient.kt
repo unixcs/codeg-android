@@ -14,6 +14,8 @@ import app.codeg.android.core.model.CreateConversationBody
 import app.codeg.android.core.model.EmptyBody
 import app.codeg.android.core.model.FetchKimiModelsBody
 import app.codeg.android.core.model.FindConnectionBody
+import app.codeg.android.core.model.ForkBody
+import app.codeg.android.core.model.ForkResult
 import app.codeg.android.core.model.PiCommandValidation
 import app.codeg.android.core.model.PiConfigProjection
 import app.codeg.android.core.model.TaskIdBody
@@ -27,6 +29,7 @@ import app.codeg.android.core.model.PromptBody
 import app.codeg.android.core.model.PromptInputBlock
 import app.codeg.android.core.model.QuestionAnswer
 import app.codeg.android.core.model.RespondPermissionBody
+import app.codeg.android.core.model.SubmitFeedbackBody
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.model.UpdateConversationPinnedBody
 import app.codeg.android.core.model.UpdateConversationStatusBody
@@ -266,6 +269,34 @@ class CodegClient(
         )
         if (isJsonNull(text)) return null
         return decode(text, ConversationConnectionInfo.serializer())
+    }
+
+    /**
+     * Fork a conversation into a new sibling session. With [forkFromTurnId] the
+     * current row is truncated at that turn and the full history moves to the new
+     * sibling (`[Fork] …` title); without it the sibling is a plain full copy.
+     *
+     * The response is **camelCase wire** (Rust `rename_all`), so it decodes through
+     * [decodeCamel] — the snake_case response strategy would miss every field.
+     */
+    suspend fun forkSession(
+        connectionId: String,
+        conversationId: Int? = null,
+        folderId: Int? = null,
+        forkFromTurnId: String? = null,
+    ): ForkResult =
+        decodeCamel(
+            send("acp_fork", encode(ForkBody(connectionId, conversationId, folderId, forkFromTurnId))),
+            ForkResult.serializer(),
+        )
+
+    /**
+     * Inject [text] into a running turn's steering channel (web "live feedback").
+     * Valid only while a turn is in flight — the server rejects idle calls with a
+     * 400 `invalid_input` whose message reads `no active turn`.
+     */
+    suspend fun submitSessionFeedback(connectionId: String, text: String) {
+        send("acp_submit_session_feedback", encode(SubmitFeedbackBody(connectionId, text)))
     }
 
     /** Send a prompt to a live connection. The reply streams over the WebSocket. */

@@ -33,6 +33,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,9 +47,11 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
+import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.feature.sessions.SessionDeleteDialog
 import app.codeg.android.feature.sessions.SessionRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,6 +63,7 @@ fun SearchScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val query by viewModel.query.collectAsStateWithLifecycle()
     val recent by viewModel.recent.collectAsStateWithLifecycle()
+    var pendingDelete by remember { mutableStateOf<ConversationSummary?>(null) }
     val colors = CodegTheme.colors
 
     Scaffold(
@@ -133,12 +139,30 @@ fun SearchScreen(
                         }
                     else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                         items(ui.results, key = { it.id }) { c ->
-                            SessionRow(c, onClick = { viewModel.submit(); onOpenConversation(c.id) }, modifier = Modifier.animateItem(), folderName = ui.folderNames[c.folderId])
+                            SessionRow(
+                                c,
+                                onClick = { viewModel.submit(); onOpenConversation(c.id) },
+                                modifier = Modifier.animateItem(),
+                                folderName = ui.folderNames[c.folderId],
+                                onTogglePin = { viewModel.setPinned(c, !c.isPinned) },
+                                onFork = { viewModel.fork(c) },
+                                onDelete = { pendingDelete = c },
+                            )
                         }
                     }
                 }
             }
         }
+    }
+
+    pendingDelete?.let { conversation ->
+        SessionDeleteDialog(
+            onConfirm = {
+                viewModel.delete(conversation)
+                pendingDelete = null
+            },
+            onDismiss = { pendingDelete = null },
+        )
     }
 }
 

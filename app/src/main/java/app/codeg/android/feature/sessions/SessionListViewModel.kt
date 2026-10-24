@@ -173,6 +173,56 @@ class SessionListViewModel @Inject constructor(
     }
 
     fun dismissError() = _ui.update { it.copy(error = null) }
+
+    /**
+     * Delete a conversation from the Chats list. The row leaves the list
+     * immediately and the server is told in the background — the list already
+     * collects [ServerRepository.conversationsChanged] to converge. On failure
+     * the row is restored and the error surfaced.
+     */
+    fun delete(conversation: ConversationSummary) {
+        val active = client ?: return
+        val previous = _ui.value.conversations
+        _ui.update { state ->
+            state.copy(conversations = state.conversations.filterNot { it.id == conversation.id })
+        }
+        viewModelScope.launch {
+            try {
+                active.deleteConversation(conversation.id)
+                repository.notifyConversationsChanged()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update { it.copy(conversations = previous, error = e.displayMessage()) }
+            }
+        }
+    }
+
+    /**
+     * Tail-fork a conversation (full copy into a new sibling session) from its list
+     * row. Fork runs on the conversation's live ACP connection, so it only works when
+     * one exists — otherwise the notice asks the user to open the session first.
+     */
+    fun fork(conversation: ConversationSummary, onForked: (Int) -> Unit = {}) {
+        val active = client ?: return
+        viewModelScope.launch {
+            val agent = conversation.agentType
+            val connectionId = runCatching { active.findConnection(conversation.id, null, agent) }
+                .getOrNull()?.connectionId
+            if (connectionId == null) {
+                _ui.update { it.copy(error = appContext.getString(R.string.fork_no_connection)) }
+                return@launch
+            }
+            runCatching { active.forkSession(connectionId, conversationId = conversation.id) }
+                .onSuccess { result ->
+                    repository.notifyConversationsChanged()
+                    onForked(result.siblingConversationId)
+                }
+                .onFailure { e ->
+                    _ui.update { it.copy(error = e.displayMessage()) }
+                }
+        }
+    }
 }
 
 /** Raw list state; the grouped display is derived by [SessionGrouping]. */

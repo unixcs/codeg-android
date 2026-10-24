@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.CallMade
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.rounded.CallSplit
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PushPin
@@ -66,11 +68,13 @@ fun SessionRow(
     selected: Boolean = false,
     onTogglePin: (() -> Unit)? = null,
     onHandoff: ((reference: String) -> Unit)? = null,
+    onFork: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     serverName: String? = null,
 ) {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
-    val hasMenu = onTogglePin != null || onHandoff != null
+    val hasMenu = onTogglePin != null || onHandoff != null || onFork != null || onDelete != null
     val clipboard = LocalClipboardManager.current
     // The serialized session reference — the web composer's badge syntax
     // (`[title](codeg://session/<numeric id>)`; same `#id` fallback for a blank
@@ -205,6 +209,26 @@ fun SessionRow(
                         onClick = {
                             menuOpen = false
                             clipboard.setText(AnnotatedString(referenceBadge()))
+                        },
+                    )
+                }
+                if (onFork != null) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.fork_menu_item)) },
+                        leadingIcon = { Icon(Icons.Rounded.CallSplit, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onFork()
+                        },
+                    )
+                }
+                if (onDelete != null) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.common_delete), color = colors.danger) },
+                        leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = colors.danger) },
+                        onClick = {
+                            menuOpen = false
+                            onDelete()
                         },
                     )
                 }

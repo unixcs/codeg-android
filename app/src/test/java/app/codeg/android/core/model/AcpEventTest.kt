@@ -161,6 +161,31 @@ class AcpEventTest {
     }
 
     @Test
+    fun `snapshot carries fork and steering capability flags`() {
+        val snap = LiveSessionSnapshot.fromWire(
+            obj("""{"connection_id":"c1","fork_supported":true,
+                    "native_steering_available":true,"feedback_tool_available":false}"""),
+            json,
+        )
+        assertTrue(snap.forkSupported)
+        assertTrue(snap.nativeSteeringAvailable)
+        assertFalse(snap.feedbackToolAvailable)
+        // Absent keys ⇒ false defaults (an older server must not enable the UI).
+        val bare = LiveSessionSnapshot.fromWire(obj("""{"connection_id":"c1"}"""), json)
+        assertFalse(bare.forkSupported)
+        assertFalse(bare.nativeSteeringAvailable)
+        assertFalse(bare.feedbackToolAvailable)
+    }
+
+    @Test
+    fun `fork supported event decodes the supported flag`() {
+        val e = event("""{"type":"fork_supported","supported":true}""") as AcpEvent.ForkSupported
+        assertTrue(e.supported)
+        val off = event("""{"type":"fork_supported","supported":false}""") as AcpEvent.ForkSupported
+        assertFalse(off.supported)
+    }
+
+    @Test
     fun `plan approval decision serializes snake_case`() {
         assertEquals("request_changes", PlanApprovalDecision.REQUEST_CHANGES.wire)
         assertEquals(

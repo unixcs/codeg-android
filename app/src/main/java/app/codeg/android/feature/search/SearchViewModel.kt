@@ -68,6 +68,67 @@ class SearchViewModel @Inject constructor(
     /** Re-run the current query after a failure (drives the inline-error Retry button). */
     fun retry() { viewModelScope.launch { runSearch(_query.value) } }
 
+    /** Optimistic pin/unpin on a search-result row; failure reverts. */
+    fun setPinned(conversation: ConversationSummary, pinned: Boolean) {
+        val active = client ?: return
+        val previous = _ui.value.results
+        _ui.update { state ->
+            state.copy(
+                results = state.results.map {
+                    if (it.id == conversation.id) it.copy(pinnedAt = if (pinned) java.time.Instant.now() else null) else it
+                },
+            )
+        }
+        viewModelScope.launch {
+            try {
+                active.setPinned(conversation.id, pinned)
+            } catch (e: Exception) {
+                _ui.update { it.copy(results = previous, error = e.displayMessage()) }
+            }
+        }
+    }
+
+    /**
+     * Delete a search-result conversation. Removes the row locally first (the results
+     * list only refreshes on a new debounced query), then persists; failure restores.
+     */
+    fun delete(conversation: ConversationSummary) {
+        val active = client ?: return
+        val previous = _ui.value.results
+        _ui.update { state ->
+            state.copy(results = state.results.filterNot { it.id == conversation.id })
+        }
+        viewModelScope.launch {
+            try {
+                active.deleteConversation(conversation.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update { it.copy(results = previous, error = e.displayMessage()) }
+            }
+        }
+    }
+
+    /**
+     * Tail-fork a search-result conversation (full copy into a new sibling session).
+     * Needs the conversation's live connection; without one the error asks the user
+     * to open the session first.
+     */
+    fun fork(conversation: ConversationSummary) {
+        val active = client ?: return
+        viewModelScope.launch {
+            val connectionId = runCatching { active.findConnection(conversation.id, null, conversation.agentType) }
+                .getOrNull()?.connectionId
+            if (connectionId == null) {
+                _ui.update { it.copy(error = "Open the session once before forking from here.") }
+                return@launch
+            }
+            runCatching { active.forkSession(connectionId, conversationId = conversation.id) }
+                .onSuccess { /* the next debounced query / reopening the list converges */ }
+                .onFailure { e -> _ui.update { it.copy(error = e.displayMessage()) } }
+        }
+    }
+
     private suspend fun runSearch(raw: String) {
         val q = raw.trim()
         if (q.isEmpty()) {

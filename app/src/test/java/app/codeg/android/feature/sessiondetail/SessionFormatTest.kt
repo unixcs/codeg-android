@@ -61,6 +61,36 @@ class SessionFormatTest {
         assertEquals("0.0%", formatPercent(-1.0))
     }
 
+    // ===== completedAtLabel / turnDurationLabel =====
+
+    @Test
+    fun completedAtUses24hClockInTheGivenZone() {
+        val at = java.time.Instant.parse("2026-10-24T06:46:00Z")
+        assertEquals("14:46", completedAtLabel(at, java.time.ZoneId.of("Asia/Shanghai")))
+        assertEquals("06:46", completedAtLabel(at, java.time.ZoneId.of("UTC")))
+    }
+
+    @Test
+    fun durationUnderAMinuteShowsSecondsOnly() {
+        assertEquals("0s", turnDurationLabel(0))
+        assertEquals("42s", turnDurationLabel(42_000))
+        assertEquals("59s", turnDurationLabel(59_900))
+    }
+
+    @Test
+    fun durationUnderAnHourShowsMinutesAndSeconds() {
+        assertEquals("1m00s", turnDurationLabel(60_000))
+        assertEquals("2m13s", turnDurationLabel(133_000))
+        assertEquals("15m36s", turnDurationLabel((15 * 60 + 36) * 1000L))
+    }
+
+    @Test
+    fun durationBeyondAnHourDropsSeconds() {
+        assertEquals("1h04m", turnDurationLabel(64 * 60_000L))
+        assertEquals("2h00m", turnDurationLabel(2 * 3600_000L))
+        assertEquals("1h00m", turnDurationLabel(3600_000L + 59_000L))
+    }
+
     // ===== currentModelLabel =====
 
     private fun modelOption(
