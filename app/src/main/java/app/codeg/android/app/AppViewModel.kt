@@ -81,4 +81,10 @@ class AppViewModel @Inject constructor(
     fun setActivityDeviceSwipe(enabled: Boolean) {
         viewModelScope.launch { appSettingsStore.setActivityDeviceSwipe(enabled) }
     }
+
+    /** Stamp a session as read (device-local read marks — see AppSettingsStore).
+     *  Fire-and-forget: a navigation always follows, the write must never gate it. */
+    fun markSessionRead(key: String) {
+        viewModelScope.launch { appSettingsStore.markSessionRead(key) }
+    }
 }

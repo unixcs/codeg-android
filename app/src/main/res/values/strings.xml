@@ -59,7 +59,7 @@
     <string name="queue_insert_now">Insert now</string>
     <string name="queue_edit">Edit</string>
     <string name="queue_delete">Remove</string>
-    <string name="queue_insert_unsupported">This session can\'t take mid-run inserts — the message stays queued.</string>
+    <string name="queue_insert_unsupported">This session can\'t take mid-run inserts (needs Claude Code, or Live Feedback enabled in codeg settings) — the message stays queued.</string>
     <string name="queue_flush_failed">Queued message failed to send; it\'s still in the queue.</string>
     <string name="sessions_pinned">Pinned</string>
     <string name="sessions_other">Other</string>

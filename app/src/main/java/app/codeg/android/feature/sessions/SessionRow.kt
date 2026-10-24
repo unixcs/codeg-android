@@ -20,8 +20,6 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import app.codeg.android.R
 import app.codeg.android.core.common.RelativeTime
 import app.codeg.android.core.designsystem.component.AgentAvatar
+import app.codeg.android.core.designsystem.component.CenteredAction
+import app.codeg.android.core.designsystem.component.CenteredActionMenu
 import app.codeg.android.core.designsystem.component.LivePulse
 import app.codeg.android.core.designsystem.component.statusColor
 import app.codeg.android.core.designsystem.theme.CodegTheme
@@ -69,6 +70,7 @@ fun SessionRow(
     onHandoff: ((reference: String) -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     serverName: String? = null,
+    unread: Boolean = false,
 ) {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
@@ -164,63 +166,73 @@ fun SessionRow(
             if (conversation.status.isLive) {
                 LivePulse()
             } else {
-                Text(
-                    text = RelativeTime.compact(conversation.updatedAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textTertiary,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    if (unread) {
+                        // Unread dot: a Last-24h row the user hasn't opened since its last
+                        // change (same family as the avatar's status dot, at the row tail).
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF6BC7F2))
+                                .border(1.5.dp, colors.bg, CircleShape),
+                        )
+                    }
+                    Text(
+                        text = RelativeTime.compact(conversation.updatedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textTertiary,
+                    )
+                }
             }
         }
 
-        if (hasMenu) {
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                if (onTogglePin != null) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                if (conversation.isPinned) {
-                                    stringResource(R.string.session_unpin)
-                                } else {
-                                    stringResource(R.string.session_pin)
-                                },
-                            )
-                        },
-                        leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onTogglePin()
-                        },
-                    )
-                }
-                if (onHandoff != null) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.session_handoff)) },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.CallMade, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onHandoff(referenceBadge())
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.session_copy_reference)) },
-                        leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            clipboard.setText(AnnotatedString(referenceBadge()))
-                        },
-                    )
-                }
-                if (onDelete != null) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.common_delete), color = colors.danger) },
-                        leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = colors.danger) },
-                        onClick = {
-                            menuOpen = false
-                            onDelete()
-                        },
-                    )
-                }
-            }
+        // Conditional composition is mandatory: a Dialog always owns a window, and one
+        // per visible row would exhaust the window limit (DropdownMenu's Popup composed
+        // nothing while closed).
+        if (hasMenu && menuOpen) {
+            CenteredActionMenu(
+                actions = buildList {
+                    if (onTogglePin != null) {
+                        add(
+                            CenteredAction(
+                                icon = Icons.Rounded.PushPin,
+                                label = stringResource(
+                                    if (conversation.isPinned) R.string.session_unpin else R.string.session_pin,
+                                ),
+                                onClick = onTogglePin,
+                            ),
+                        )
+                    }
+                    if (onHandoff != null) {
+                        add(
+                            CenteredAction(
+                                icon = Icons.AutoMirrored.Rounded.CallMade,
+                                label = stringResource(R.string.session_handoff),
+                                onClick = { onHandoff(referenceBadge()) },
+                            ),
+                        )
+                        add(
+                            CenteredAction(
+                                icon = Icons.Rounded.Link,
+                                label = stringResource(R.string.session_copy_reference),
+                                onClick = { clipboard.setText(AnnotatedString(referenceBadge())) },
+                            ),
+                        )
+                    }
+                    if (onDelete != null) {
+                        add(
+                            CenteredAction(
+                                icon = Icons.Outlined.DeleteOutline,
+                                label = stringResource(R.string.common_delete),
+                                destructive = true,
+                                onClick = onDelete,
+                            ),
+                        )
+                    }
+                },
+                onDismiss = { menuOpen = false },
+            )
         }
     }
 }

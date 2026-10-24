@@ -84,12 +84,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -103,6 +106,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import android.view.WindowManager
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
@@ -387,6 +392,7 @@ fun SessionDetailScreen(
                     onInsert = viewModel::insertQueuedNow,
                     onEdit = viewModel::dequeueForEdit,
                     onDelete = viewModel::removeQueued,
+                    canInsert = ui.steeringAvailable,
                 )
                 ComposeBar(
                     text = draft,
@@ -626,7 +632,20 @@ private fun MessageTocSheet(
 
 /** Near-fullscreen editor for long prompts, sharing the composer's [text] state — edits
  *  apply live underneath, and closing (back / close / send) lands exactly where the
- *  compact field would have. Header: close · char count · send. */
+ *  compact field would have. Header: close · char count · send.
+ *
+ *  IME behaviour (batch v121): the dialog window must NOT react to the keyboard —
+ *  `ADJUST_NOTHING` stops the window-level pan that used to fight `imePadding()` and
+ *  make the editor bounce twice as the IME appeared. The single animation source is
+ *  the `imePadding()` on the Surface. Focus is requested on the field so the keyboard
+ *  opens onto it (never STATE_VISIBLE without focus — first keystrokes would drop).
+ *  androidx only re-stamps the dialog's soft-input mode on API < 31, so one set is
+ *  stable on the main flavor (minSdk 31); the legacy flavor (minSdk 28) keeps the
+ *  stock resize behaviour. Scrolling lives in an outer `verticalScroll` Box rather
+ *  than the field's internal scroll: the cursor's bring-into-view requests bubble to
+ *  that container, so tapping near the bottom keeps the viewport there instead of
+ *  snapping back to the first line.
+ */
 @Composable
 private fun FullscreenEditorDialog(
     text: String,
@@ -644,6 +663,17 @@ private fun FullscreenEditorDialog(
         // `true` the dialog pans instead and the prompt tail hides under it).
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        // The dialog window itself must hold still while the IME animates: pan/resize
+        // here doubles the motion against imePadding(). (`.parent` — the DialogLayout,
+        // not the inner compose view, implements DialogWindowProvider.)
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        LaunchedEffect(dialogWindow) {
+            dialogWindow?.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING,
+            )
+        }
+        val scroll = rememberScrollState()
+        val focusRequester = remember { FocusRequester() }
         Surface(
             color = colors.bg,
             modifier = Modifier
@@ -684,20 +714,28 @@ private fun FullscreenEditorDialog(
                     }
                 }
                 HorizontalDivider(thickness = Dp.Hairline, color = colors.surfaceStroke)
-                BasicTextField(
-                    value = text,
-                    onValueChange = onTextChange,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = colors.textPrimary,
-                        textDirection = TextDirection.Content,
-                    ),
-                    cursorBrush = SolidColor(colors.accent),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                )
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(scroll),
+                ) {
+                    BasicTextField(
+                        value = text,
+                        onValueChange = onTextChange,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = colors.textPrimary,
+                            textDirection = TextDirection.Content,
+                        ),
+                        cursorBrush = SolidColor(colors.accent),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .focusRequester(focusRequester),
+                    )
+                }
             }
         }
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
     }
 }
 
@@ -863,6 +901,55 @@ private fun SessionContextChips(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Agent picker FIRST (batch v121): it's the highest-frequency control on this
+        // row — every new session starts with an agent pick — and the row scrolls
+        // horizontally, so first position is the only slot that never needs a swipe.
+        // The usage/plan gauges are run-time info and read fine one swipe in.
+        if (editable && ui.availableAgents.isNotEmpty()) {
+            item(key = "ctx-agent") {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.codeSurface)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        // One semantic control: "Agent — pick from these avatars".
+                        .semantics { contentDescription = agentDescription },
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ui.availableAgents.forEach { agent ->
+                        val selected = agent == ui.agent
+                        Box(
+                            Modifier
+                                .then(
+                                    if (selected) Modifier.border(
+                                        1.5.dp,
+                                        AgentVisuals.accent(agent),
+                                        CircleShape,
+                                    ) else Modifier,
+                                )
+                                .clip(CircleShape)
+                                .clickable { viewModel.selectAgent(agent) },
+                        ) {
+                            AgentAvatar(agent, size = 24.dp, modifier = Modifier.alpha(if (selected) 1f else 0.55f))
+                        }
+                    }
+                }
+            }
+        } else {
+            item(key = "ctx-agent-label") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AgentAvatar(ui.agent, size = 20.dp)
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        ui.agent.shortName,
+                        fontSize = 11.sp,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
         // Context-window gauge (the web client's above-composer popup trigger).
         if (ui.sessionStats != null) {
             item(key = "ctx-usage") {
@@ -968,52 +1055,6 @@ private fun SessionContextChips(
                     enabled = true,
                     onClick = onOpenOptions,
                 )
-            }
-        }
-        // Agent chip: horizontal avatar row of the draft's installed agents.
-        if (editable && ui.availableAgents.isNotEmpty()) {
-            item(key = "ctx-agent") {
-                Row(
-                    Modifier
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(colors.codeSurface)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                        // One semantic control: "Agent — pick from these avatars".
-                        .semantics { contentDescription = agentDescription },
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ui.availableAgents.forEach { agent ->
-                        val selected = agent == ui.agent
-                        Box(
-                            Modifier
-                                .then(
-                                    if (selected) Modifier.border(
-                                        1.5.dp,
-                                        AgentVisuals.accent(agent),
-                                        CircleShape,
-                                    ) else Modifier,
-                                )
-                                .clip(CircleShape)
-                                .clickable { viewModel.selectAgent(agent) },
-                        ) {
-                            AgentAvatar(agent, size = 24.dp, modifier = Modifier.alpha(if (selected) 1f else 0.55f))
-                        }
-                    }
-                }
-            }
-        } else {
-            item(key = "ctx-agent-label") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AgentAvatar(ui.agent, size = 20.dp)
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        ui.agent.shortName,
-                        fontSize = 11.sp,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                    )
-                }
             }
         }
         // Overflow chip → the full options sheet (mode/config/branch + the same pickers).

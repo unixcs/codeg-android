@@ -70,6 +70,7 @@ fun ActivityScreen(
     allMode: Boolean = false,
     onRefreshAll: () -> Unit = {},
     onOpenRow: (serverId: String, conversationId: Int) -> Unit = { _, id -> onOpenConversation(id) },
+    onHandoff: (serverId: String, folderId: Int, reference: String) -> Unit = { _, _, _ -> },
     viewModel: ActivityViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -161,6 +162,8 @@ fun ActivityScreen(
                                         folderName = row.folderName,
                                         serverName = if (allMode) row.serverName else null,
                                         onDelete = { pendingDelete = row },
+                                        unread = row.unread,
+                                        onHandoff = { ref -> onHandoff(row.serverId, row.conversation.folderId, ref) },
                                     )
                                 }
                             }

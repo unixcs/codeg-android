@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -86,11 +88,52 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[ACTIVITY_DEVICE_SWIPE] = enabled }
     }
 
+    /** Local read marks, keyed `"<serverId>:<conversationId>"` → opened-at epochMilli.
+     *  Deliberately NOT part of [AppSettings]: the JSON map decode must not ride the
+     *  app-wide settings flow. Server has no read tracking, so this is device-local. */
+    val sessionReadMarks: Flow<Map<String, Long>> = dataStore.data.map { prefs ->
+        prefs[SESSION_READ_MARKS]?.let { raw ->
+            runCatching { Json.decodeFromString(ReadMarksSerde.serializer(), raw).marks }
+                .getOrDefault(emptyMap())
+        } ?: emptyMap()
+    }
+
+    suspend fun markSessionRead(key: String, at: Long = System.currentTimeMillis()) {
+        dataStore.edit { prefs ->
+            val current = prefs[SESSION_READ_MARKS]?.let { raw ->
+                runCatching { Json.decodeFromString(ReadMarksSerde.serializer(), raw).marks }
+                    .getOrDefault(emptyMap())
+            } ?: emptyMap()
+            val next = pruneReadMarks(current + (key to at))
+            prefs[SESSION_READ_MARKS] = Json.encodeToString(ReadMarksSerde.serializer(), ReadMarksSerde(next))
+        }
+    }
+
     private companion object {
         val MODE = stringPreferencesKey("theme_mode")
         val ACCENT = stringPreferencesKey("accent_id")
         val TAB_ORDER = stringPreferencesKey("home_tab_order")
         val START_TAB = stringPreferencesKey("start_tab")
         val ACTIVITY_DEVICE_SWIPE = booleanPreferencesKey("activity_device_swipe")
+        val SESSION_READ_MARKS = stringPreferencesKey("session_read_marks")
     }
 }
+
+/** JSON envelope for the read-marks map (DataStore carries one string). */
+@Serializable
+private data class ReadMarksSerde(val marks: Map<String, Long> = emptyMap())
+
+/** Max stored read marks — beyond this the OLDEST marks (by opened-at) are dropped.
+ *  A session that vanished from the lists years ago must not pin its entry forever. */
+const val READ_MARKS_CAP = 500
+
+/** Pure LRU-ish prune: keep the newest [READ_MARKS_CAP] entries by timestamp. */
+fun pruneReadMarks(marks: Map<String, Long>): Map<String, Long> =
+    if (marks.size <= READ_MARKS_CAP) marks
+    else marks.entries.sortedByDescending { it.value }.take(READ_MARKS_CAP).associate { it.toPair() }
+
+/** Pure unread predicate for the Activity feed's Last-24h rows: a row is unread when
+ *  it changed after the last time the user opened it (or was never opened). Live rows
+ *  pulse instead — never double-flagged. */
+fun isSessionUnread(statusLive: Boolean, updatedAt: Long, readMark: Long?): Boolean =
+    !statusLive && updatedAt > (readMark ?: Long.MIN_VALUE)

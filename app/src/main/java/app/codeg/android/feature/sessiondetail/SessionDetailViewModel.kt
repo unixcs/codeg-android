@@ -542,6 +542,16 @@ class SessionDetailViewModel @Inject constructor(
                     is StreamFrame.Snapshot -> {
                         streamReconnects = 0
                         frame.snapshot.eventSeq?.let { lastSeq = it }
+                        // Steering eligibility rides EVERY snapshot (initial send, attach,
+                        // reconnect): one unconditional update covers all five openStream
+                        // paths, so the queue's insert affordance tracks the session's real
+                        // channels instead of a stale attach-time guess.
+                        _ui.update {
+                            it.copy(
+                                steeringAvailable = frame.snapshot.nativeSteeringAvailable ||
+                                    frame.snapshot.feedbackToolAvailable,
+                            )
+                        }
                         if (seedOnAttach && !seedLiveFromSnapshot(frame.snapshot)) {
                             // Idle connection — nothing in flight.
                             if (keepWhenIdle) {
@@ -2203,6 +2213,10 @@ data class SessionDetailUiState(
     val isReconnecting: Boolean = false,
     val agent: AgentType = AgentType.CLAUDE_CODE,
     val isInFlight: Boolean = false,
+    /** A live mid-turn insert has a delivery channel here: native steering push, or the
+     *  server-injected `check_user_feedback` pull tool (codeg settings → Live Feedback
+     *  on). Gates the queued bar's insert button. */
+    val steeringAvailable: Boolean = false,
     val sendStatus: String? = null,
     val notice: String? = null,
     /** Set when a failed send returns the user's typed text to the composer (consumed once). */

@@ -3,7 +3,9 @@ package app.codeg.android.feature.activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
+import app.codeg.android.core.datastore.isSessionUnread
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.network.CodegClient
 import app.codeg.android.core.network.displayMessage
@@ -44,10 +46,16 @@ import javax.inject.Inject
  * a separate aggregate collector would reset each other). Rows carry the owning
  * server's id/name so the aggregate feed can label and hand-off correctly (folderId
  * is only unique within one server, so folder names are resolved per device).
+ *
+ * Unread marks (batch v121): the device-local read marks combine into [sections] so
+ * each Last-24h row carries its unread flag precomputed. `distinctUntilChanged` keeps
+ * the shared DataStore's unrelated writes (e.g. draft saves) from re-running the
+ * section build.
  */
 @HiltViewModel
 class ActivityViewModel @Inject constructor(
     private val repository: ServerRepository,
+    settingsStore: AppSettingsStore,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(ActivityUiState())
@@ -63,7 +71,10 @@ class ActivityViewModel @Inject constructor(
         _ui
             .map { it.conversations }
             .distinctUntilChanged()
-            .map { buildActivitySections(it) }
+            .combine(settingsStore.sessionReadMarks) { conversations, readMarks ->
+                buildActivitySections(conversations, readMarks)
+            }
+            .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -268,12 +279,14 @@ data class ActivityUiState(
 }
 
 /** One feed row: the conversation plus the device it came from. `folderName` is
- *  pre-resolved per device in the aggregate feed (folderId is server-local). */
+ *  pre-resolved per device in the aggregate feed (folderId is server-local);
+ *  `unread` is precomputed from the device-local read marks (Last-24h rows only). */
 data class ActivityRow(
     val conversation: ConversationSummary,
     val serverId: String,
     val serverName: String,
     val folderName: String? = null,
+    val unread: Boolean = false,
 )
 
 /** What an [ActivitySection] represents — drives its header icon / label / tint. */
@@ -292,16 +305,28 @@ data class ActivitySection(
  * Split the conversation list into the Running (live, newest-first) and Last-24h
  * (non-live, updated within 24h, newest-first) sections, dropping an empty one. Pure;
  * the view model runs it on [Dispatchers.Default]. Rows carry their resolved folder
- * and server labels so nothing needs a map lookup at compose time.
+ * and server labels so nothing needs a map lookup at compose time. [readMarks] keys
+ * are `"<serverId>:<conversationId>"` → last opened-at (epochMilli, device-local).
  */
 fun buildActivitySections(
     conversations: List<ActivityRow>,
+    readMarks: Map<String, Long> = emptyMap(),
 ): List<ActivitySection> {
     val running = conversations.filter { it.conversation.status.isLive }
         .sortedByDescending { it.conversation.updatedAt }
     val cutoff = Instant.now().minus(Duration.ofHours(24))
     val recent = conversations.filter { !it.conversation.status.isLive && it.conversation.updatedAt.isAfter(cutoff) }
         .sortedByDescending { it.conversation.updatedAt }
+        .map { row ->
+            val mark = readMarks["${row.serverId}:${row.conversation.id}"]
+            row.copy(
+                unread = isSessionUnread(
+                    statusLive = false,
+                    updatedAt = row.conversation.updatedAt.toEpochMilli(),
+                    readMark = mark,
+                ),
+            )
+        }
 
     val out = ArrayList<ActivitySection>(2)
     if (running.isNotEmpty()) out += ActivitySection("running", ActivityKind.RUNNING, running)

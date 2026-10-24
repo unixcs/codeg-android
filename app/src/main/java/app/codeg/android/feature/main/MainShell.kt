@@ -163,6 +163,16 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // conversation). Double-taps would otherwise stack two detail pages resolved
     // against whichever selection landed last.
     var handoffInFlight by remember { mutableStateOf(false) }
+    // Open a conversation AND stamp it read in one place — every entry point that
+    // shows a conversation from a list (Chats / Activity single / Activity aggregate /
+    // Search) routes through this so the Activity unread dot always clears on open.
+    // serverId scopes the mark (conversation ids are server-local); the device-local
+    // write is fire-and-forget and never gates the navigation.
+    val openConversationAndMark: (serverId: String?, conversationId: Int) -> Unit =
+        { serverId, conversationId ->
+            if (serverId != null) appViewModel.markSessionRead("$serverId:$conversationId")
+            nav.navigate("conversation/$conversationId")
+        }
     // Wide screens (tablets / landscape) use a side NavigationRail instead of the bottom bar.
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
 
@@ -382,7 +392,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         servers = servers,
                         selectedId = selectedProfile?.id,
                         onManageServers = { nav.navigate(ROUTE_SERVERS) },
-                        onOpenConversation = { id -> nav.navigate("conversation/$id") },
+                        onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
                         onNewTask = { nav.navigate(ROUTE_NEW_TASK) },
                         onHandoff = { folderId, ref -> nav.navigate(handoffRoute(folderId, ref)) },
                     )
@@ -406,17 +416,34 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                             appViewModel.setActivityAll(false)
                             appViewModel.selectServerAndWait(serverId) {
                                 handoffInFlight = false
-                                nav.navigate("conversation/$conversationId")
+                                openConversationAndMark(serverId, conversationId)
                             }
                         }
                     },
                     onSelectServer = appViewModel::selectServer,
                     onManageServers = { nav.navigate(ROUTE_SERVERS) },
-                    onOpenConversation = { id -> nav.navigate("conversation/$id") },
+                    // Long-press handoff on an aggregate row must land on the OWNING
+                    // device first (folderId is server-local), same dance as onOpenRow.
+                    onHandoff = { serverId, folderId, ref ->
+                        if (!handoffInFlight) {
+                            handoffInFlight = true
+                            if (activityAll) {
+                                appViewModel.setActivityAll(false)
+                                appViewModel.selectServerAndWait(serverId) {
+                                    handoffInFlight = false
+                                    nav.navigate(handoffRoute(folderId, ref))
+                                }
+                            } else {
+                                handoffInFlight = false
+                                nav.navigate(handoffRoute(folderId, ref))
+                            }
+                        }
+                    },
+                    onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
                 )
             }
             composable(HomeTab.SEARCH.route) {
-                SearchScreen(onOpenConversation = { id -> nav.navigate("conversation/$id") })
+                SearchScreen(onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) })
             }
             composable(HomeTab.SETTINGS.route) {
                 SettingsScreen()

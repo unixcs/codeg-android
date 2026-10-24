@@ -30,8 +30,10 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 
 /**
  * The send-while-running queue, docked between the attachment strip and the composer
- * (the MindFS short-card layout). One dim row per queued draft with three actions at
- * the right edge: inject into the running turn, pull back into the composer, delete.
+ * (the MindFS short-card layout). One dim row per queued draft with actions at the
+ * right edge: inject into the running turn (only when the session has a steering
+ * channel — native push or the server's live-feedback pull tool; hidden otherwise
+ * instead of erroring on tap), pull back into the composer, delete.
  * Capped at 96dp so a long queue scrolls instead of shoving the composer off-screen.
  */
 @Composable
@@ -41,6 +43,7 @@ fun QueuedDraftsBar(
     onEdit: (String) -> Unit,
     onDelete: (String) -> Unit,
     modifier: Modifier = Modifier,
+    canInsert: Boolean = false,
 ) {
     if (queue.isEmpty()) return
     val colors = CodegTheme.colors
@@ -69,16 +72,18 @@ fun QueuedDraftsBar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Icon(
-                    Icons.Rounded.Bolt,
-                    contentDescription = stringResource(R.string.queue_insert_now),
-                    tint = colors.accent,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { onInsert(item.id) }
-                        .padding(2.dp),
-                )
+                if (canInsert) {
+                    Icon(
+                        Icons.Rounded.Bolt,
+                        contentDescription = stringResource(R.string.queue_insert_now),
+                        tint = colors.accent,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onInsert(item.id) }
+                            .padding(2.dp),
+                    )
+                }
                 Icon(
                     Icons.Rounded.Edit,
                     contentDescription = stringResource(R.string.queue_edit),
