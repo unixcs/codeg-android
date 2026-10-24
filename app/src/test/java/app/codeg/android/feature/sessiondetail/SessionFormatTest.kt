@@ -1,6 +1,11 @@
 package app.codeg.android.feature.sessiondetail
 
+import app.codeg.android.core.model.SessionConfigKind
+import app.codeg.android.core.model.SessionConfigOption
+import app.codeg.android.core.model.SessionConfigSelectGroup
+import app.codeg.android.core.model.SessionConfigSelectOption
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SessionFormatTest {
@@ -33,9 +38,19 @@ class SessionFormatTest {
     fun tokensUseCompactUnits() {
         assertEquals("670.6K", formatTokens(670_600))
         assertEquals("2.7M", formatTokens(2_700_000))
-        assertEquals("87.0M", formatTokens(87_000_000))
+        assertEquals("87M", formatTokens(87_000_000))
         assertEquals("999", formatTokens(999))
         assertEquals("0", formatTokens(0))
+    }
+
+    @Test
+    fun tokensDropTheUselessTrailingZero() {
+        assertEquals("1M", formatTokens(1_000_000))
+        assertEquals("87M", formatTokens(87_000_000))
+        assertEquals("2K", formatTokens(2_000))
+        // Real fractions keep their decimal.
+        assertEquals("1.5M", formatTokens(1_500_000))
+        assertEquals("670.6K", formatTokens(670_600))
     }
 
     @Test
@@ -44,5 +59,74 @@ class SessionFormatTest {
         assertEquals("97.0%", formatPercent(97.0))
         assertEquals("100.0%", formatPercent(120.0))
         assertEquals("0.0%", formatPercent(-1.0))
+    }
+
+    // ===== currentModelLabel =====
+
+    private fun modelOption(
+        currentValue: String? = "glm-5.3",
+        id: String = "model",
+        category: String? = "model",
+        type: String = "select",
+        options: List<SessionConfigSelectOption> = listOf(
+            SessionConfigSelectOption(value = "glm-5.3", name = "GLM-5.3"),
+            SessionConfigSelectOption(value = "glm-5-flash", name = "GLM-5 Flash"),
+        ),
+        groups: List<SessionConfigSelectGroup> = emptyList(),
+    ) = SessionConfigOption(
+        id = id,
+        name = "Model",
+        category = category,
+        kind = SessionConfigKind(type = type, currentValue = currentValue, options = options, groups = groups),
+    )
+
+    @Test
+    fun modelLabelResolvesTheDisplayNameFromTheOptionList() {
+        assertEquals("GLM-5.3", currentModelLabel(listOf(modelOption())))
+    }
+
+    @Test
+    fun modelLabelMatchesByIdWhenCategoryIsAbsent() {
+        val byId = modelOption(category = null)
+        assertEquals("GLM-5.3", currentModelLabel(listOf(byId)))
+        val byCategory = modelOption(id = "reasoning_effort", category = "model")
+        assertEquals("GLM-5.3", currentModelLabel(listOf(byCategory)))
+    }
+
+    @Test
+    fun modelLabelResolvesThroughGroups() {
+        val grouped = modelOption(
+            options = emptyList(),
+            groups = listOf(
+                SessionConfigSelectGroup(
+                    group = "zai",
+                    name = "Z.ai",
+                    options = listOf(SessionConfigSelectOption(value = "glm-5.3", name = "GLM-5.3")),
+                ),
+            ),
+        )
+        assertEquals("GLM-5.3", currentModelLabel(listOf(grouped)))
+    }
+
+    @Test
+    fun modelLabelFallsBackToTheRawValueWhenNoEntryMatches() {
+        assertEquals("raw-model-id", currentModelLabel(listOf(modelOption(currentValue = "raw-model-id"))))
+    }
+
+    @Test
+    fun modelLabelIsNullWithoutAModelSelector() {
+        val effort = SessionConfigOption(
+            id = "reasoning_effort",
+            kind = SessionConfigKind(currentValue = "high", options = listOf(SessionConfigSelectOption(value = "high", name = "High"))),
+        )
+        assertNull(currentModelLabel(listOf(effort)))
+        assertNull(currentModelLabel(emptyList()))
+    }
+
+    @Test
+    fun modelLabelIsNullForNonSelectOrEmptyValue() {
+        assertNull(currentModelLabel(listOf(modelOption(type = "boolean"))))
+        assertNull(currentModelLabel(listOf(modelOption(currentValue = null))))
+        assertNull(currentModelLabel(listOf(modelOption(currentValue = "  "))))
     }
 }

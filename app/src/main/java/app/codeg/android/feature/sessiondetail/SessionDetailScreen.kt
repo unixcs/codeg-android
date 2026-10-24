@@ -45,6 +45,7 @@ import androidx.compose.material.icons.automirrored.rounded.AltRoute
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.Dns
@@ -114,6 +115,7 @@ import app.codeg.android.core.designsystem.component.LivePulse
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.ContentBlock
+import app.codeg.android.core.model.PlanEntry
 import app.codeg.android.feature.sessiondetail.interactive.AskQuestionCard
 import app.codeg.android.feature.sessiondetail.interactive.PermissionRequestCard
 import app.codeg.android.feature.sessiondetail.interactive.PlanApprovalCard
@@ -169,6 +171,7 @@ fun SessionDetailScreen(
     var showOptions by remember { mutableStateOf(false) }
     var showContextUsage by remember { mutableStateOf(false) }
     var showSessionDetails by remember { mutableStateOf(false) }
+    var showPlanProgress by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -195,6 +198,17 @@ fun SessionDetailScreen(
     }
     if (showSessionDetails) {
         SessionDetailsSheet(ui = ui, viewModel = viewModel, onDismiss = { showSessionDetails = false })
+    }
+    // The running turn's plan card. The chip that opens it only exists while a plan
+    // is live AND the turn is in flight — when the turn ends (or the live state is
+    // torn down), close the sheet rather than leaving it showing a stale plan.
+    if (showPlanProgress) {
+        val live = ui.live
+        if (live != null && live.livePlan.isNotEmpty()) {
+            PlanProgressSheet(live = live, onDismiss = { showPlanProgress = false })
+        } else {
+            showPlanProgress = false
+        }
     }
     val pickImages = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(AttachmentPrep.MAX_COUNT),
@@ -391,6 +405,7 @@ fun SessionDetailScreen(
                             onOpenOptions = { showOptions = true },
                             onOpenContextUsage = { showContextUsage = true },
                             onOpenSessionDetails = { showSessionDetails = true },
+                            onOpenPlanProgress = { showPlanProgress = true },
                         )
                     },
                     commandSuggestions = ui.availableCommands,
@@ -713,6 +728,9 @@ private fun SessionStatusRow(ui: SessionDetailUiState) {
                 else -> stringResource(R.string.elapsed_seconds, parts.seconds.toInt())
             }
         }
+        // The running model, from the session's config options — agents without a
+        // model selector contribute nothing (never a fabricated name).
+        val modelLabel = remember(ui.configOptions) { currentModelLabel(ui.configOptions) }
         Row(
             Modifier
                 .fillMaxWidth()
@@ -722,7 +740,10 @@ private fun SessionStatusRow(ui: SessionDetailUiState) {
             LivePulse(dotSize = 7.dp)
             Spacer(Modifier.width(8.dp))
             Text(
-                stringResource(R.string.session_status_generating),
+                text = buildString {
+                    append(stringResource(R.string.session_status_generating))
+                    modelLabel?.let { append(" · ").append(it) }
+                },
                 fontSize = 12.sp,
                 color = colors.textSecondary,
                 modifier = Modifier.weight(1f),
@@ -802,6 +823,7 @@ private fun SessionContextChips(
     onOpenOptions: () -> Unit,
     onOpenContextUsage: () -> Unit,
     onOpenSessionDetails: () -> Unit,
+    onOpenPlanProgress: () -> Unit,
 ) {
     val colors = CodegTheme.colors
     val editable = ui.isDraftEditable && !ui.isInFlight
@@ -824,6 +846,25 @@ private fun SessionContextChips(
                     contentDescription = stringResource(R.string.context_usage_title),
                     enabled = true,
                     onClick = onOpenContextUsage,
+                )
+            }
+        }
+        // Live plan progress (the web sidebar's stage card): "计划 x/y" while the running
+        // turn has a plan. Gated on isInFlight so a failed turn's residual live state can't
+        // leave the chip hanging after the round trip is over.
+        val planEntries = ui.live?.livePlan.orEmpty()
+        if (ui.isInFlight && planEntries.isNotEmpty()) {
+            item(key = "ctx-plan") {
+                ContextChip(
+                    icon = Icons.Rounded.Checklist,
+                    label = stringResource(
+                        R.string.plan_progress_chip,
+                        planEntries.count { it.normalizedStatus == PlanEntry.Status.COMPLETED },
+                        planEntries.size,
+                    ),
+                    contentDescription = stringResource(R.string.plan_progress_title),
+                    enabled = true,
+                    onClick = onOpenPlanProgress,
                 )
             }
         }

@@ -26,11 +26,33 @@ class TableLayoutTest {
     }
 
     @Test
-    fun `content below the per-column floor overflows at natural widths`() {
-        val natural = listOf(300f, 300f, 300f)
-        val layout = tableColumnWidths(natural, availableWidth = 180f)
+    fun `a squeezed narrow column is pinned at the floor and the wide one absorbs the rest`() {
+        // The regression that motivated water-fill: naive proportional shrink says
+        // [10,500] needs 510dp at the 64dp floor and overflowed at 200dp — but
+        // [64,136] fits without scrolling.
+        val layout = tableColumnWidths(listOf(10f, 500f), availableWidth = 200f)
+        assertFalse(layout.overflow)
+        assertEquals(listOf(64f, 136f), layout.widths)
+    }
+
+    @Test
+    fun `columns below the floor that cannot all fit overflow at the floor widths`() {
+        val layout = tableColumnWidths(listOf(300f, 300f, 300f), availableWidth = 180f)
         assertTrue(layout.overflow)
-        assertEquals(natural, layout.widths)
+        // The floor widths (not the naturals) — the caller scrolls, so narrower is better.
+        assertEquals(listOf(64f, 64f, 64f), layout.widths)
+    }
+
+    @Test
+    fun `redistribution may exceed a column's natural width to fill the row`() {
+        // One huge column + two tiny ones: the tiny columns pin at 64 and the wide
+        // column takes everything left — well over its proportional share.
+        val layout = tableColumnWidths(listOf(300f, 10f, 10f), availableWidth = 240f)
+        assertFalse(layout.overflow)
+        assertEquals(240f, layout.widths.sum(), 0.01f)
+        assertEquals(64f, layout.widths[1], 0.01f)
+        assertEquals(64f, layout.widths[2], 0.01f)
+        assertTrue(layout.widths[0] > 64f)
     }
 
     @Test

@@ -16,11 +16,11 @@ jobs:
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Job-level so the Telegram step can gate on `env.X != ''` (the secrets context
-    # is not available in step `if` conditions).
+    # Job-level env carries only a NON-secret proxy (the secrets context is not
+    # available in step `if` conditions); the actual values stay in the Telegram
+    # step's own env, below.
     env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_NOTIFY: ${{ secrets.TELEGRAM_BOT_TOKEN != '' }}
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -236,10 +236,16 @@ jobs:
             --latest
 
       # Direct download links (not just the Release page) so a phone tap starts the
-      # download. Skipped silently when the Telegram secrets are not configured.
+      # download. Skipped silently when the Telegram secrets are not configured. The
+      # release itself is done by this point — a notification failure must not fail
+      # (and re-trigger) the job, so the step never breaks the run.
       - name: Send the Release link to Telegram
-        if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        if: env.TELEGRAM_NOTIFY == 'true'
+        continue-on-error: true
         shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
@@ -274,7 +280,7 @@ jobs:
           {
             printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TELEGRAM_BOT_TOKEN"
             printf 'header = "Content-Type: application/json"\n'
-            printf 'silent\nshow-error\nfail\n'
+            printf 'silent\nshow-error\nfail-with-body\n'
           } > "$config"
           chmod 600 "$config"
           curl --config "$config" --data-binary "@$payload" > /dev/null

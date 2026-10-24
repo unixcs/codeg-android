@@ -48,9 +48,12 @@ import app.codeg.android.feature.sessiondetail.interactive.ParsedPermission
 import app.codeg.android.feature.sessiondetail.timeline.dropTrailingAssistantRun
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import app.codeg.android.di.ApplicationScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -60,6 +63,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
@@ -113,6 +117,7 @@ class SessionDetailViewModel @Inject constructor(
     private val draftStore: DraftStore,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
+    @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
 
     private val conversationIdArg: Int? = savedStateHandle.get<Int>("id")?.takeIf { it >= 0 }
@@ -160,6 +165,9 @@ class SessionDetailViewModel @Inject constructor(
     private var liveBuilder: LiveTurnBuilder? = null
     private var liveFlushScheduled = false
     private var turnBaseline = 0
+    /** Set in [onCleared]. A send still winding down on [appScope] checks it to skip
+     *  the attach handshake — see [connectStream]. */
+    @Volatile private var cleared = false
 
     private val _ui = MutableStateFlow(SessionDetailUiState(isNew = conversationIdArg == null))
     val ui: StateFlow<SessionDetailUiState> = _ui.asStateFlow()
@@ -341,10 +349,14 @@ class SessionDetailViewModel @Inject constructor(
                 isDraftEditable = false,
             )
         }
-        sendJob = viewModelScope.launch { runSend(trimmed, userTurn, attachments, wasNew) }
-        // The screen empties its composer on send; keep the persisted draft in sync
-        // so the sent text can't resurrect on the next visit.
-        if (withAttachments) viewModelScope.launch { clearPersistedDraft() }
+        // Run the send on the process-lifetime scope (re-dispatched to Main so the state
+        // writes stay on the main thread): a back-navigation clears this VM mid-flight,
+        // and the old `viewModelScope` home cancelled the coroutine before the prompt
+        // POST landed — the optimistic bubble, the cleared draft and the server turns all
+        // ended up empty. The send outlives the screen now.
+        sendJob = appScope.launch(Dispatchers.Main.immediate) {
+            runSend(trimmed, userTurn, attachments, wasNew, clearDraft = withAttachments)
+        }
     }
 
     private suspend fun runSend(
@@ -352,6 +364,7 @@ class SessionDetailViewModel @Inject constructor(
         userTurn: MessageTurn,
         attachments: List<Attachment>,
         createdConversation: Boolean,
+        clearDraft: Boolean,
     ) {
         val c = client ?: return
         // One id for both attempts so the server dedupes if the first prompt actually landed.
@@ -362,6 +375,11 @@ class SessionDetailViewModel @Inject constructor(
         try {
             ensureConversationCreated(text.ifEmpty { "Image" })
             if (createdConversation) createdId = conversationId
+            // The screen has already emptied its composer; clear the persisted draft here —
+            // on [appScope], so a back-navigation can't cancel it mid-DataStore-write and
+            // resurrect the sent text on the next visit. Generated sends (plan follow-ups)
+            // must not consume the user's pending draft.
+            if (clearDraft) clearPersistedDraft()
             try {
                 attemptSend(c, text, attachments, clientMessageId, freshConnection = false)
             } catch (e: CancellationException) {
@@ -470,21 +488,31 @@ class SessionDetailViewModel @Inject constructor(
 
     /** Open the WS stream for a fresh turn: reset the reconnect budget, attach, and
      *  suspend until the server confirms the subscription (or a 12s safety timeout).
-     *  [seedOnAttach] rebuilds an in-flight turn from the attach snapshot (reattach). */
-    private suspend fun openStream(conn: String, seedOnAttach: Boolean = false) {
+     *  [seedOnAttach] rebuilds an in-flight turn from the attach snapshot (reattach).
+     *  [keepWhenIdle] keeps the connection alive when the snapshot shows an idle
+     *  session (the manual reconnect of a wedged-but-idle CLI) instead of aborting. */
+    private suspend fun openStream(conn: String, seedOnAttach: Boolean = false, keepWhenIdle: Boolean = false) {
         streamReconnects = 0
         pendingReattachSeed = seedOnAttach
         reconnectJob?.cancel()
         reconnectJob = null
-        connectStream(conn, awaitAttach = true, seedOnAttach = seedOnAttach)
+        connectStream(conn, awaitAttach = true, seedOnAttach = seedOnAttach, keepWhenIdle = keepWhenIdle)
     }
 
     /** Launch a WS consumer for [conn], attaching with the current [lastSeq] so a
      *  re-attach resumes via the server's replay. When [awaitAttach], suspend until
      *  the server confirms the subscription (snapshot/replay) or a 12s safety timeout;
      *  a silent reconnect passes false and lets events flow in as they arrive.
-     *  [seedOnAttach] seeds the live turn from the first snapshot (reattach only). */
-    private suspend fun connectStream(conn: String, awaitAttach: Boolean, seedOnAttach: Boolean = false) {
+     *  [seedOnAttach] seeds the live turn from the first snapshot (reattach only).
+     *  [keepWhenIdle] — a manual reconnect targets a wedged CLI that usually sits
+     *  IDLE, so an idle snapshot there means success: keep the fresh connection (the
+     *  default abort path would tear it down and report a reconnect that isn't). */
+    private suspend fun connectStream(
+        conn: String,
+        awaitAttach: Boolean,
+        seedOnAttach: Boolean = false,
+        keepWhenIdle: Boolean = false,
+    ) {
         val p = profile ?: return
         streamGeneration += 1
         val gen = streamGeneration
@@ -504,9 +532,32 @@ class SessionDetailViewModel @Inject constructor(
                         streamReconnects = 0
                         frame.snapshot.eventSeq?.let { lastSeq = it }
                         if (seedOnAttach && !seedLiveFromSnapshot(frame.snapshot)) {
-                            // Idle connection — nothing in flight; abort the reattach.
-                            if (!attached.isCompleted) attached.complete(Unit)
-                            abortIdleReattach()
+                            // Idle connection — nothing in flight.
+                            if (keepWhenIdle) {
+                                // Manual reconnect: adopt the snapshot's identity +
+                                // advertised state, drop the idle-turn placeholder, and
+                                // keep the NEW connection (do NOT close the stream —
+                                // that's the reconnect's whole point). Still reconcile:
+                                // the turn may have finished while the CLI looked wedged.
+                                restorePending(frame.snapshot)
+                                liveBuilder = null
+                                _ui.update {
+                                    it.copy(
+                                        isInFlight = false,
+                                        runStartedAt = null,
+                                        sendStatus = null,
+                                        live = null,
+                                        liveFromReattach = false,
+                                    )
+                                }
+                                if (!attached.isCompleted) attached.complete(Unit)
+                                reconcileAfterMissedLive()
+                            } else {
+                                // Automatic reattach of a turn that just ended — abort and
+                                // let the transcript reconcile show the final state.
+                                if (!attached.isCompleted) attached.complete(Unit)
+                                abortIdleReattach()
+                            }
                             return@collect
                         }
                         // Only adopt a snapshot's pending permission/question on a reattach or a
@@ -548,7 +599,18 @@ class SessionDetailViewModel @Inject constructor(
         // Fail the send if the subscription isn't confirmed in time, instead of prompting
         // blind against an unconfirmed stream (whose first events could be lost). The send
         // path treats this like a stale connection and retries once with a fresh connect.
-        if (awaitAttach) withTimeoutOrNull(12_000) { attached.await() } ?: throw StreamAttachFailed("attach timeout")
+        // EXCEPT when the VM is already gone (send outliving a back-navigation): the
+        // consumer that would complete [attached] runs on the dead viewModelScope and the
+        // wait could never succeed. The server enqueues the prompt on the RPC's return —
+        // no client stream needs to be watching — so skip the handshake and POST directly;
+        // re-entering the session re-seeds everything from the snapshot/reconcile.
+        if (awaitAttach) {
+            if (cleared) {
+                if (!attached.isCompleted) attached.complete(Unit)
+            } else {
+                withTimeoutOrNull(12_000) { attached.await() } ?: throw StreamAttachFailed("attach timeout")
+            }
+        }
     }
 
     fun cancel() {
@@ -680,7 +742,18 @@ class SessionDetailViewModel @Inject constructor(
                 externalId = event.sessionId
                 _ui.update { it.copy(externalId = event.sessionId) }
             }
-            is AcpEvent.AvailableCommands -> _ui.update { it.copy(availableCommands = event.commands) }
+            // Same expert filter as [loadSlashCommands]: an expert-backed name must not
+            // surface as a slash command regardless of which channel advertised it.
+            is AcpEvent.AvailableCommands -> _ui.update {
+                val filtered = event.commands.filter { cmd -> cmd.name !in expertIds }
+                if (filtered.isEmpty()) it else it.copy(availableCommands = filtered)
+            }
+            // The agent (re)published its config options — the model selector's current
+            // value is what the status line shows. Replace wholesale: this event is the
+            // connection's authoritative option state (web parity).
+            is AcpEvent.SessionConfigOptions -> _ui.update {
+                if (event.options.isNotEmpty()) it.copy(configOptions = event.options) else it
+            }
             else -> Unit // user_message / etc. are informational
         }
     }
@@ -832,6 +905,7 @@ class SessionDetailViewModel @Inject constructor(
                 runStartedAt = snap.liveMessage?.startedAt ?: it.runStartedAt,
                 externalId = snap.externalId ?: it.externalId,
                 availableCommands = snap.availableCommands.ifEmpty { it.availableCommands },
+                configOptions = snap.configOptions.ifEmpty { it.configOptions },
             )
         }
         return true
@@ -868,6 +942,7 @@ class SessionDetailViewModel @Inject constructor(
             it.copy(
                 externalId = snap.externalId ?: it.externalId,
                 availableCommands = snap.availableCommands.ifEmpty { it.availableCommands },
+                configOptions = snap.configOptions.ifEmpty { it.configOptions },
             )
         }
         snap.pendingPermission?.let { p ->
@@ -1073,9 +1148,10 @@ class SessionDetailViewModel @Inject constructor(
         closeStream()
         // A failed FIRST send may have created a conversation row up front; delete THAT exact
         // orphan (by the id this send created, not the current conversationId) so it doesn't
-        // linger, and never touch a conversation a later send may already be using.
+        // linger, and never touch a conversation a later send may already be using. Runs on
+        // [appScope] — the discard itself usually IS the post-cleared failure path.
         if (createdConversationId != null) {
-            viewModelScope.launch {
+            appScope.launch {
                 runCatching { client?.deleteConversation(createdConversationId) }
                 repository.notifyConversationsChanged()
             }
@@ -1151,7 +1227,11 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        sendJob?.cancel()
+        // A send must survive this screen closing — the prompt POST may still be in
+        // flight on [appScope], and cancelling here is exactly the lost-message bug
+        // (bubble + draft gone, server never saw the turn). The job ends on its own;
+        // its late `_ui` writes land on a StateFlow with no subscribers.
+        cleared = true
         closeStream()
         super.onCleared()
     }
@@ -1238,35 +1318,48 @@ class SessionDetailViewModel @Inject constructor(
      *
      *  Order: the live WS event/snapshot → the per-conversation snapshot RPC → the
      *  per-agent catalog probe. The last step is what makes a draft (no conversation
-     *  id yet) show commands at all. */
+     *  id yet) show commands at all. The same probes seed [SessionDetailUiState.configOptions]
+     *  (the model selector) when they carry them — a non-empty result wins over what's
+     *  cached, so a stale agent's slow response can't shadow a fresh context. */
     suspend fun loadSlashCommands(): List<AvailableCommandInfo> {
         val c = client ?: return emptyList()
-        val live = _ui.value.availableCommands
-        val commands = if (live.isNotEmpty()) {
-            live
-        } else {
+        var commands = _ui.value.availableCommands
+        if (commands.isEmpty()) {
             val id = conversationId
-            val fromSnapshot = id
-                ?.let { runCatching { c.sessionSnapshotByConversation(it) }.getOrNull() }
-                ?.availableCommands
-                .orEmpty()
-            fromSnapshot.ifEmpty {
-                runCatching { c.describeAgentOptions(agent, folder?.path) }
-                    .getOrNull()
-                    ?.availableCommands
-                    .orEmpty()
+            val snap = id?.let { runCatching { c.sessionSnapshotByConversation(it) }.getOrNull() }
+            // Seed the config options from whichever probe produced state (event filter:
+            // an existing conversation gets its own; a draft gets the agent catalog's).
+            snap?.configOptions?.takeIf { it.isNotEmpty() }?.let { seeded ->
+                _ui.update { it.copy(configOptions = seeded) }
+            }
+            commands = snap?.availableCommands.orEmpty().ifEmpty {
+                val described = runCatching { c.describeAgentOptions(agent, folder?.path) }.getOrNull()
+                described?.configOptions?.takeIf { it.isNotEmpty() }?.let { seeded ->
+                    _ui.update { it.copy(configOptions = seeded) }
+                }
+                described?.availableCommands.orEmpty()
             }
         }
         if (commands.isEmpty()) return emptyList()
         val knownExperts = runCatching { c.expertsList().map { it.id }.toSet() }.getOrDefault(emptySet())
+        expertIds = knownExperts
         val filtered = commands.filter { it.name !in knownExperts }
         // Store the filtered list: the composer popup reads `ui.availableCommands`, and an
         // expert-backed name must not surface there as a slash command.
-        if (filtered.isNotEmpty() && _ui.value.availableCommands.isEmpty()) {
+        if (filtered.isNotEmpty()) {
             _ui.update { it.copy(availableCommands = filtered) }
         }
         return filtered
     }
+
+    /** Cached known-expert ids ([loadSlashCommands] fetches them); lets the live
+     *  `available_commands` event apply the same expert filter (M5). */
+    private var expertIds: Set<String> = emptySet()
+
+    /** Bumped on every draft agent/folder switch; a background refresh of the
+     *  command/config lists checks it before landing, so a slow response for the
+     *  OLD context can't overwrite the new context's state (M4). */
+    private var workspaceGeneration = 0
 
     suspend fun knownExpertIds(): Set<String> =
         client?.let { runCatching { it.expertsList().map { e -> e.id }.toSet() }.getOrDefault(emptySet()) } ?: emptySet()
@@ -1304,21 +1397,26 @@ class SessionDetailViewModel @Inject constructor(
     // region Workspace (draft agent/folder pickers + git branch)
 
     /** Change the draft's agent before the first send. Drops any resolved
-     *  connection so the next apply/send re-resolves against the new agent. */
+     *  connection so the next apply/send re-resolves against the new agent, and
+     *  refreshes the command/config lists for the new context. */
     fun selectAgent(newAgent: AgentType) {
         if (!_ui.value.isDraftEditable || newAgent == agent) return
         agent = newAgent
         connectionId = null
+        workspaceGeneration += 1
         _ui.update { it.copy(agent = newAgent) }
+        refreshWorkspaceCatalog()
     }
 
     /** Change the draft's folder before the first send (the agent's working dir),
-     *  refreshing the branch label and dropping any resolved connection. */
+     *  refreshing the branch label, dropping any resolved connection, and refreshing
+     *  the command/config lists for the new context. */
     fun selectFolder(newFolder: FolderDetail) {
         if (!_ui.value.isDraftEditable || newFolder.id == folder?.id) return
         folder = newFolder
         currentBranch = newFolder.gitBranch
         connectionId = null
+        workspaceGeneration += 1
         _ui.update {
             it.copy(
                 folderName = FolderVisibility.displayName(newFolder, allFolders),
@@ -1326,6 +1424,28 @@ class SessionDetailViewModel @Inject constructor(
                 selectedFolderId = newFolder.id,
                 currentBranch = newFolder.gitBranch,
             )
+        }
+        refreshWorkspaceCatalog()
+    }
+
+    /** Re-probe the agent catalog after a draft agent/folder switch: clear the stale
+     *  command/config lists up front, then write the fresh ones — but only if the
+     *  workspace hasn't switched again while the probe was in flight (generation
+     *  check), and only when they actually changed. */
+    private fun refreshWorkspaceCatalog() {
+        val c = client ?: return
+        val gen = workspaceGeneration
+        _ui.update { it.copy(availableCommands = emptyList(), configOptions = emptyList()) }
+        viewModelScope.launch {
+            val described = runCatching { c.describeAgentOptions(agent, folder?.path) }.getOrNull()
+                ?: return@launch
+            if (gen != workspaceGeneration) return@launch
+            _ui.update {
+                it.copy(
+                    availableCommands = described.availableCommands,
+                    configOptions = described.configOptions,
+                )
+            }
         }
     }
 
@@ -1690,7 +1810,9 @@ class SessionDetailViewModel @Inject constructor(
             _ui.update { it.copy(isExporting = true) }
             val temp = File(appContext.cacheDir, "handoff-${System.currentTimeMillis()}.json")
             try {
-                temp.writeText(buildSessionHandoffJson(state))
+                // Serializing a long transcript + writing it is real work — keep it off
+                // the main thread (the JSON build also allocates heavily).
+                temp.writeText(withContext(Dispatchers.Default) { buildSessionHandoffJson(state) })
                 val name = "session-${externalId ?: conversationId ?: "draft"}-${System.currentTimeMillis()}.json"
                 val uploaded = c.uploadWorkspaceFile(
                     rootPath = root,
@@ -1744,6 +1866,24 @@ class SessionDetailViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _ui.update { it.copy(isReconnecting = true) }
+            // An optimistic send stranded by the reconnect (its turn never confirmed
+            // either way) must be rolled back BEFORE the connection drops, or its bubble
+            // would hang forever with no reply path. discardOptimistic puts the text back
+            // in the composer (and restores attachments); the reconnect's own notice below
+            // tells the user what happened — one banner for the whole operation.
+            _ui.value.pendingUserTurns.lastOrNull()?.let { stranded ->
+                val text = stranded.blocks.filterIsInstance<ContentBlock.Text>()
+                    .joinToString("\n") { it.text }
+                val orphanRow = hasStartedFirstSend && _ui.value.turns.isEmpty()
+                discardOptimistic(
+                    userTurn = stranded,
+                    text = text,
+                    attachments = _ui.value.attachments,
+                    createdConversation = orphanRow,
+                    createdConversationId = if (orphanRow) conversationId else null,
+                    notice = "", // superseded by the reconnect notice below
+                )
+            }
             // The old connection is about to go away, so its stream must stop folding
             // events into the live turn before we tear it down.
             sendJob?.cancel()
@@ -1757,11 +1897,15 @@ class SessionDetailViewModel @Inject constructor(
                 runCatching { c.disconnect(previous) }
             }
             var failure: String? = null
+            // An idle snapshot here is success (the wedged CLI usually sits idle), so the
+            // fresh connection is KEPT rather than aborted — see [connectStream].
             val ok = runCatching {
                 val conn = connectFresh(c)
                 connectionId = conn
-                openStream(conn, seedOnAttach = true)
+                openStream(conn, seedOnAttach = true, keepWhenIdle = true)
             }.onFailure { failure = it.displayMessage() }.isSuccess
+            // One notice for the whole outcome — including any stranded send recovered
+            // above — instead of two banners fighting for the same snackbar slot.
             _ui.update {
                 it.copy(
                     isReconnecting = false,
@@ -1900,6 +2044,10 @@ data class SessionDetailUiState(
     val runStartedAt: Long? = null,
     /** Slash commands advertised by the agent for this session. */
     val availableCommands: List<AvailableCommandInfo> = emptyList(),
+    /** The session's config options (incl. the model selector), seeded from the
+     *  snapshot / `session_config_options` events / the agent catalog — drives the
+     *  status line's current-model label. */
+    val configOptions: List<SessionConfigOption> = emptyList(),
     /** The session-JSON export is in flight. */
     val isExporting: Boolean = false,
     /** A manual reconnect is in flight. */

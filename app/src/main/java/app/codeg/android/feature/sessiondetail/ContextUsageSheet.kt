@@ -40,11 +40,23 @@ fun ContextUsageSheet(ui: SessionDetailUiState, onDismiss: () -> Unit) {
         val usage = stats?.totalUsage
         val used = stats?.contextWindowUsedTokens
         val max = stats?.contextWindowMaxTokens
+        // Fall back to deriving the percent from the raw used/max when the server
+        // didn't report it (the web client does the same).
         val percent = stats?.contextWindowUsagePercent
+            ?: (if (used != null && max != null && max > 0) used.toDouble() / max * 100.0 else null)
         val cacheHit = usage?.let {
-            val totalInput = it.inputTokens.toLong() + it.cacheReadInputTokens
+            // Web `cacheHitRatio` parity: cache-creation tokens are part of the
+            // input denominator, not just cache reads.
+            val totalInput = it.inputTokens.toLong() + it.cacheCreationInputTokens.toLong() + it.cacheReadInputTokens
             if (totalInput > 0) it.cacheReadInputTokens.toDouble() / totalInput * 100.0 else null
         }
+        // No real token accounting anywhere → hide the whole breakdown instead of a
+        // column of dashes (older agents / providers that report nothing).
+        val usageAllZero = usage == null ||
+            (usage.inputTokens == 0 && usage.outputTokens == 0 &&
+                usage.cacheReadInputTokens == 0 && usage.cacheCreationInputTokens == 0)
+        val totalTokens = stats?.totalTokens?.toLong() ?: usage?.total?.toLong()
+        val showTokenBreakdown = !(usageAllZero && totalTokens == null)
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -82,21 +94,22 @@ fun ContextUsageSheet(ui: SessionDetailUiState, onDismiss: () -> Unit) {
                 trackColor = colors.surfaceStroke,
             )
             StatLine(stringResource(R.string.context_usage_cache_hit), cacheHit?.let(::formatPercent) ?: "—")
-            HorizontalDivider(thickness = 0.5.dp, color = colors.hairline)
-            Text(
-                stringResource(R.string.context_usage_tokens),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = colors.textSecondary,
-            )
-            StatLine(stringResource(R.string.context_usage_input), usage?.inputTokens?.let { formatTokens(it.toLong()) } ?: "—")
-            StatLine(stringResource(R.string.context_usage_output), usage?.outputTokens?.let { formatTokens(it.toLong()) } ?: "—")
-            StatLine(stringResource(R.string.context_usage_cache_read), usage?.cacheReadInputTokens?.let { formatTokens(it.toLong()) } ?: "—")
-            StatLine(stringResource(R.string.context_usage_cache_write), usage?.cacheCreationInputTokens?.let { formatTokens(it.toLong()) } ?: "—")
-            // `total_tokens` is the server's own cumulative figure; fall back to the
-            // per-turn usage sum when an older server doesn't report it.
-            val totalTokens = stats?.totalTokens?.toLong() ?: usage?.total?.toLong()
-            StatLine(stringResource(R.string.context_usage_total), totalTokens?.let(::formatTokens) ?: "—")
+            if (showTokenBreakdown) {
+                HorizontalDivider(thickness = 0.5.dp, color = colors.hairline)
+                Text(
+                    stringResource(R.string.context_usage_tokens),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.textSecondary,
+                )
+                StatLine(stringResource(R.string.context_usage_input), usage?.inputTokens?.let { formatTokens(it.toLong()) } ?: "—")
+                StatLine(stringResource(R.string.context_usage_output), usage?.outputTokens?.let { formatTokens(it.toLong()) } ?: "—")
+                StatLine(stringResource(R.string.context_usage_cache_read), usage?.cacheReadInputTokens?.let { formatTokens(it.toLong()) } ?: "—")
+                StatLine(stringResource(R.string.context_usage_cache_write), usage?.cacheCreationInputTokens?.let { formatTokens(it.toLong()) } ?: "—")
+                // `total_tokens` is the server's own cumulative figure; fall back to the
+                // per-turn usage sum when an older server doesn't report it.
+                StatLine(stringResource(R.string.context_usage_total), totalTokens?.let(::formatTokens) ?: "—")
+            }
         }
     }
 }

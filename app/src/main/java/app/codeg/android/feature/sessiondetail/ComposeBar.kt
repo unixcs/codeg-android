@@ -96,7 +96,12 @@ fun ComposeBar(
     val showExpand = text.length > 120 || text.count { it == '\n' } >= 2
     // Only a bare slash prefix is a command query: "/compact" matches, "/compact now"
     // does not (the command was already picked and the user is typing arguments).
-    val slashQuery = text.takeIf { it.startsWith("/") && it.none { c -> c == ' ' || c == '\n' } }
+    // Leading whitespace doesn't disqualify — a draft that picked up an indent (or an
+    // autocomplete space) still opens the palette; picking a command replaces the
+    // whole text anyway.
+    val slashQuery = text.trimStart().takeIf {
+        it.startsWith("/") && it.none { c -> c == ' ' || c == '\n' }
+    }
     val matches = if (slashQuery == null || onPickCommand == null) {
         emptyList()
     } else {

@@ -124,6 +124,9 @@ sealed interface AcpEvent {
     data class PlanUpdate(val entries: List<PlanEntry>) : AcpEvent
     /** The agent (re)published its slash commands for this session. */
     data class AvailableCommands(val commands: List<AvailableCommandInfo>) : AcpEvent
+    /** The session's config options (re)published — the model selector and its current
+     *  value ride in here (`SessionConfigOption` with a select `kind`). */
+    data class SessionConfigOptions(val options: List<SessionConfigOption>) : AcpEvent
     data class Unknown(val type: String) : AcpEvent
 
     companion object {
@@ -207,6 +210,9 @@ sealed interface AcpEvent {
                 "available_commands" -> AvailableCommands(
                     commands = decodeList(json, obj["commands"], AvailableCommandInfo.serializer()),
                 )
+                "session_config_options" -> SessionConfigOptions(
+                    options = decodeList(json, obj["config_options"], SessionConfigOption.serializer()),
+                )
                 else -> Unknown(type)
             }
         }
@@ -265,6 +271,7 @@ data class LiveSessionSnapshot(
     val pendingQuestion: PendingQuestionSnapshot?,
     val pendingPlanApproval: PendingPlanApprovalSnapshot?,
     val availableCommands: List<AvailableCommandInfo> = emptyList(),
+    val configOptions: List<SessionConfigOption> = emptyList(),
 ) {
     companion object {
         fun fromWire(obj: JsonObject, json: Json): LiveSessionSnapshot =
@@ -287,6 +294,7 @@ data class LiveSessionSnapshot(
                 pendingPlanApproval = obj.objectOrNull("pending_plan_approval")
                     ?.let(PendingPlanApprovalSnapshot::fromWire),
                 availableCommands = decodeList(json, obj["available_commands"], AvailableCommandInfo.serializer()),
+                configOptions = decodeList(json, obj["config_options"], SessionConfigOption.serializer()),
             )
 
         private fun JsonObject.intOrNull(key: String): Int? =

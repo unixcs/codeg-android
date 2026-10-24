@@ -13,9 +13,12 @@ internal data class TableLayout(val widths: List<Float>, val overflow: Boolean)
  *
  * - Content fits: columns grow proportionally to their natural width and exactly
  *   fill [availableWidth].
- * - Content does not fit: columns shrink proportionally, but never below
- *   [minColumn]. If even that does not fit, [TableLayout.overflow] is set and the
- *   caller scrolls horizontally at the natural widths.
+ * - Content does not fit: water-fill — columns shrink proportionally, but any
+ *   column that would fall below [minColumn] is pinned there and the width it
+ *   frees up is redistributed over the remaining columns (which may then exceed
+ *   their natural width — a table always fills the row). Only when even the pinned
+ *   minimums can't fit (`minColumn * n > available`) does the table overflow and
+ *   scroll horizontally, at the minimum widths rather than the natural ones.
  */
 internal fun tableColumnWidths(
     naturalWidths: List<Float>,
@@ -31,14 +34,47 @@ internal fun tableColumnWidths(
         return TableLayout(naturalWidths.map { it * available / sum }, false)
     }
 
-    val floored = naturalWidths.map { maxOf(minColumn, it * available / sum) }
-    // A dp→px rounding error of a pixel is harmless; anything larger means the
-    // minimum widths themselves no longer fit.
-    return if (floored.sum() <= available + 0.5f) {
-        TableLayout(floored, false)
-    } else {
-        TableLayout(naturalWidths, true)
+    // The pinned minimums are the floor of what can fit at all; check that BEFORE
+    // iterating so the overflow contract stays a pure pre-check, not a side effect
+    // of the redistribution loop.
+    if (minColumn * naturalWidths.size > available + 0.5f) {
+        return TableLayout(naturalWidths.map { minColumn }, true)
     }
+
+    // Water-fill: repeatedly scale the unpinned columns to the width left over
+    // after the pinned ones take their minimum. A column the scaled share would
+    // squeeze below [minColumn] pins there (guaranteed ≥ its scaled share), which
+    // frees/absorbs width for the rest — at most n iterations, each pinning one
+    // column for good.
+    val widths = FloatArray(naturalWidths.size)
+    val pinned = BooleanArray(naturalWidths.size)
+    while (true) {
+        var pinnedSum = 0f
+        var freeCount = 0
+        for (i in naturalWidths.indices) {
+            if (pinned[i]) pinnedSum += widths[i] else freeCount++
+        }
+        if (freeCount == 0) break
+        val freeSpace = available - pinnedSum
+        val freeNatural = naturalWidths.withIndex().sumOf { (i, w) -> if (pinned[i]) 0.0 else w.toDouble() }.toFloat()
+        // freeSpace ≥ 0 is guaranteed by the pre-check + pinning monotonically
+        // downward; freeNatural > 0 because sum > available ≥ 0 leaves unpinned mass.
+        val scale = freeSpace / freeNatural
+        var newlyPinned = false
+        for (i in naturalWidths.indices) {
+            if (pinned[i]) continue
+            val share = naturalWidths[i] * scale
+            if (share < minColumn) {
+                widths[i] = minColumn
+                pinned[i] = true
+                newlyPinned = true
+            } else {
+                widths[i] = share
+            }
+        }
+        if (!newlyPinned) break
+    }
+    return TableLayout(widths.toList(), false)
 }
 
 /**

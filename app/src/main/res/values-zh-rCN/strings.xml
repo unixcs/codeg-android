@@ -944,4 +944,8 @@
     <string name="session_info_reconnect_failed">重连失败：%1$s</string>
     <string name="session_info_unavailable">会话建立工作目录后才可用。</string>
     <string name="session_info_no_id">尚未上报</string>
+
+    <!-- ===== Session Detail · live plan progress (the running task's stage card) ===== -->
+    <string name="plan_progress_chip">计划 %1$d/%2$d</string>
+    <string name="plan_progress_title">计划任务</string>
 </resources>

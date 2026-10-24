@@ -958,4 +958,8 @@
     <string name="session_info_reconnect_failed">Reconnect failed: %1$s</string>
     <string name="session_info_unavailable">Available once the session has a working directory.</string>
     <string name="session_info_no_id">Not reported yet</string>
+
+    <!-- ===== Session Detail · live plan progress (the running task's stage card) ===== -->
+    <string name="plan_progress_chip">Plan %1$d/%2$d</string>
+    <string name="plan_progress_title">Plan tasks</string>
 </resources>

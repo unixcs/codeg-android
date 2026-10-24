@@ -126,6 +126,41 @@ class AcpEventTest {
     }
 
     @Test
+    fun `session config options event decodes the model selector`() {
+        val e = event(
+            """{"type":"session_config_options","config_options":[
+               {"id":"model","name":"Model","category":"model",
+                "kind":{"type":"select","current_value":"glm-5.3",
+                        "options":[{"value":"glm-5.3","name":"GLM-5.3"}]}},
+               {"id":"reasoning_effort","name":"Effort",
+                "kind":{"type":"select","current_value":"high",
+                        "options":[{"value":"high","name":"High"}]}}]}""",
+        ) as AcpEvent.SessionConfigOptions
+        assertEquals(2, e.options.size)
+        assertEquals("model", e.options[0].id)
+        assertEquals("glm-5.3", e.options[0].kind.currentValue)
+        assertEquals("GLM-5.3", e.options[0].kind.options[0].name)
+    }
+
+    @Test
+    fun `snapshot carries config options for the model label`() {
+        val snap = LiveSessionSnapshot.fromWire(
+            obj(
+                """{"connection_id":"c1","config_options":[
+                   {"id":"model","category":"model",
+                    "kind":{"type":"select","current_value":"gpt-5",
+                            "groups":[{"group":"openai","name":"OpenAI",
+                                       "options":[{"value":"gpt-5","name":"GPT-5"}]}]}}]}""",
+            ),
+            json,
+        )
+        assertEquals(1, snap.configOptions.size)
+        assertEquals("GPT-5", snap.configOptions[0].kind.groups[0].options[0].name)
+        // Absent key ⇒ empty, never a thrown frame.
+        assertEquals(0, LiveSessionSnapshot.fromWire(obj("""{"connection_id":"c1"}"""), json).configOptions.size)
+    }
+
+    @Test
     fun `plan approval decision serializes snake_case`() {
         assertEquals("request_changes", PlanApprovalDecision.REQUEST_CHANGES.wire)
         assertEquals(

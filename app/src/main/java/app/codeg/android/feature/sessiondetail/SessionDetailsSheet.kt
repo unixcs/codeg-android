@@ -109,7 +109,12 @@ fun SessionDetailsSheet(
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
-                    onClick = viewModel::exportSessionJson,
+                    onClick = {
+                        // Dismiss first: both actions surface their result via the
+                        // snackbar, which the open sheet would otherwise cover.
+                        onDismiss()
+                        viewModel.exportSessionJson()
+                    },
                     enabled = !ui.isExporting && !workingDir.isNullOrBlank(),
                     modifier = Modifier.weight(1f),
                 ) {
@@ -121,7 +126,10 @@ fun SessionDetailsSheet(
                     )
                 }
                 Button(
-                    onClick = viewModel::reconnectSession,
+                    onClick = {
+                        onDismiss()
+                        viewModel.reconnectSession()
+                    },
                     // Without a CLI session id there is nothing to re-attach: the button
                     // would silently start a brand-new CLI session instead.
                     enabled = !ui.isReconnecting && !workingDir.isNullOrBlank() && !cliId.isNullOrBlank(),
