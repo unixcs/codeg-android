@@ -2,6 +2,7 @@ package app.codeg.android.core.datastore
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +30,8 @@ data class AppSettings(
     val homeTabOrder: List<String> = emptyList(),
     /** Route name of the tab the app opens on cold start (default: chats). */
     val startTab: String = DEFAULT_START_TAB,
+    /** Horizontal swipe between devices while on the Activity tab (default: off). */
+    val activityDeviceSwipe: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_ACCENT = "orange"
@@ -56,6 +59,7 @@ class AppSettingsStore @Inject constructor(
             // no commas.
             homeTabOrder = prefs[TAB_ORDER]?.split(',')?.filter { it.isNotBlank() }.orEmpty(),
             startTab = prefs[START_TAB] ?: AppSettings.DEFAULT_START_TAB,
+            activityDeviceSwipe = prefs[ACTIVITY_DEVICE_SWIPE] ?: false,
         )
     }
 
@@ -77,10 +81,16 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[START_TAB] = route }
     }
 
+    /** Persist the Activity-tab device-swipe toggle. */
+    suspend fun setActivityDeviceSwipe(enabled: Boolean) {
+        dataStore.edit { it[ACTIVITY_DEVICE_SWIPE] = enabled }
+    }
+
     private companion object {
         val MODE = stringPreferencesKey("theme_mode")
         val ACCENT = stringPreferencesKey("accent_id")
         val TAB_ORDER = stringPreferencesKey("home_tab_order")
         val START_TAB = stringPreferencesKey("start_tab")
+        val ACTIVITY_DEVICE_SWIPE = booleanPreferencesKey("activity_device_swipe")
     }
 }

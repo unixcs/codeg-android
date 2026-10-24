@@ -76,29 +76,4 @@ class CodegJsonTest {
     fun `bare JSON integer decodes (create_conversation)`() {
         assertEquals(42, CodegJson.response.decodeFromString(Int.serializer(), "42"))
     }
-
-    @Test
-    fun `fork result decodes camelCase wire, not the snake response strategy`() {
-        // The server's ForkResultInfo is `rename_all = "camelCase"` — the OPPOSITE of
-        // the usual response casing. A snake_case decode (CodegJson.response) would
-        // miss every field; the fork client path must use the camel Json.
-        val wire = """{"forkedSessionId":"s2","originalSessionId":"s1","siblingConversationId":9}"""
-        val result = kotlinx.serialization.json.Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-        }.decodeFromString<app.codeg.android.core.model.ForkResult>(wire)
-        assertEquals("s2", result.forkedSessionId)
-        assertEquals("s1", result.originalSessionId)
-        assertEquals(9, result.siblingConversationId)
-    }
-
-    @Test
-    fun `fork body encodes camelCase with nulls omitted`() {
-        val json = CodegJson.request.encodeToString(
-            app.codeg.android.core.model.ForkBody(connectionId = "conn-1", conversationId = 7),
-        )
-        assertTrue(json.contains("\"connectionId\":\"conn-1\""))
-        assertTrue(json.contains("\"conversationId\":7"))
-        assertFalse(json.contains("forkFromTurnId"))
-    }
 }

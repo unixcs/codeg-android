@@ -160,7 +160,6 @@ fun ActivityScreen(
                                         modifier = Modifier.animateItem(),
                                         folderName = row.folderName,
                                         serverName = if (allMode) row.serverName else null,
-                                        onFork = { viewModel.fork(row) },
                                         onDelete = { pendingDelete = row },
                                     )
                                 }

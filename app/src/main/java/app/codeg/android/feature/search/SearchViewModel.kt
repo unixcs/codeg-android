@@ -109,26 +109,6 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Tail-fork a search-result conversation (full copy into a new sibling session).
-     * Needs the conversation's live connection; without one the error asks the user
-     * to open the session first.
-     */
-    fun fork(conversation: ConversationSummary) {
-        val active = client ?: return
-        viewModelScope.launch {
-            val connectionId = runCatching { active.findConnection(conversation.id, null, conversation.agentType) }
-                .getOrNull()?.connectionId
-            if (connectionId == null) {
-                _ui.update { it.copy(error = "Open the session once before forking from here.") }
-                return@launch
-            }
-            runCatching { active.forkSession(connectionId, conversationId = conversation.id) }
-                .onSuccess { /* the next debounced query / reopening the list converges */ }
-                .onFailure { e -> _ui.update { it.copy(error = e.displayMessage()) } }
-        }
-    }
-
     private suspend fun runSearch(raw: String) {
         val q = raw.trim()
         if (q.isEmpty()) {

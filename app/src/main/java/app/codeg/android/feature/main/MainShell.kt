@@ -224,15 +224,42 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // previous (the user's HomeTab order). Only active on tab routes on narrow
     // screens — full-screen pushes and the rail layout don't need it, and the
     // gesture modifier itself skips the system back-gesture edge band.
+    //
+    // On the Activity tab with the device-swipe setting on, the swipe is claimed
+    // by the device sequence first (All → each device, the GlobalDeviceBar's own
+    // order): mid-sequence it switches devices only, and falling off either END
+    // (swipe right on All / left on the last device) hands the gesture back to
+    // the tab switch — the NestedScrollableHost "inner first, outer at the edge"
+    // convention. Single-device setups get no device layer and keep plain tab swipes.
+    val deviceSwipeOn = appSettings.activityDeviceSwipe &&
+        currentRoute == HomeTab.ACTIVITY.route &&
+        servers.size > 1
     val currentTabIndex = homeTabs.indexOfFirst { it.route == currentRoute }
+    // The device sequence the Activity tab's chip row shows: index 0 is the
+    // aggregate "All", 1..n the servers in their saved order.
+    val currentDeviceIndex = if (activityAll) 0 else servers.indexOfFirst { it.id == selectedProfile?.id } + 1
     val swipeModifier = if (showBottomBar && !wide && currentTabIndex >= 0) {
         Modifier.tabSwipeNavigation(enabled = true) { direction ->
-            val entries = homeTabs
-            val next = when (direction) {
-                SwipeDirection.NEXT -> currentTabIndex + 1
-                SwipeDirection.PREVIOUS -> currentTabIndex - 1
+            val step = if (direction == SwipeDirection.NEXT) 1 else -1
+            if (deviceSwipeOn) {
+                val nextDevice = currentDeviceIndex + step
+                when {
+                    // Off the sequence's ends → the outer layer (tab switch) takes it.
+                    nextDevice < 0 || nextDevice > servers.size -> {
+                        val next = currentTabIndex + step
+                        if (next in homeTabs.indices) onTab(homeTabs[next])
+                    }
+                    nextDevice == 0 -> appViewModel.setActivityAll(true)
+                    else -> {
+                        val server = servers.getOrNull(nextDevice - 1) ?: return@tabSwipeNavigation
+                        appViewModel.setActivityAll(false)
+                        appViewModel.selectServer(server.id)
+                    }
+                }
+            } else {
+                val next = currentTabIndex + step
+                if (next in homeTabs.indices) onTab(homeTabs[next])
             }
-            if (next in entries.indices) onTab(entries[next])
         }
     } else Modifier
 

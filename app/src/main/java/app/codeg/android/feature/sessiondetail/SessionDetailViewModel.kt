@@ -765,11 +765,6 @@ class SessionDetailViewModel @Inject constructor(
             is AcpEvent.SessionConfigOptions -> _ui.update {
                 if (event.options.isNotEmpty()) it.copy(configOptions = event.options) else it
             }
-            // Fork capability is fixed at spawn and only ever confirmed true (same
-            // never-downgrade rule as the web's feedback-tool availability).
-            is AcpEvent.ForkSupported -> _ui.update {
-                if (event.supported) it.copy(forkSupported = true) else it
-            }
             else -> Unit // user_message / etc. are informational
         }
     }
@@ -922,7 +917,6 @@ class SessionDetailViewModel @Inject constructor(
                 externalId = snap.externalId ?: it.externalId,
                 availableCommands = snap.availableCommands.ifEmpty { it.availableCommands },
                 configOptions = snap.configOptions.ifEmpty { it.configOptions },
-                forkSupported = snap.forkSupported || it.forkSupported,
             )
         }
         return true
@@ -960,7 +954,6 @@ class SessionDetailViewModel @Inject constructor(
                 externalId = snap.externalId ?: it.externalId,
                 availableCommands = snap.availableCommands.ifEmpty { it.availableCommands },
                 configOptions = snap.configOptions.ifEmpty { it.configOptions },
-                forkSupported = snap.forkSupported || it.forkSupported,
             )
         }
         snap.pendingPermission?.let { p ->
@@ -1449,39 +1442,6 @@ class SessionDetailViewModel @Inject constructor(
             runCatching { c.deleteConversation(id) }
                 .onSuccess { repository.notifyConversationsChanged(); onDeleted() }
                 .onFailure { e -> _ui.update { it.copy(notice = e.displayMessage()) } }
-        }
-    }
-
-    /**
-     * Fork this conversation into a new sibling session (server `acp_fork`). With
-     * [fromTurnId] the current row truncates at that turn and the full history moves
-     * to the sibling; without it the sibling is a plain full copy. After the fork the
-     * live connection (if this page holds one) belongs to the truncated row, so the
-     * session id and transcript are both re-fetched.
-     */
-    fun forkSession(fromTurnId: String? = null) {
-        val c = client ?: return
-        val id = conversationId ?: return
-        viewModelScope.launch {
-            val connectionId = runCatching { c.findConnection(id, _ui.value.externalId, agent) }
-                .getOrNull()?.connectionId
-            if (connectionId == null) {
-                _ui.update { it.copy(notice = appContext.getString(R.string.fork_no_connection)) }
-                return@launch
-            }
-            runCatching { c.forkSession(connectionId, conversationId = id, forkFromTurnId = fromTurnId) }
-                .onSuccess { result ->
-                    _ui.update { it.copy(externalId = result.forkedSessionId, notice = appContext.getString(R.string.fork_success)) }
-                    repository.notifyConversationsChanged()
-                    // Re-fetch: the current row's turns were truncated at the fork point.
-                    runCatching { c.conversationDetail(id) }.getOrNull()?.let { d ->
-                        _ui.update { it.copy(turns = d.turns, sessionStats = d.sessionStats ?: it.sessionStats, summary = d.summary) }
-                    }
-                }
-                .onFailure { e ->
-                    val message = if (e is ApiError.TurnInProgress) appContext.getString(R.string.fork_busy) else e.displayMessage()
-                    _ui.update { it.copy(notice = message) }
-                }
         }
     }
 
@@ -2237,8 +2197,6 @@ data class SessionDetailUiState(
      *  snapshot / `session_config_options` events / the agent catalog — drives the
      *  status line's current-model label. */
     val configOptions: List<SessionConfigOption> = emptyList(),
-    /** The agent supports `acp_fork` (attach snapshot `fork_supported`). Zcode doesn't. */
-    val forkSupported: Boolean = false,
     /** The session-JSON export is in flight. */
     val isExporting: Boolean = false,
     /** A manual reconnect is in flight. */

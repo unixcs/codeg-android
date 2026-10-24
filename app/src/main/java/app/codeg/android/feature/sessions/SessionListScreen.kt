@@ -219,7 +219,6 @@ fun SessionListScreen(
                             onOpenConversation = onOpenConversation,
                             onTogglePin = { conv -> viewModel.setPinned(conv, !conv.isPinned) },
                             onHandoff = onHandoff,
-                            onFork = { conv -> viewModel.fork(conv) },
                             onDelete = { conv -> pendingDelete = conv },
                             onLongPressSection = { section -> hiddenTarget = section },
                             onOpenHiddenManager = { showHiddenManager = true },
@@ -284,7 +283,6 @@ private fun SessionList(
     onOpenConversation: (Int) -> Unit,
     onTogglePin: (ConversationSummary) -> Unit,
     onHandoff: (folderId: Int, reference: String) -> Unit,
-    onFork: (ConversationSummary) -> Unit,
     onDelete: (ConversationSummary) -> Unit,
     onLongPressSection: (SessionSection) -> Unit,
     onOpenHiddenManager: () -> Unit,
@@ -341,7 +339,6 @@ private fun SessionList(
                         folderName = row.folderName,
                         onTogglePin = { onTogglePin(row.conversation) },
                         onHandoff = { ref -> onHandoff(row.conversation.folderId, ref) },
-                        onFork = { onFork(row.conversation) },
                         onDelete = { onDelete(row.conversation) },
                     )
                 }

@@ -197,32 +197,6 @@ class SessionListViewModel @Inject constructor(
             }
         }
     }
-
-    /**
-     * Tail-fork a conversation (full copy into a new sibling session) from its list
-     * row. Fork runs on the conversation's live ACP connection, so it only works when
-     * one exists — otherwise the notice asks the user to open the session first.
-     */
-    fun fork(conversation: ConversationSummary, onForked: (Int) -> Unit = {}) {
-        val active = client ?: return
-        viewModelScope.launch {
-            val agent = conversation.agentType
-            val connectionId = runCatching { active.findConnection(conversation.id, null, agent) }
-                .getOrNull()?.connectionId
-            if (connectionId == null) {
-                _ui.update { it.copy(error = appContext.getString(R.string.fork_no_connection)) }
-                return@launch
-            }
-            runCatching { active.forkSession(connectionId, conversationId = conversation.id) }
-                .onSuccess { result ->
-                    repository.notifyConversationsChanged()
-                    onForked(result.siblingConversationId)
-                }
-                .onFailure { e ->
-                    _ui.update { it.copy(error = e.displayMessage()) }
-                }
-        }
-    }
 }
 
 /** Raw list state; the grouped display is derived by [SessionGrouping]. */

@@ -119,11 +119,11 @@ import app.codeg.android.core.model.PlanEntry
 import app.codeg.android.feature.sessiondetail.interactive.AskQuestionCard
 import app.codeg.android.feature.sessiondetail.interactive.PermissionRequestCard
 import app.codeg.android.feature.sessiondetail.interactive.PlanApprovalCard
-import app.codeg.android.feature.sessiondetail.timeline.LocalForkEnabled
+import app.codeg.android.feature.sessiondetail.timeline.LocalSessionContext
 import app.codeg.android.feature.sessiondetail.timeline.LocalTimelineScroll
-import app.codeg.android.feature.sessiondetail.timeline.LocalTurnFork
 import app.codeg.android.feature.sessiondetail.timeline.NodeBody
 import app.codeg.android.feature.sessiondetail.timeline.NodeContent
+import app.codeg.android.feature.sessiondetail.timeline.SessionContextUsage
 import app.codeg.android.feature.sessiondetail.timeline.TimelineNode
 import app.codeg.android.feature.sessiondetail.timeline.TimelineRow
 import app.codeg.android.feature.sessiondetail.timeline.TranscriptTimeline
@@ -463,18 +463,23 @@ fun SessionDetailScreen(
                         )
                     }
 
-                else -> CompositionLocalProvider(
-                    LocalTimelineScroll provides scrollToId,
-                    // The footer fork button appears per-reply; the live-turn guard lives
-                    // here so the timeline stays a pure renderer.
-                    LocalForkEnabled provides ui.forkSupported,
-                    LocalTurnFork provides { turnId ->
-                        // Unreconciled folds keep the synthetic `live-<uuid>` id — the
-                        // server can't resolve it as a fork point (it would silently
-                        // degrade to a tail fork, duplicating the whole session instead).
-                        if (!turnId.startsWith("live-")) viewModel.forkSession(turnId)
-                    },
-                ) {
+                else -> {
+                    // The footer's context line: the session's live context-window
+                    // occupancy (server `usage_update` → sessionStats), kept out of the
+                    // timeline so it stays a pure renderer.
+                    val sessionContext = remember(ui.sessionStats) {
+                        ui.sessionStats?.let {
+                            SessionContextUsage(
+                                usedTokens = it.contextWindowUsedTokens?.toLong(),
+                                maxTokens = it.contextWindowMaxTokens?.toLong(),
+                                percent = it.contextWindowUsagePercent,
+                            )
+                        } ?: SessionContextUsage()
+                    }
+                    CompositionLocalProvider(
+                        LocalTimelineScroll provides scrollToId,
+                        LocalSessionContext provides sessionContext,
+                    ) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
@@ -509,6 +514,7 @@ fun SessionDetailScreen(
                             }
                         }
                         item(key = "__timeline_bottom_anchor__") { Spacer(Modifier.height(1.dp)) }
+                    }
                     }
                 }
             }

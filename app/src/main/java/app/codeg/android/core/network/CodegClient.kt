@@ -14,8 +14,6 @@ import app.codeg.android.core.model.CreateConversationBody
 import app.codeg.android.core.model.EmptyBody
 import app.codeg.android.core.model.FetchKimiModelsBody
 import app.codeg.android.core.model.FindConnectionBody
-import app.codeg.android.core.model.ForkBody
-import app.codeg.android.core.model.ForkResult
 import app.codeg.android.core.model.PiCommandValidation
 import app.codeg.android.core.model.PiConfigProjection
 import app.codeg.android.core.model.TaskIdBody
@@ -270,25 +268,6 @@ class CodegClient(
         if (isJsonNull(text)) return null
         return decode(text, ConversationConnectionInfo.serializer())
     }
-
-    /**
-     * Fork a conversation into a new sibling session. With [forkFromTurnId] the
-     * current row is truncated at that turn and the full history moves to the new
-     * sibling (`[Fork] …` title); without it the sibling is a plain full copy.
-     *
-     * The response is **camelCase wire** (Rust `rename_all`), so it decodes through
-     * [decodeCamel] — the snake_case response strategy would miss every field.
-     */
-    suspend fun forkSession(
-        connectionId: String,
-        conversationId: Int? = null,
-        folderId: Int? = null,
-        forkFromTurnId: String? = null,
-    ): ForkResult =
-        decodeCamel(
-            send("acp_fork", encode(ForkBody(connectionId, conversationId, folderId, forkFromTurnId))),
-            ForkResult.serializer(),
-        )
 
     /**
      * Inject [text] into a running turn's steering channel (web "live feedback").

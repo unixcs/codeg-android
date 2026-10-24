@@ -60,6 +60,12 @@ fun GeneralContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 onReorder = viewModel::setHomeTabOrder,
                 onStartTab = viewModel::setStartTab,
             )
+            ToggleRow(
+                stringResource(R.string.general_activity_swipe_title),
+                stringResource(R.string.general_activity_swipe_subtitle),
+                appSettings.activityDeviceSwipe,
+                viewModel::setActivityDeviceSwipe,
+            )
         }
         Section(stringResource(R.string.general_conversation_tools)) {
             ToggleRow(stringResource(R.string.general_live_feedback_title), stringResource(R.string.general_live_feedback_subtitle), ui.feedbackEnabled, viewModel::setFeedback)

@@ -58,9 +58,9 @@ internal fun currentModelLabel(options: List<SessionConfigOption>): String? {
     return named ?: current
 }
 
-/** Absolute completion time `HH:mm` (24h, system timezone) for a reply's footer. */
+/** Absolute completion time `MM-dd HH:mm` (24h, system timezone) for a reply's footer. */
 internal fun completedAtLabel(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String =
-    DateTimeFormatter.ofPattern("HH:mm", Locale.US).withZone(zone).format(instant)
+    DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.US).withZone(zone).format(instant)
 
 /**
  * Compact run duration for the footer's parenthesized span: `42s` under a minute,

@@ -145,7 +145,6 @@ fun SearchScreen(
                                 modifier = Modifier.animateItem(),
                                 folderName = ui.folderNames[c.folderId],
                                 onTogglePin = { viewModel.setPinned(c, !c.isPinned) },
-                                onFork = { viewModel.fork(c) },
                                 onDelete = { pendingDelete = c },
                             )
                         }

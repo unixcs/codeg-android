@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.CallSplit
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.WarningAmber
@@ -45,7 +44,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.R
@@ -56,6 +54,7 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.ContentBlock
 import app.codeg.android.core.model.MessageTurn
 import app.codeg.android.feature.sessiondetail.completedAtLabel
+import app.codeg.android.feature.sessiondetail.formatTokens
 import app.codeg.android.feature.sessiondetail.rendering.InlineImage
 import app.codeg.android.feature.sessiondetail.rendering.LivePlanView
 import app.codeg.android.feature.sessiondetail.rendering.ReasoningBlock
@@ -71,12 +70,18 @@ private val SuccessGreen = Color(0xFF85D18F)
 val LocalTimelineScroll = staticCompositionLocalOf<(String) -> Unit> { {} }
 
 /**
- * Forks the conversation at the given persisted turn id (the footer's fork button),
- * plus whether the button shows at all (the agent's `fork_supported`). Both empty/false
- * wherever fork isn't offered — a draft, an agent without the capability, a live turn.
+ * The session-level context-window occupancy the reply footers show (the MindFS
+ * `28.7K(55%)` line). `null` fields mean the agent never reported that figure —
+ * footers omit rather than fabricate. Provided by SessionDetailScreen from the
+ * live `sessionStats`.
  */
-val LocalTurnFork = staticCompositionLocalOf<(String) -> Unit> { {} }
-val LocalForkEnabled = staticCompositionLocalOf { false }
+data class SessionContextUsage(
+    val usedTokens: Long? = null,
+    val maxTokens: Long? = null,
+    val percent: Double? = null,
+)
+
+val LocalSessionContext = staticCompositionLocalOf { SessionContextUsage() }
 
 /**
  * Renders a node's content to the right of the rail. A pure dispatcher that reuses
@@ -173,21 +178,26 @@ private fun SystemNodeBody(turn: MessageTurn, modifier: Modifier) {
     )
 }
 
-/** Per-reply action + metadata row: Copy · fork-from-here · jump-to-question · model · time(tokens). */
+/**
+ * Per-reply action buttons + metadata block, the MindFS footer shape: actions on
+ * the left, a three-line meta column on the right (model / context occupancy /
+ * `MM-dd HH:mm(duration)`). Long model names wrap instead of ellipsizing the
+ * timestamp away — the whole reason this is a column, not one cramped row.
+ */
 @Composable
 private fun TurnFooter(turn: MessageTurn, questionId: String?, modifier: Modifier) {
     val colors = CodegTheme.colors
     // Copy text joins every block → memoize it. Meta stays live so the clock
-    // ("02:46") keeps honest rather than freezing at first composition.
+    // ("02:45") keeps honest rather than freezing at first composition.
     val copyText = remember(turn) {
         turn.blocks
             .mapNotNull { (it as? ContentBlock.Text)?.text?.takeIf { t -> t.isNotBlank() } }
             .joinToString("\n\n")
     }
-    // `02:46(2m13s)` — absolute finish time with the run duration in parens (the
-    // MindFS footer shape). No completedAt → fall back to the relative compact time
-    // rather than inventing a wall-clock value; duration only when the server sent one.
-    val meta = buildList {
+    // Line 3: `10-21 02:45(4m)` — absolute finish time with the run duration in
+    // parens. No completedAt → fall back to the relative compact time rather than
+    // inventing a wall-clock value; duration only when the server sent one.
+    val time = buildList {
         val at = turn.completedAt
         if (at != null) {
             val clock = completedAtLabel(at)
@@ -196,23 +206,47 @@ private fun TurnFooter(turn: MessageTurn, questionId: String?, modifier: Modifie
         } else {
             add(RelativeTime.compact(turn.timestamp))
         }
-        val tokens = turn.usage?.total ?: 0
-        if (tokens > 0) add(compactTokens(tokens))
     }.joinToString(" · ")
+
+    // Line 2: the session's live context-window occupancy (`28.7K(55%)`), from the
+    // server's `usage_update` reporting. Without a window reading, fall back to
+    // this reply's own token total — still honest, just a narrower fact. With
+    // neither, the line vanishes rather than showing a fabricated figure.
+    val context: String = run {
+        val session = LocalSessionContext.current
+        when {
+            session.percent != null || (session.usedTokens != null && session.maxTokens != null) -> {
+                val used = session.usedTokens?.let { formatTokens(it) }.orEmpty()
+                val pct = session.percent?.let { "${it.roundToInt()}%" }.orEmpty()
+                (used + pct).trim()
+            }
+            else -> turn.usage?.takeIf { it.total > 0 }?.let { formatTokens(it.total.toLong()) }.orEmpty()
+        }
+    }
 
     Row(
         modifier.fillMaxWidth().padding(top = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (copyText.isNotEmpty()) CopyButton(copyText)
-        if (LocalForkEnabled.current) ForkButton(turn.id)
-        if (questionId != null) JumpToQuestionButton(questionId)
-        Spacer(Modifier.weight(1f))
-        turn.model?.takeIf { it.isNotBlank() }?.let {
-            Text(it, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = colors.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (copyText.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CopyButton(copyText)
+                if (questionId != null) JumpToQuestionButton(questionId)
+            }
+        } else if (questionId != null) {
+            JumpToQuestionButton(questionId)
         }
-        Text(meta, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = colors.textTertiary, maxLines = 1)
+        Spacer(Modifier.weight(1f))
+        Column(Modifier.weight(2.2f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            turn.model?.takeIf { it.isNotBlank() }?.let {
+                Text(it, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = colors.textTertiary, maxLines = 2)
+            }
+            if (context.isNotEmpty()) {
+                Text(context, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = colors.textTertiary, maxLines = 1)
+            }
+            Text(time, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = colors.textTertiary, maxLines = 1)
+        }
     }
 }
 
@@ -260,28 +294,6 @@ private fun JumpToQuestionButton(questionId: String) {
             modifier = Modifier.size(13.dp),
         )
         Text(stringResource(R.string.timeline_question), fontSize = 11.sp, color = CodegTheme.colors.textTertiary)
-    }
-}
-
-/** "Fork from here" — truncates this row's session at [turnId], full history to a sibling. */
-@Composable
-private fun ForkButton(turnId: String) {
-    val onFork = LocalTurnFork.current
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .clickable { onFork(turnId) }
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Icon(
-            Icons.Rounded.CallSplit,
-            contentDescription = stringResource(R.string.fork_from_here),
-            tint = CodegTheme.colors.textTertiary,
-            modifier = Modifier.size(13.dp),
-        )
-        Text(stringResource(R.string.fork_from_here), fontSize = 11.sp, color = CodegTheme.colors.textTertiary)
     }
 }
 
@@ -379,11 +391,3 @@ fun InlineTurnError(message: String, modifier: Modifier = Modifier) {
         Text(message, fontSize = 12.sp, color = colors.danger, modifier = Modifier.weight(1f))
     }
 }
-
-private fun compactTokens(n: Int): String = when {
-    n < 1_000 -> n.toString()
-    n < 1_000_000 -> trimNum(n / 1_000.0) + "k"
-    else -> trimNum(n / 1_000_000.0) + "M"
-}
-
-private fun trimNum(v: Double): String = if (v >= 100) v.roundToInt().toString() else String.format("%.1f", v)

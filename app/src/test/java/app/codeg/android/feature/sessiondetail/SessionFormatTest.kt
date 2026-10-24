@@ -64,10 +64,10 @@ class SessionFormatTest {
     // ===== completedAtLabel / turnDurationLabel =====
 
     @Test
-    fun completedAtUses24hClockInTheGivenZone() {
+    fun completedAtUsesMonthDayClockInTheGivenZone() {
         val at = java.time.Instant.parse("2026-10-24T06:46:00Z")
-        assertEquals("14:46", completedAtLabel(at, java.time.ZoneId.of("Asia/Shanghai")))
-        assertEquals("06:46", completedAtLabel(at, java.time.ZoneId.of("UTC")))
+        assertEquals("10-24 14:46", completedAtLabel(at, java.time.ZoneId.of("Asia/Shanghai")))
+        assertEquals("10-24 06:46", completedAtLabel(at, java.time.ZoneId.of("UTC")))
     }
 
     @Test

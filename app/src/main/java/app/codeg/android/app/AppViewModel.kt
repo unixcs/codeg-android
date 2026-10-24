@@ -77,4 +77,8 @@ class AppViewModel @Inject constructor(
     fun setStartTab(route: String) {
         viewModelScope.launch { appSettingsStore.setStartTab(route) }
     }
+
+    fun setActivityDeviceSwipe(enabled: Boolean) {
+        viewModelScope.launch { appSettingsStore.setActivityDeviceSwipe(enabled) }
+    }
 }

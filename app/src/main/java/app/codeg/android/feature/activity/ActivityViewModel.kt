@@ -166,36 +166,6 @@ class ActivityViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Tail-fork a conversation (full copy into a new sibling session) from its feed
-     * row. Resolves the owning device from [row.serverId] the same way [delete] does;
-     * fork needs the conversation's live connection, so without one the error banner
-     * asks the user to open the session first.
-     */
-    fun fork(row: ActivityRow) {
-        viewModelScope.launch(Dispatchers.Main) {
-            val profile = repository.profiles.first().orEmpty().firstOrNull { it.id == row.serverId }
-            val client = profile?.let { repository.client(it) }
-            if (client == null) {
-                _ui.update { it.copy(error = "No token for ${row.serverName}") }
-                return@launch
-            }
-            val conversation = row.conversation
-            val connectionId = runCatching { client.findConnection(conversation.id, null, conversation.agentType) }
-                .getOrNull()?.connectionId
-            if (connectionId == null) {
-                _ui.update { it.copy(error = noConnectionMessage) }
-                return@launch
-            }
-            runCatching { client.forkSession(connectionId, conversationId = conversation.id) }
-                .onSuccess { repository.notifyConversationsChanged() }
-                .onFailure { e -> _ui.update { it.copy(error = e.displayMessage()) } }
-        }
-    }
-
-    private val noConnectionMessage: String
-        get() = "Open the session once before forking from here."
-
     /** Refresh one device's feed (also resolves its folder names, once). */
     private suspend fun fetchOne(
         c: CodegClient,

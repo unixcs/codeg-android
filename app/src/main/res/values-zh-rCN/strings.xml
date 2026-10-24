@@ -55,11 +55,6 @@
     <string name="session_unpin">取消置顶</string>
     <string name="session_handoff">接手到新会话继续</string>
     <string name="session_copy_reference">复制会话引用</string>
-    <string name="fork_menu_item">Fork 为新会话</string>
-    <string name="fork_from_here">从此条回复 Fork</string>
-    <string name="fork_busy">回合仍在运行，等它结束再 Fork。</string>
-    <string name="fork_no_connection">请先打开一次该会话，再从这里 Fork。</string>
-    <string name="fork_success">已 Fork 出新会话</string>
     <string name="queue_add">加入队列</string>
     <string name="queue_insert_now">快速插入</string>
     <string name="queue_edit">撤回编辑</string>
@@ -338,6 +333,8 @@
     <string name="general_tab_order_title">底部标签排序</string>
     <string name="general_tab_order_subtitle">点 ▲▼ 调整底部栏顺序；点行名把它设为启动时打开的页。</string>
     <string name="general_start_tab_title">启动时默认打开</string>
+    <string name="general_activity_swipe_title">动态页横滑切换设备</string>
+    <string name="general_activity_swipe_subtitle">在动态页左右滑动可在全部设备与各设备之间切换；滑到尽头再滑才会切换底部标签。</string>
 
     <!-- ===== Settings · Agents ===== -->
     <string name="agents_empty_title">暂无智能体</string>

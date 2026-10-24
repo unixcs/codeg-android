@@ -55,11 +55,6 @@
     <string name="session_unpin">Unpin</string>
     <string name="session_handoff">Handoff to new session</string>
     <string name="session_copy_reference">Copy session reference</string>
-    <string name="fork_menu_item">Fork to new session</string>
-    <string name="fork_from_here">Fork from this reply</string>
-    <string name="fork_busy">A turn is still running — wait for it to finish before forking.</string>
-    <string name="fork_no_connection">Open the session once before forking from here.</string>
-    <string name="fork_success">Forked to a new session</string>
     <string name="queue_add">Queue</string>
     <string name="queue_insert_now">Insert now</string>
     <string name="queue_edit">Edit</string>
@@ -338,6 +333,8 @@
     <string name="general_tab_order_title">Bottom tab order</string>
     <string name="general_tab_order_subtitle">Tap ▲▼ to reorder the bottom bar; tap a row\'s name to make it the tab the app opens on.</string>
     <string name="general_start_tab_title">Default tab on launch</string>
+    <string name="general_activity_swipe_title">Swipe between devices on Activity</string>
+    <string name="general_activity_swipe_subtitle">On the Activity tab, horizontal swipes switch devices (All → each device); swiping past the ends moves between tabs.</string>
 
     <!-- ===== Settings · Agents ===== -->
     <string name="agents_empty_title">No agents</string>
