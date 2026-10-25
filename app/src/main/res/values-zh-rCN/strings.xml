@@ -337,8 +337,10 @@
     <string name="general_tab_order_title">底部标签排序</string>
     <string name="general_tab_order_subtitle">点 ▲▼ 调整底部栏顺序；点行名把它设为启动时打开的页。</string>
     <string name="general_start_tab_title">启动时默认打开</string>
-    <string name="general_activity_swipe_title">横滑切换设备</string>
-    <string name="general_activity_swipe_subtitle">在动态页和文件夹页左右滑动可切换设备（动态页多一档“全部”）；滑到尽头再滑才会切换底部标签。</string>
+    <string name="general_activity_swipe_title">动态页横滑切换设备</string>
+    <string name="general_activity_swipe_subtitle">在动态页左右滑动可在全部设备与各设备之间切换；滑到尽头再滑才会切换底部标签。</string>
+    <string name="general_folders_swipe_title">文件夹页横滑切换设备</string>
+    <string name="general_folders_swipe_subtitle">在文件夹页左右滑动可切换设备；滑到尽头再滑才会切换底部标签。</string>
 
     <!-- ===== Settings · Agents ===== -->
     <string name="agents_empty_title">暂无智能体</string>

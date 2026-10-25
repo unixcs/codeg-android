@@ -117,6 +117,10 @@ class GeneralViewModel @Inject constructor(
     fun setActivityDeviceSwipe(enabled: Boolean) {
         viewModelScope.launch { appSettingsStore.setActivityDeviceSwipe(enabled) }
     }
+
+    fun setFoldersDeviceSwipe(enabled: Boolean) {
+        viewModelScope.launch { appSettingsStore.setFoldersDeviceSwipe(enabled) }
+    }
 }
 
 data class GeneralUiState(

@@ -11,7 +11,7 @@ import org.junit.Test
 class ResolveDeviceSwipeStepTest {
 
     private val ALL = DeviceSwipeVerdict.All
-    private fun device(i: Int, n: Int) = DeviceSwipeVerdict.Device("idx:$i/$n")
+    private fun device(i: Int, @Suppress("UNUSED_PARAMETER") total: Int) = DeviceSwipeVerdict.Device(i)
 
     // ---- Activity (WITH_ALL): the pre-existing All → devices sequence ----
 

@@ -66,6 +66,12 @@ fun GeneralContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 appSettings.activityDeviceSwipe,
                 viewModel::setActivityDeviceSwipe,
             )
+            ToggleRow(
+                stringResource(R.string.general_folders_swipe_title),
+                stringResource(R.string.general_folders_swipe_subtitle),
+                appSettings.foldersDeviceSwipe,
+                viewModel::setFoldersDeviceSwipe,
+            )
         }
         Section(stringResource(R.string.general_conversation_tools)) {
             ToggleRow(stringResource(R.string.general_live_feedback_title), stringResource(R.string.general_live_feedback_subtitle), ui.feedbackEnabled, viewModel::setFeedback)

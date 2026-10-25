@@ -118,8 +118,8 @@ internal enum class DeviceSwipeScope {
 
 /** What a committed device-swipe step should do (pure verdict from [resolveDeviceSwipeStep]). */
 internal sealed interface DeviceSwipeVerdict {
-    /** Focus the device with this profile id (Folders; or Activity leaving "All"). */
-    data class Device(val serverId: String) : DeviceSwipeVerdict
+    /** Focus the device at this index in the caller's server list (0-based). */
+    data class Device(val deviceIndex: Int) : DeviceSwipeVerdict
 
     /** Enter the aggregate "All" mode (Activity only). */
     data object All : DeviceSwipeVerdict
@@ -133,7 +133,8 @@ internal sealed interface DeviceSwipeVerdict {
  * current index, and the swipe [step] (+1 next / -1 previous), decide what the
  * gesture does. Falling off either end yields [DeviceSwipeVerdict.Tab] so the
  * outer tab-switch layer picks it up — mirroring the Activity tab's established
- * "inner first, outer at the edge" convention.
+ * "inner first, outer at the edge" convention. The verdict names the DEVICE INDEX,
+ * never a profile id — the caller resolves it against the live server list.
  */
 internal fun resolveDeviceSwipeStep(
     scope: DeviceSwipeScope,
@@ -153,17 +154,10 @@ internal fun resolveDeviceSwipeStep(
     return when {
         scope == DeviceSwipeScope.WITH_ALL && next == 0 -> DeviceSwipeVerdict.All
         // WITH_ALL: device i sits at sequence index i+1.
-        scope == DeviceSwipeScope.WITH_ALL -> DeviceSwipeVerdict.Device(serverId = deviceAt(deviceCount, next - 1))
-        else -> DeviceSwipeVerdict.Device(serverId = deviceAt(deviceCount, next))
+        scope == DeviceSwipeScope.WITH_ALL -> DeviceSwipeVerdict.Device(deviceIndex = next - 1)
+        else -> DeviceSwipeVerdict.Device(deviceIndex = next)
     }
 }
-
-/** Stable stand-in for "the server at index i" — the verdict carries a positional
- *  id the caller resolves against the real list (`firstOrNull { it.id == ... }`);
- *  a stale gesture (list changed between index capture and commit) drops silently.
- *  The bounded index from [resolveDeviceSwipeStep] makes a miss unreachable in
- *  practice; the id shape is what the tests pin. */
-private fun deviceAt(deviceCount: Int, index: Int): String = "idx:$index/$deviceCount"
 
 /** Build the new-task route pre-seeded with a handoff reference (and optionally the
  *  source conversation's folder, so the new session starts in the same workspace —
@@ -293,21 +287,22 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // screens — full-screen pushes and the rail layout don't need it, and the
     // gesture modifier itself skips the system back-gesture edge band.
     //
-    // With the device-swipe setting on, the swipe is claimed by the device
-    // sequence first (the GlobalDeviceBar's own order): mid-sequence it switches
-    // devices only, and falling off either END hands the gesture back to the tab
-    // switch — the "inner first, outer at the edge" convention. Single-device
-    // setups get no device layer and keep plain tab swipes. The per-tab sequence
-    // shape ([DeviceSwipeScope]) and the step arithmetic live in
-    // [resolveDeviceSwipeStep] (pure, unit-tested); here we only apply its verdict.
-    val deviceSwipeOn = appSettings.activityDeviceSwipe &&
-        (currentRoute == HomeTab.ACTIVITY.route || currentRoute == HomeTab.FOLDERS.route) &&
-        servers.size > 1
+    // With a device-swipe setting on, the swipe is claimed by the device sequence
+    // first (the GlobalDeviceBar's own order): mid-sequence it switches devices
+    // only, and falling off either END hands the gesture back to the tab switch —
+    // the "inner first, outer at the edge" convention. Activity and Folders have
+    // SEPARATE settings toggles (v123 regression fix); single-device setups get no
+    // device layer and keep plain tab swipes. The per-tab sequence shape
+    // ([DeviceSwipeScope]) and the step arithmetic live in [resolveDeviceSwipeStep]
+    // (pure, unit-tested); here we only apply its verdict.
     val deviceSwipeScope = when (currentRoute) {
-        HomeTab.ACTIVITY.route -> DeviceSwipeScope.WITH_ALL
-        HomeTab.FOLDERS.route -> DeviceSwipeScope.DEVICES_ONLY
+        HomeTab.ACTIVITY.route ->
+            if (appSettings.activityDeviceSwipe) DeviceSwipeScope.WITH_ALL else null
+        HomeTab.FOLDERS.route ->
+            if (appSettings.foldersDeviceSwipe) DeviceSwipeScope.DEVICES_ONLY else null
         else -> null
     }
+    val deviceSwipeOn = deviceSwipeScope != null && servers.size > 1
     val currentTabIndex = homeTabs.indexOfFirst { it.route == currentRoute }
     // Index inside the tab's device sequence: Activity counts the aggregate "All"
     // as 0; Folders has no All row, so devices are 0..n-1.
@@ -327,7 +322,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     step = step,
                 )) {
                     is DeviceSwipeVerdict.Device -> {
-                        val server = servers.firstOrNull { it.id == verdict.serverId }
+                        val server = servers.getOrNull(verdict.deviceIndex)
                         if (server == null) return@tabSwipeNavigation
                         if (deviceSwipeScope == DeviceSwipeScope.WITH_ALL) {
                             appViewModel.setActivityAll(false)

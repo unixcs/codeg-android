@@ -337,8 +337,10 @@
     <string name="general_tab_order_title">Bottom tab order</string>
     <string name="general_tab_order_subtitle">Tap ▲▼ to reorder the bottom bar; tap a row\'s name to make it the tab the app opens on.</string>
     <string name="general_start_tab_title">Default tab on launch</string>
-    <string name="general_activity_swipe_title">Swipe between devices</string>
-    <string name="general_activity_swipe_subtitle">On the Activity and Folders tabs, horizontal swipes switch devices (Activity also has an All stop); swiping past the ends moves between tabs.</string>
+    <string name="general_activity_swipe_title">Swipe between devices on Activity</string>
+    <string name="general_activity_swipe_subtitle">On the Activity tab, horizontal swipes switch devices (All → each device); swiping past the ends moves between tabs.</string>
+    <string name="general_folders_swipe_title">Swipe between devices on Folders</string>
+    <string name="general_folders_swipe_subtitle">On the Folders tab, horizontal swipes switch devices; swiping past the ends moves between tabs.</string>
 
     <!-- ===== Settings · Agents ===== -->
     <string name="agents_empty_title">No agents</string>

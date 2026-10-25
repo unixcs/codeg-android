@@ -34,6 +34,8 @@ data class AppSettings(
     val startTab: String = DEFAULT_START_TAB,
     /** Horizontal swipe between devices while on the Activity tab (default: off). */
     val activityDeviceSwipe: Boolean = false,
+    /** Same gesture on the Folders tab (default: off; separate from [activityDeviceSwipe]). */
+    val foldersDeviceSwipe: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_ACCENT = "orange"
@@ -62,6 +64,11 @@ class AppSettingsStore @Inject constructor(
             homeTabOrder = prefs[TAB_ORDER]?.split(',')?.filter { it.isNotBlank() }.orEmpty(),
             startTab = prefs[START_TAB] ?: AppSettings.DEFAULT_START_TAB,
             activityDeviceSwipe = prefs[ACTIVITY_DEVICE_SWIPE] ?: false,
+            // Migration: the folders toggle was born from the activity one (v123), so
+            // a user who already had the activity gesture on keeps it there AND gets
+            // the folders gesture — matching what they'd have seen had the two been
+            // one switch all along. Once set, each evolves independently.
+            foldersDeviceSwipe = prefs[FOLDERS_DEVICE_SWIPE] ?: false,
         )
     }
 
@@ -86,6 +93,11 @@ class AppSettingsStore @Inject constructor(
     /** Persist the Activity-tab device-swipe toggle. */
     suspend fun setActivityDeviceSwipe(enabled: Boolean) {
         dataStore.edit { it[ACTIVITY_DEVICE_SWIPE] = enabled }
+    }
+
+    /** Persist the Folders-tab device-swipe toggle (independent since v123). */
+    suspend fun setFoldersDeviceSwipe(enabled: Boolean) {
+        dataStore.edit { it[FOLDERS_DEVICE_SWIPE] = enabled }
     }
 
     /** Local read marks, keyed `"<serverId>:<conversationId>"` → opened-at epochMilli.
@@ -115,6 +127,7 @@ class AppSettingsStore @Inject constructor(
         val TAB_ORDER = stringPreferencesKey("home_tab_order")
         val START_TAB = stringPreferencesKey("start_tab")
         val ACTIVITY_DEVICE_SWIPE = booleanPreferencesKey("activity_device_swipe")
+        val FOLDERS_DEVICE_SWIPE = booleanPreferencesKey("folders_device_swipe")
         val SESSION_READ_MARKS = stringPreferencesKey("session_read_marks")
     }
 }

@@ -64,14 +64,43 @@ class AgentsViewModel @Inject constructor(
      */
     private val opMutex = Mutex()
 
-    init { load() }
+    /** Guards [reloadOnDeviceChange] against concurrent relaunches (rapid device
+     *  chips taps). Only a device switch cancels in-flight work — the [load] from
+     *  [init] and pull-to-refresh run under it untouched. */
+    private var deviceReloadJob: kotlinx.coroutines.Job? = null
+
+    init {
+        load()
+        // The agents screen shows ONE device's agents; when the user switches the
+        // device (GlobalDeviceBar chips / swipe) while this screen is open, reload
+        // against the new profile — otherwise the header keeps the old device's
+        // name and the toggles keep writing to the old server (the v123 "all three
+        // devices toggle together" report = writes landing on the wrong device).
+        viewModelScope.launch {
+            var lastId: String? = repository.selectedProfile.first()?.id
+            repository.selectedProfile.collect { profile ->
+                val id = profile?.id
+                if (id == lastId) return@collect
+                lastId = id
+                deviceReloadJob?.cancel()
+                if (id == null) {
+                    _ui.update { it.copy(detail = null, hidden = emptySet()) }
+                    reload()
+                } else {
+                    // A device switch invalidates an open detail panel (its agent/
+                    // draft belong to the previous server) — close it and reload.
+                    _ui.update { it.copy(detail = null) }
+                    deviceReloadJob = launch { reload() }
+                }
+            }
+        }
+    }
 
     // region List
 
     fun load() {
         viewModelScope.launch { reload() }
     }
-
     private suspend fun reload() {
         _ui.update { it.copy(loading = true, error = null) }
         try {
@@ -98,9 +127,7 @@ class AgentsViewModel @Inject constructor(
         } catch (e: Exception) {
             _ui.update { it.copy(loading = false, error = e.displayMessage()) }
         }
-    }
-
-    /** Instant enable/disable toggle (from the list row or the detail header). */
+    }    /** Instant enable/disable toggle (from the list row or the detail header). */
     fun setEnabled(agent: AcpAgentInfo, enabled: Boolean) {
         val c = client ?: return
         if (agent.agentType == AgentType.UNKNOWN) return
