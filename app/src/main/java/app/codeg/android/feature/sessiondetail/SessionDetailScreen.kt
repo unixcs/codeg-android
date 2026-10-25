@@ -80,6 +80,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -124,6 +125,8 @@ import app.codeg.android.core.model.PlanEntry
 import app.codeg.android.feature.sessiondetail.interactive.AskQuestionCard
 import app.codeg.android.feature.sessiondetail.interactive.PermissionRequestCard
 import app.codeg.android.feature.sessiondetail.interactive.PlanApprovalCard
+import app.codeg.android.core.designsystem.component.DocPreviewDialog
+import app.codeg.android.core.designsystem.markdown.LocalPathOpener
 import app.codeg.android.feature.sessiondetail.timeline.LocalSessionContext
 import app.codeg.android.feature.sessiondetail.timeline.LocalTimelineScroll
 import app.codeg.android.feature.sessiondetail.timeline.NodeBody
@@ -485,6 +488,7 @@ fun SessionDetailScreen(
                     CompositionLocalProvider(
                         LocalTimelineScroll provides scrollToId,
                         LocalSessionContext provides sessionContext,
+                        LocalPathOpener provides viewModel::openPathPreview,
                     ) {
                     LazyColumn(
                         state = listState,
@@ -549,6 +553,9 @@ fun SessionDetailScreen(
         },
         onDismiss = { showToc = false },
     )
+    ui.docPreview?.let { preview ->
+        DocPreviewDialog(state = preview, onDismiss = viewModel::dismissDocPreview)
+    }
     if (showFullscreenEditor) FullscreenEditorDialog(
         text = draft,
         onTextChange = {
@@ -735,7 +742,16 @@ private fun FullscreenEditorDialog(
                 }
             }
         }
-        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+        // Focus first, then bring the text tail into view (batch v123): opening on a
+        // long draft used to land the viewport at the top while the cursor sat at the
+        // end, so the first IME frame scrolled the tail in — the "jerk and bounce" on
+        // open. Animate after the first layout pass with the field focused, when the
+        // scroll container's height is real.
+        LaunchedEffect(Unit) {
+            focusRequester.requestFocus()
+            withFrameNanos { }
+            scroll.animateScrollTo(scroll.maxValue)
+        }
     }
 }
 
@@ -936,6 +952,21 @@ private fun SessionContextChips(
                             AgentAvatar(agent, size = 24.dp, modifier = Modifier.alpha(if (selected) 1f else 0.55f))
                         }
                     }
+                }
+            }
+        } else {
+            // Restored in v123 (v122 had dropped it with the options move): a live
+            // session's row-leading agent label — the CLI logo before 会话信息.
+            item(key = "ctx-agent-label") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AgentAvatar(ui.agent, size = 20.dp)
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        ui.agent.shortName,
+                        fontSize = 11.sp,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                    )
                 }
             }
         }

@@ -57,12 +57,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
+import app.codeg.android.core.common.RelativeTime
 import app.codeg.android.core.designsystem.component.CodegSegmented
 import app.codeg.android.core.designsystem.component.SettingsIconBadge
 import app.codeg.android.core.designsystem.theme.AccentPalette
@@ -233,10 +235,64 @@ private fun AboutScreen(viewModel: SettingsViewModel) {
         Text(stringResource(R.string.settings_version, appVersion), fontSize = 13.sp, color = colors.textSecondary)
         about.serverName?.let { Text(stringResource(R.string.settings_server, it), fontSize = 13.sp, color = colors.textSecondary) }
         about.serverVersion?.let { Text(stringResource(R.string.settings_codeg_version, it), fontSize = 13.sp, color = colors.textTertiary) }
+        about.lastCrash?.let { crash -> LastCrashCard(crash, viewModel) }
         Text(
             stringResource(R.string.settings_about_description),
             fontSize = 13.sp, color = colors.textTertiary, modifier = Modifier.padding(top = 8.dp),
         )
+    }
+}
+
+/** Device-local last-crash report (batch v123): the only crash telemetry in the
+ *  app — shown until dismissed, copyable for a bug report. */
+@Composable
+private fun LastCrashCard(crash: app.codeg.android.core.crash.CrashRecord, viewModel: SettingsViewModel) {
+    val colors = CodegTheme.colors
+    androidx.compose.material3.Card(
+        Modifier.fillMaxWidth(),
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = colors.bgElevated),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Rounded.Bolt, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(16.dp))
+                    Text(stringResource(R.string.settings_last_crash_title), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                }
+                Row {
+                    Text(
+                        stringResource(R.string.settings_last_crash_copy),
+                        fontSize = 12.sp,
+                        color = colors.accent,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { viewModel.copyCrashReport(crash) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                    Text(
+                        stringResource(R.string.settings_last_crash_dismiss),
+                        fontSize = 12.sp,
+                        color = colors.textTertiary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { viewModel.dismissCrash() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            Text(
+                stringResource(R.string.settings_last_crash_meta, RelativeTime.compact(java.time.Instant.ofEpochMilli(crash.time)), crash.version, crash.thread),
+                fontSize = 11.sp,
+                color = colors.textSecondary,
+            )
+            Text(
+                crash.stack.lineSequence().take(6).joinToString("\n"),
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = colors.textTertiary,
+                maxLines = 6,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

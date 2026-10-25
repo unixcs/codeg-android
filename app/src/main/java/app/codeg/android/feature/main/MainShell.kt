@@ -107,6 +107,64 @@ private const val ROUTE_SERVERS = "servers"
 private const val ROUTE_EDITOR = "editor"
 private const val ROUTE_NEW_TASK = "conversation_new"
 
+/** Shape of a tab's device sequence for the horizontal device swipe (batch v123). */
+internal enum class DeviceSwipeScope {
+    /** Activity: aggregate "All" is index 0, devices follow (GlobalDeviceBar order). */
+    WITH_ALL,
+
+    /** Folders: no aggregate row — only the devices, 0..n-1. */
+    DEVICES_ONLY,
+}
+
+/** What a committed device-swipe step should do (pure verdict from [resolveDeviceSwipeStep]). */
+internal sealed interface DeviceSwipeVerdict {
+    /** Focus the device with this profile id (Folders; or Activity leaving "All"). */
+    data class Device(val serverId: String) : DeviceSwipeVerdict
+
+    /** Enter the aggregate "All" mode (Activity only). */
+    data object All : DeviceSwipeVerdict
+
+    /** Off the sequence's end — the outer layer (tab switch) takes the gesture. */
+    data object Tab : DeviceSwipeVerdict
+}
+
+/**
+ * Pure arithmetic behind the device swipe: given the tab's sequence [scope], the
+ * current index, and the swipe [step] (+1 next / -1 previous), decide what the
+ * gesture does. Falling off either end yields [DeviceSwipeVerdict.Tab] so the
+ * outer tab-switch layer picks it up — mirroring the Activity tab's established
+ * "inner first, outer at the edge" convention.
+ */
+internal fun resolveDeviceSwipeStep(
+    scope: DeviceSwipeScope,
+    currentIndex: Int,
+    deviceCount: Int,
+    step: Int,
+): DeviceSwipeVerdict {
+    // The sequence's logical bounds: WITH_ALL has deviceCount+1 entries
+    // (All + devices); DEVICES_ONLY has deviceCount. A missing selection on
+    // Folders (currentIndex clamped to 0 upstream) behaves like the first device.
+    val last = when (scope) {
+        DeviceSwipeScope.WITH_ALL -> deviceCount // devices occupy 1..deviceCount
+        DeviceSwipeScope.DEVICES_ONLY -> deviceCount - 1
+    }
+    val next = currentIndex + step
+    if (next < 0 || next > last) return DeviceSwipeVerdict.Tab
+    return when {
+        scope == DeviceSwipeScope.WITH_ALL && next == 0 -> DeviceSwipeVerdict.All
+        // WITH_ALL: device i sits at sequence index i+1.
+        scope == DeviceSwipeScope.WITH_ALL -> DeviceSwipeVerdict.Device(serverId = deviceAt(deviceCount, next - 1))
+        else -> DeviceSwipeVerdict.Device(serverId = deviceAt(deviceCount, next))
+    }
+}
+
+/** Stable stand-in for "the server at index i" — the verdict carries a positional
+ *  id the caller resolves against the real list (`firstOrNull { it.id == ... }`);
+ *  a stale gesture (list changed between index capture and commit) drops silently.
+ *  The bounded index from [resolveDeviceSwipeStep] makes a miss unreachable in
+ *  practice; the id shape is what the tests pin. */
+private fun deviceAt(deviceCount: Int, index: Int): String = "idx:$index/$deviceCount"
+
 /** Build the new-task route pre-seeded with a handoff reference (and optionally the
  *  source conversation's folder, so the new session starts in the same workspace —
  *  "接手" continues in-place). The reference (`[title](codeg://session/<id>)`) is
@@ -235,35 +293,52 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // screens — full-screen pushes and the rail layout don't need it, and the
     // gesture modifier itself skips the system back-gesture edge band.
     //
-    // On the Activity tab with the device-swipe setting on, the swipe is claimed
-    // by the device sequence first (All → each device, the GlobalDeviceBar's own
-    // order): mid-sequence it switches devices only, and falling off either END
-    // (swipe right on All / left on the last device) hands the gesture back to
-    // the tab switch — the NestedScrollableHost "inner first, outer at the edge"
-    // convention. Single-device setups get no device layer and keep plain tab swipes.
+    // With the device-swipe setting on, the swipe is claimed by the device
+    // sequence first (the GlobalDeviceBar's own order): mid-sequence it switches
+    // devices only, and falling off either END hands the gesture back to the tab
+    // switch — the "inner first, outer at the edge" convention. Single-device
+    // setups get no device layer and keep plain tab swipes. The per-tab sequence
+    // shape ([DeviceSwipeScope]) and the step arithmetic live in
+    // [resolveDeviceSwipeStep] (pure, unit-tested); here we only apply its verdict.
     val deviceSwipeOn = appSettings.activityDeviceSwipe &&
-        currentRoute == HomeTab.ACTIVITY.route &&
+        (currentRoute == HomeTab.ACTIVITY.route || currentRoute == HomeTab.FOLDERS.route) &&
         servers.size > 1
+    val deviceSwipeScope = when (currentRoute) {
+        HomeTab.ACTIVITY.route -> DeviceSwipeScope.WITH_ALL
+        HomeTab.FOLDERS.route -> DeviceSwipeScope.DEVICES_ONLY
+        else -> null
+    }
     val currentTabIndex = homeTabs.indexOfFirst { it.route == currentRoute }
-    // The device sequence the Activity tab's chip row shows: index 0 is the
-    // aggregate "All", 1..n the servers in their saved order.
-    val currentDeviceIndex = if (activityAll) 0 else servers.indexOfFirst { it.id == selectedProfile?.id } + 1
+    // Index inside the tab's device sequence: Activity counts the aggregate "All"
+    // as 0; Folders has no All row, so devices are 0..n-1.
+    val currentDeviceIndex = when (deviceSwipeScope) {
+        DeviceSwipeScope.WITH_ALL ->
+            if (activityAll) 0 else servers.indexOfFirst { it.id == selectedProfile?.id } + 1
+        else -> servers.indexOfFirst { it.id == selectedProfile?.id }.coerceAtLeast(0)
+    }
     val swipeModifier = if (showBottomBar && !wide && currentTabIndex >= 0) {
         Modifier.tabSwipeNavigation(enabled = true) { direction ->
             val step = if (direction == SwipeDirection.NEXT) 1 else -1
-            if (deviceSwipeOn) {
-                val nextDevice = currentDeviceIndex + step
-                when {
+            if (deviceSwipeOn && deviceSwipeScope != null) {
+                when (val verdict = resolveDeviceSwipeStep(
+                    scope = deviceSwipeScope,
+                    currentIndex = currentDeviceIndex,
+                    deviceCount = servers.size,
+                    step = step,
+                )) {
+                    is DeviceSwipeVerdict.Device -> {
+                        val server = servers.firstOrNull { it.id == verdict.serverId }
+                        if (server == null) return@tabSwipeNavigation
+                        if (deviceSwipeScope == DeviceSwipeScope.WITH_ALL) {
+                            appViewModel.setActivityAll(false)
+                        }
+                        appViewModel.selectServer(server.id)
+                    }
+                    is DeviceSwipeVerdict.All -> appViewModel.setActivityAll(true)
                     // Off the sequence's ends → the outer layer (tab switch) takes it.
-                    nextDevice < 0 || nextDevice > servers.size -> {
+                    DeviceSwipeVerdict.Tab -> {
                         val next = currentTabIndex + step
                         if (next in homeTabs.indices) onTab(homeTabs[next])
-                    }
-                    nextDevice == 0 -> appViewModel.setActivityAll(true)
-                    else -> {
-                        val server = servers.getOrNull(nextDevice - 1) ?: return@tabSwipeNavigation
-                        appViewModel.setActivityAll(false)
-                        appViewModel.selectServer(server.id)
                     }
                 }
             } else {

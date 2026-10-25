@@ -3,6 +3,7 @@ package app.codeg.android.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.DeviceAgentPrefsStore
 import app.codeg.android.core.model.AcpAgentInfo
 import app.codeg.android.core.model.AgentConfig
 import app.codeg.android.core.model.AgentDraft
@@ -46,12 +47,14 @@ import javax.inject.Inject
 @HiltViewModel
 class AgentsViewModel @Inject constructor(
     private val repository: ServerRepository,
+    private val deviceAgentPrefs: DeviceAgentPrefsStore,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(AgentsUiState())
     val ui: StateFlow<AgentsUiState> = _ui.asStateFlow()
 
     private var client: CodegClient? = null
+    private var profileId: String? = null
 
     /**
      * Serializes every agent *write* (enable toggle + config save) so they cannot
@@ -75,11 +78,14 @@ class AgentsViewModel @Inject constructor(
             val profile = repository.selectedProfile.first() ?: throw IllegalStateException("No server selected")
             val c = repository.client(profile) ?: throw IllegalStateException("Missing token")
             client = c
+            profileId = profile.id
             val agents = c.acpListAgents().sortedBy { a -> a.sortOrder }
             _ui.update { st ->
                 st.copy(
                     loading = false,
                     agents = agents,
+                    serverName = profile.name,
+                    hidden = deviceAgentPrefs.hiddenNow(profile.id),
                     error = null,
                     // Keep the open detail's agent in sync with the fresh list so a
                     // self-contained panel's gate banner (Kimi/Pi) reflects the just-saved
@@ -130,6 +136,30 @@ class AgentsViewModel @Inject constructor(
                 )
             } ?: state.detail,
         )
+    }
+
+    /**
+     * Toggle THIS PHONE's visibility for one agent (batch v123). Device-local only —
+     * no server write, other phones unaffected. Optimistic flip; a store failure
+     * reverts. The composer's draft picker applies the same set via
+     * [app.codeg.android.core.datastore.filterHiddenAgents].
+     */
+    fun toggleDeviceHidden(agent: AcpAgentInfo) {
+        val id = profileId ?: return
+        if (agent.agentType == AgentType.UNKNOWN) return
+        val wire = agent.agentType.wire
+        val wasHidden = wire in _ui.value.hidden
+        val flip = { hidden: Set<String> ->
+            if (wasHidden) hidden - wire else hidden + wire
+        }
+        _ui.update { it.copy(hidden = flip(it.hidden)) }
+        viewModelScope.launch {
+            runCatching { deviceAgentPrefs.toggle(id, wire) }
+                .onFailure {
+                    _ui.update { st -> st.copy(hidden = flip(st.hidden)) }
+                    _ui.update { st -> st.copy(error = it.displayMessage()) }
+                }
+        }
     }
 
     // endregion
@@ -576,6 +606,10 @@ data class AgentsUiState(
     val loading: Boolean = false,
     val error: String? = null,
     val detail: AgentDetailState? = null,
+    /** The connected device's display name ("设备：tx"), for the per-device group header. */
+    val serverName: String? = null,
+    /** This phone's hidden agents (AgentType.wire set) — device-local visibility. */
+    val hidden: Set<String> = emptySet(),
 )
 
 data class AgentDetailState(

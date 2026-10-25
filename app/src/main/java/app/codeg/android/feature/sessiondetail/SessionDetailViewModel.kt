@@ -9,10 +9,12 @@ import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.ConversationSelectorStore
+import app.codeg.android.core.datastore.DeviceAgentPrefsStore
 import app.codeg.android.core.datastore.DraftStore
 import app.codeg.android.core.datastore.SelectorPrefs
 import app.codeg.android.core.datastore.SelectorPrefsStore
 import app.codeg.android.core.datastore.ServerProfile
+import app.codeg.android.core.datastore.filterHiddenAgents
 import app.codeg.android.core.model.AcpEvent
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.AvailableCommandInfo
@@ -123,6 +125,7 @@ class SessionDetailViewModel @Inject constructor(
     private val selectorPrefs: SelectorPrefsStore,
     private val conversationPrefs: ConversationSelectorStore,
     private val draftStore: DraftStore,
+    private val deviceAgentPrefs: DeviceAgentPrefsStore,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -271,6 +274,10 @@ class SessionDetailViewModel @Inject constructor(
                         .map { it.agentType }
                         .distinct()
                         .ifEmpty { AgentType.entries.filter { it != AgentType.UNKNOWN } }
+                        // Per-device visibility (v123): applied AFTER the ifEmpty fallback —
+                        // inside the chain the fallback would re-admit hidden agents when a
+                        // server reports no enabled ones. May legitimately yield empty.
+                        .let { filterHiddenAgents(it, deviceAgentPrefs.hiddenNow(profileId = p.id)) }
                     folder = allFolders.firstOrNull { it.id == folderIdArg }
                         ?: topLevel.firstOrNull()
                         ?: allFolders.maxByOrNull { it.lastOpenedAt ?: Instant.MIN }
@@ -1959,6 +1966,75 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     /**
+     * One-tap copy of the session's alignment block (batch v123): working dir, title,
+     * agent-prefixed CLI id, Codeg id, git branch. Pasting it into a fresh session gives
+     * the agent (and the human) everything needed to find the context again — the Codeg
+     * id itself has no server-side lookup, the working directory and title do the work.
+     */
+    fun copySessionSummary() {
+        val state = _ui.value
+        val summary = state.summary
+        val text = buildSessionSummaryText(
+            workingDir = folder?.path ?: state.folderPath,
+            title = summary?.trimmedTitle,
+            agentName = state.agent.displayName,
+            cliId = externalId ?: state.externalId,
+            codegId = summary?.id?.toString(),
+            gitBranch = summary?.gitBranch?.takeIf { it.isNotBlank() },
+        )
+        if (text == null) {
+            showNotice(appContext.getString(R.string.session_info_unavailable))
+            return
+        }
+        copyToClipboard(text)
+        showNotice(appContext.getString(R.string.session_info_copied))
+    }
+
+    // region Document preview (v123: tap a file path in the transcript → in-app preview)
+
+    /**
+     * Open the in-app preview for an absolute path tapped in rendered Markdown.
+     * The path must live under the session's working directory (the preview RPC is
+     * rooted there — same rule as FolderFilesView); anything else is surfaced as a
+     * notice rather than a silent no-op.
+     */
+    fun openPathPreview(path: String) {
+        val c = client ?: return
+        val root = folder?.path ?: _ui.value.folderPath
+        if (root.isNullOrBlank()) {
+            showNotice(appContext.getString(R.string.session_info_unavailable))
+            return
+        }
+        val rel = if (path.startsWith("$root/")) {
+            path.removePrefix("$root/")
+        } else {
+            showNotice(appContext.getString(R.string.doc_preview_outside_workspace, path))
+            return
+        }
+        viewModelScope.launch {
+            val result = runCatching { c.readFilePreview(root, rel) }
+            val preview = result.getOrNull()
+            if (preview == null) {
+                showNotice(result.exceptionOrNull()?.displayMessage() ?: appContext.getString(R.string.files_read_failed))
+                return@launch
+            }
+            _ui.update {
+                it.copy(
+                    docPreview = DocPreviewState(
+                        title = rel,
+                        kind = docPreviewKindOf(rel),
+                        content = preview.content,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun dismissDocPreview() = _ui.update { it.copy(docPreview = null) }
+
+    // endregion
+
+    /**
      * Write a self-contained handoff JSON into the server-side working directory and copy
      * its absolute path, so a NEW session on any client can read the effective context
      * (agent, working dir, CLI session id, branch, transcript) without the phone's storage.
@@ -2141,6 +2217,30 @@ class SessionDetailViewModel @Inject constructor(
     // endregion
 }
 
+/**
+ * Pure builder for the one-tap copy alignment block (see [SessionDetailViewModel.copySessionSummary]).
+ * Returns null when there is nothing actionable to copy (no working directory AND no ids).
+ * Optional lines (title/CLI id/branch) are dropped when absent; every present line keeps its
+ * label so a pasted block stays self-describing.
+ */
+internal fun buildSessionSummaryText(
+    workingDir: String?,
+    title: String?,
+    agentName: String,
+    cliId: String?,
+    codegId: String?,
+    gitBranch: String?,
+): String? {
+    val lines = mutableListOf<String>()
+    workingDir?.takeIf { it.isNotBlank() }?.let { lines += "工作目录: $it" }
+    title?.takeIf { it.isNotBlank() }?.let { lines += "会话标题: $it" }
+    cliId?.takeIf { it.isNotBlank() }?.let { lines += "$agentName CLI ID: $it" }
+    codegId?.let { lines += "Codeg ID: $it" }
+    gitBranch?.takeIf { it.isNotBlank() }?.let { lines += "Git 分支: $it" }
+    if (lines.isEmpty()) return null
+    return lines.joinToString("\n")
+}
+
 /** Thrown when the event-stream handshake ends (detached/closed) before the server
  *  confirms the attach — i.e. the connection was rejected. The send path treats this like
  *  a stale connection and retries once with a fresh connect. */
@@ -2236,7 +2336,33 @@ data class SessionDetailUiState(
     /** Drafts typed while a turn was running, waiting for it to finish (in-memory,
      *  like the web client's queue — a process kill loses them). */
     val queue: List<QueuedDraft> = emptyList(),
+    /** The document preview opened from a tapped file path in the transcript (v123). */
+    val docPreview: DocPreviewState? = null,
 )
+
+/** State of the in-app document preview opened from a tapped path (batch v123). */
+data class DocPreviewState(
+    val title: String,
+    val kind: DocPreviewKind,
+    val content: String,
+)
+
+/** How the preview dialog should render the content. Mirrors FolderFilesView's PreviewKind (text subset). */
+enum class DocPreviewKind { TEXT, MARKDOWN, HTML, OTHER }
+
+/**
+ * Map a file name to the preview rendering (pure; mirrors FolderFilesView's
+ * `previewKindOf` text subset). Extracted so the session preview and tests share it.
+ */
+fun docPreviewKindOf(name: String): DocPreviewKind {
+    val ext = name.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "md", "markdown" -> DocPreviewKind.MARKDOWN
+        "html", "htm" -> DocPreviewKind.HTML
+        "", "txt", "json", "xml", "yml", "yaml", "toml", "ini", "conf", "sh", "bash", "py", "rs", "kt", "java", "js", "ts", "css", "c", "h", "cpp", "go", "rb", "php", "sql", "log", "env", "csv", "properties" -> DocPreviewKind.TEXT
+        else -> DocPreviewKind.OTHER
+    }
+}
 
 /** One queued draft in the send-while-running bar. */
 data class QueuedDraft(

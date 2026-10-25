@@ -1,12 +1,18 @@
 package app.codeg.android.feature.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.codeg.android.core.crash.CrashRecord
+import app.codeg.android.core.crash.CrashStore
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.AppSettings
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +28,8 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val appSettingsStore: AppSettingsStore,
     private val repository: ServerRepository,
+    private val crashStore: CrashStore,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> =
@@ -40,13 +48,38 @@ class SettingsViewModel @Inject constructor(
                 _about.update { it.copy(serverVersion = version) }
             }
         }
+        // Device-local last-crash report (batch v123), shown on the About page.
+        viewModelScope.launch {
+            crashStore.lastCrash.collect { crash ->
+                _about.update { it.copy(lastCrash = crash) }
+            }
+        }
     }
 
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { appSettingsStore.setThemeMode(mode) }
     fun setAccent(accentId: String) = viewModelScope.launch { appSettingsStore.setAccent(accentId) }
+
+    /** Copy the full crash report text (for pasting into a bug report). */
+    fun copyCrashReport(crash: CrashRecord) {
+        val manager = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        manager.setPrimaryClip(ClipData.newPlainText("codeg-crash", crash.toReportText()))
+    }
+
+    /** Dismiss the About-page crash card. */
+    fun dismissCrash() = viewModelScope.launch { crashStore.clear() }
+}
+
+/** Build the copyable crash text. Pure so the About card and tests share it. */
+fun CrashRecord.toReportText(): String = buildString {
+    append("codeg crash report\n")
+    append("time: ").append(time).append('\n')
+    append("version: ").append(version).append('\n')
+    append("thread: ").append(thread).append('\n')
+    append(stack)
 }
 
 data class AboutInfo(
     val serverName: String? = null,
     val serverVersion: String? = null,
+    val lastCrash: CrashRecord? = null,
 )

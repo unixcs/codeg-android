@@ -243,6 +243,10 @@
     <string name="settings_server">Server: %1$s</string>
     <string name="settings_codeg_version">codeg %1$s</string>
     <string name="settings_about_description">A native Android client for the codeg multi-agent coding server.</string>
+    <string name="settings_last_crash_title">Last crash</string>
+    <string name="settings_last_crash_meta">%1$s · v%2$s · %3$s</string>
+    <string name="settings_last_crash_copy">Copy</string>
+    <string name="settings_last_crash_dismiss">Dismiss</string>
     <string name="settings_coming_soon">Coming in milestone M9.</string>
     <string name="settings_licenses_unavailable">Unable to load open-source notices.</string>
 
@@ -333,12 +337,18 @@
     <string name="general_tab_order_title">Bottom tab order</string>
     <string name="general_tab_order_subtitle">Tap ▲▼ to reorder the bottom bar; tap a row\'s name to make it the tab the app opens on.</string>
     <string name="general_start_tab_title">Default tab on launch</string>
-    <string name="general_activity_swipe_title">Swipe between devices on Activity</string>
-    <string name="general_activity_swipe_subtitle">On the Activity tab, horizontal swipes switch devices (All → each device); swiping past the ends moves between tabs.</string>
+    <string name="general_activity_swipe_title">Swipe between devices</string>
+    <string name="general_activity_swipe_subtitle">On the Activity and Folders tabs, horizontal swipes switch devices (Activity also has an All stop); swiping past the ends moves between tabs.</string>
 
     <!-- ===== Settings · Agents ===== -->
     <string name="agents_empty_title">No agents</string>
     <string name="agents_empty_subtitle">No agents registered.</string>
+    <string name="agents_device_header">Device: %1$s</string>
+    <string name="agents_device_header_plain">This device</string>
+    <string name="agents_switch_legend">Eye = show on this phone only · Switch = on/off on the server (all devices)</string>
+    <string name="agents_hidden_on_device">Hidden on this phone</string>
+    <string name="agents_show_on_device">Show on this phone</string>
+    <string name="agents_hide_on_device">Hide on this phone</string>
     <!-- Agents · per-agent detail / config editor -->
     <string name="agents_detail_unavailable">Not available — install it on the server to enable.</string>
     <string name="agents_detail_not_installed">Not installed</string>
@@ -958,6 +968,10 @@
     <string name="session_info_export">Export session JSON</string>
     <string name="session_info_exporting">Exporting…</string>
     <string name="session_info_export_hint">Writes the full conversation to .codeg-handoff/ in the project directory and copies the server path.</string>
+    <string name="session_info_copy_all">Copy for handoff</string>
+    <string name="session_info_copy_all_hint">Copies the working directory, title, CLI/Codeg ids and branch — paste into a new session to pick up the context.</string>
+    <string name="doc_preview_share">Share</string>
+    <string name="doc_preview_outside_workspace">%1$s is outside this session\'s working directory.</string>
     <string name="session_info_export_done">Exported: %1$s</string>
     <string name="session_info_export_failed">Export failed: %1$s</string>
     <string name="session_info_reconnect">Reconnect</string>

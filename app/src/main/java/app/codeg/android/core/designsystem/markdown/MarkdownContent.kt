@@ -58,19 +58,23 @@ fun MarkdownContent(raw: String, modifier: Modifier = Modifier) {
 internal fun SingleBlockView(block: MarkdownBlock, modifier: Modifier = Modifier) {
     val colors = CodegTheme.colors
     when (block) {
-        is MarkdownBlock.Paragraph -> Text(
-            text = rememberInlineMarkdown(block.text),
-            fontSize = 14.sp,
-            lineHeight = 21.sp,
-            color = colors.textPrimary,
+        is MarkdownBlock.Paragraph -> TappableMarkdownText(
+            raw = block.text,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = 14.sp,
+                lineHeight = 21.sp,
+                color = colors.textPrimary,
+            ),
             modifier = modifier.fillMaxWidth(),
         )
 
-        is MarkdownBlock.Heading -> Text(
-            text = rememberInlineMarkdown(block.text),
-            fontSize = headingSize(block.level),
-            fontWeight = FontWeight.Bold,
-            color = colors.textPrimary,
+        is MarkdownBlock.Heading -> TappableMarkdownText(
+            raw = block.text,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = headingSize(block.level),
+                fontWeight = FontWeight.Bold,
+                color = colors.textPrimary,
+            ),
             modifier = modifier.fillMaxWidth().padding(top = 2.dp),
         )
 
@@ -90,12 +94,14 @@ internal fun SingleBlockView(block: MarkdownBlock, modifier: Modifier = Modifier
                     .clip(RoundedCornerShape(1.dp))
                     .background(colors.accent.copy(alpha = 0.5f)),
             )
-            Text(
-                text = rememberInlineMarkdown(block.text),
-                fontSize = 14.sp,
-                lineHeight = 21.sp,
-                fontStyle = FontStyle.Italic,
-                color = colors.textSecondary,
+            TappableMarkdownText(
+                raw = block.text,
+                style = androidx.compose.ui.text.TextStyle(
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                    fontStyle = FontStyle.Italic,
+                    color = colors.textSecondary,
+                ),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -120,11 +126,13 @@ private fun ListRow(marker: String, content: String) {
             color = colors.textTertiary,
             modifier = Modifier.width(16.dp),
         )
-        Text(
-            text = rememberInlineMarkdown(content),
-            fontSize = 14.sp,
-            lineHeight = 21.sp,
-            color = colors.textPrimary,
+        TappableMarkdownText(
+            raw = content,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = 14.sp,
+                lineHeight = 21.sp,
+                color = colors.textPrimary,
+            ),
             modifier = Modifier.fillMaxWidth(),
         )
     }

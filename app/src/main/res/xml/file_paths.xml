@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider paths for the document-preview share (batch v123): only the
+     cache/shared directory is exposed, never general cache or file storage. -->
+<paths>
+    <cache-path
+        name="shared"
+        path="shared/" />
+</paths>

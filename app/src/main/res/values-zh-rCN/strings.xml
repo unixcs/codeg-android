@@ -243,6 +243,10 @@
     <string name="settings_server">服务器：%1$s</string>
     <string name="settings_codeg_version">codeg %1$s</string>
     <string name="settings_about_description">面向 codeg 多智能体编程服务器的原生 Android 客户端。</string>
+    <string name="settings_last_crash_title">上次崩溃</string>
+    <string name="settings_last_crash_meta">%1$s · v%2$s · %3$s</string>
+    <string name="settings_last_crash_copy">复制</string>
+    <string name="settings_last_crash_dismiss">忽略</string>
     <string name="settings_coming_soon">将在里程碑 M9 中推出。</string>
     <string name="settings_licenses_unavailable">无法加载开源许可声明。</string>
 
@@ -333,12 +337,18 @@
     <string name="general_tab_order_title">底部标签排序</string>
     <string name="general_tab_order_subtitle">点 ▲▼ 调整底部栏顺序；点行名把它设为启动时打开的页。</string>
     <string name="general_start_tab_title">启动时默认打开</string>
-    <string name="general_activity_swipe_title">动态页横滑切换设备</string>
-    <string name="general_activity_swipe_subtitle">在动态页左右滑动可在全部设备与各设备之间切换；滑到尽头再滑才会切换底部标签。</string>
+    <string name="general_activity_swipe_title">横滑切换设备</string>
+    <string name="general_activity_swipe_subtitle">在动态页和文件夹页左右滑动可切换设备（动态页多一档“全部”）；滑到尽头再滑才会切换底部标签。</string>
 
     <!-- ===== Settings · Agents ===== -->
     <string name="agents_empty_title">暂无智能体</string>
     <string name="agents_empty_subtitle">未注册任何智能体。</string>
+    <string name="agents_device_header">设备：%1$s</string>
+    <string name="agents_device_header_plain">本设备</string>
+    <string name="agents_switch_legend">眼睛 = 只在本机显示/隐藏 · 开关 = 服务器上启用（所有设备生效）</string>
+    <string name="agents_hidden_on_device">已在本机隐藏</string>
+    <string name="agents_show_on_device">在本机显示</string>
+    <string name="agents_hide_on_device">在本机隐藏</string>
     <!-- Agents · per-agent detail / config editor -->
     <string name="agents_detail_unavailable">不可用 —— 请先在服务器上安装后再启用。</string>
     <string name="agents_detail_not_installed">未安装</string>
@@ -944,6 +954,10 @@
     <string name="session_info_export">导出会话 JSON</string>
     <string name="session_info_exporting">导出中…</string>
     <string name="session_info_export_hint">把完整对话写入项目目录 .codeg-handoff/，并复制服务器路径。</string>
+    <string name="session_info_copy_all">一键复制接手</string>
+    <string name="session_info_copy_all_hint">复制工作目录、会话标题、CLI/Codeg ID 与分支——粘贴到新会话即可对齐上下文。</string>
+    <string name="doc_preview_share">分享</string>
+    <string name="doc_preview_outside_workspace">%1$s 不在本会话的工作目录内。</string>
     <string name="session_info_export_done">已导出：%1$s</string>
     <string name="session_info_export_failed">导出失败：%1$s</string>
     <string name="session_info_reconnect">重新连接</string>

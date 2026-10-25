@@ -39,6 +39,20 @@
                 <data android:scheme="codeg" />
             </intent-filter>
         </activity>
+
+        <!-- Share-out for document previews (batch v123). The authority is
+          `${applicationId}.fileprovider` — the fork's per-variant applicationId
+          suffixes (fengx / .legacy) make a literal authority collide when both
+          flavors are installed on one device. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

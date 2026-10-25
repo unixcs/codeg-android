@@ -3,9 +3,11 @@ package app.codeg.android.feature.sessiondetail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.Button
@@ -108,6 +110,26 @@ fun SessionDetailsSheet(
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // One-tap copy of the alignment block (batch v123) — the primary
+                // action; the JSON export moves to the secondary slot.
+                Button(
+                    onClick = {
+                        onDismiss()
+                        viewModel.copySessionSummary()
+                    },
+                    enabled = !workingDir.isNullOrBlank() || cliId != null,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.accent,
+                        contentColor = colors.onAccent,
+                        disabledContainerColor = colors.accent.copy(alpha = 0.4f),
+                        disabledContentColor = colors.onAccent.copy(alpha = 0.8f),
+                    ),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.session_info_copy_all))
+                }
                 OutlinedButton(
                     onClick = {
                         // Dismiss first: both actions surface their result via the
@@ -149,7 +171,7 @@ fun SessionDetailsSheet(
                 }
             }
             Text(
-                stringResource(R.string.session_info_export_hint),
+                stringResource(R.string.session_info_copy_all_hint),
                 fontSize = 12.sp,
                 color = colors.textTertiary,
             )
