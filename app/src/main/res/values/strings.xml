@@ -71,6 +71,7 @@
     <string name="session_empty_message">Messages in this session will appear here.</string>
     <string name="session_jump_to_latest">Jump to latest</string>
     <string name="session_agent_options">Agent options</string>
+    <string name="session_open_folder">Open project folder</string>
     <string name="sessions_collapse">Collapse</string>
     <string name="sessions_expand">Expand</string>
     <string name="sessions_hide_action">Hide</string>
@@ -920,6 +921,7 @@
     <string name="files_action_open">Open</string>
     <string name="files_action_edit">Edit</string>
     <string name="files_action_download">Download to device</string>
+    <string name="files_action_open_with">Open with other app</string>
     <string name="files_action_rename">Rename</string>
     <string name="files_action_move">Move</string>
     <string name="files_action_delete">Delete</string>

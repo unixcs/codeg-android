@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FileProvider paths for the document-preview share (batch v123): only the
-     cache/shared directory is exposed, never general cache or file storage. -->
+<!-- FileProvider paths: cache subdirectories only (shared = document-preview
+     share, batch v123; open_with = system open-with card, batch v125) — never
+     general cache or file storage. -->
 <paths>
     <cache-path
         name="shared"
         path="shared/" />
+    <cache-path
+        name="open_with"
+        path="open_with/" />
 </paths>

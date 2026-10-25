@@ -1,5 +1,6 @@
 package app.codeg.android.feature.projects
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NoteAdd
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.Visibility
@@ -461,6 +463,8 @@ private fun FileActionSheet(
     var showRename by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
     var showDownloadBrowser by remember { mutableStateOf(false) }
+    var shareBusy by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
     val rel = target.path.removePrefix("$rootPath/")
 
     fun run(block: suspend () -> Unit) {
@@ -489,6 +493,47 @@ private fun FileActionSheet(
             if (!target.isDir) {
                 ActionRow(Icons.Rounded.Edit, stringResource(R.string.files_action_edit)) { onEdit() }
                 ActionRow(Icons.Rounded.Download, stringResource(R.string.files_action_download)) { showDownloadBrowser = true }
+                // 批v125: pull the file into the app cache, then hand the URI to the
+                // system — the Android open-with card decides which app handles it.
+                ActionRow(Icons.Rounded.OpenInNew, stringResource(R.string.files_action_open_with)) {
+                    if (shareBusy) return@ActionRow
+                    shareBusy = true
+                    error = null
+                    scope.launch {
+                        val result = runCatching {
+                            withContext(Dispatchers.IO) {
+                                val b64 = client.readWorkspaceFileBase64(rootPath, rel, maxBytes = 100 * 1024 * 1024)
+                                val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                                val dir = java.io.File(context.cacheDir, "open_with").apply { mkdirs() }
+                                val file = java.io.File(dir, target.name)
+                                file.writeBytes(bytes)
+                                androidx.core.content.FileProvider.getUriForFile(
+                                    context,
+                                    context.packageName + ".fileprovider",
+                                    file,
+                                )
+                            }
+                        }
+                        shareBusy = false
+                        result.fold(
+                            onSuccess = { uri ->
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(uri, mimeForOpenWith(target.name))
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                runCatching { context.startActivity(Intent.createChooser(intent, null)) }
+                                    .onFailure {
+                                        // No handler for this type — fall back to the generic chooser.
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent.createChooser(Intent(Intent.ACTION_VIEW).setData(uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK), null),
+                                            )
+                                        }.onFailure { failure -> error = failure.message ?: failure.javaClass.simpleName }
+                                    }
+                            },
+                            onFailure = { failure -> error = failure.message ?: failure.javaClass.simpleName },
+                        )
+                    }
+                }
             }
             ActionRow(Icons.Rounded.DriveFileRenameOutline, stringResource(R.string.files_action_rename)) { showRename = true }
             ActionRow(Icons.Rounded.UploadFile, stringResource(R.string.files_action_move)) { showMove = true }
@@ -1130,6 +1175,33 @@ private const val MAX_EDIT_CHARS = 2_000_000
 
 private fun sortItems(items: List<DirectoryItem>): List<DirectoryItem> =
     items.sortedWith(compareByDescending<DirectoryItem> { it.isDir }.thenBy { it.name.lowercase() })
+
+
+/**
+ * MIME for the system open-with card (batch v125). Text-ish files map to text/plain so
+ * every editor/reader app can take them; only types with real viewers get specific
+ * MIMEs; anything unknown falls back to a wildcard MIME so the chooser still
+ * appears instead of "no app can open this".
+ */
+internal fun mimeForOpenWith(name: String): String {
+    val ext = name.substringAfterLast('.', "").lowercase()
+    return when (ext) {
+        "md", "markdown", "txt", "log", "json", "xml", "yml", "yaml", "toml", "csv",
+        "ini", "conf", "properties", "js", "ts", "kt", "kts", "java", "py", "rb", "go",
+        "rs", "c", "h", "cpp", "sh", "bat", "sql", "gradle", "proto",
+        -> "text/plain"
+        "html", "htm" -> "text/html"
+        "css" -> "text/css"
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "svg" -> "image/svg+xml"
+        "pdf" -> "application/pdf"
+        "zip" -> "application/zip"
+        else -> "*/*"
+    }
+}
 
 private fun formatBytes(bytes: Long): String {
     val loc = java.util.Locale.US

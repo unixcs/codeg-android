@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -150,6 +151,8 @@ import java.time.Instant
 fun SessionDetailScreen(
     onBack: () -> Unit,
     onOpenSession: (Int) -> Unit = {},
+    /** Jump to the session's project (folder) detail screen — batch v125. */
+    onOpenFolder: (Int) -> Unit = {},
     seedText: String? = null,
     viewModel: SessionDetailViewModel = hiltViewModel(),
 ) {
@@ -333,6 +336,19 @@ fun SessionDetailScreen(
                     }
                 },
                 actions = {
+                    // Batch v125: jump to the session's project (folder) detail — the
+                    // transcript's inline file links only fire for absolute paths, so a
+                    // bare filename in AI output has no anchor; this button gets the user
+                    // to the workspace file browser in one tap instead.
+                    ui.selectedFolderId?.let { folderId ->
+                        IconButton(onClick = { onOpenFolder(folderId) }) {
+                            Icon(
+                                Icons.Rounded.FolderOpen,
+                                contentDescription = stringResource(R.string.session_open_folder),
+                                tint = colors.textSecondary,
+                            )
+                        }
+                    }
                     // The agent avatar is the options button (mode / config / folder / branch).
                     Box(
                         Modifier
