@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -71,11 +72,13 @@ import app.codeg.android.core.designsystem.theme.AccentPalette
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.datastore.ThemeMode
 import app.codeg.android.core.model.AgentType
+import app.codeg.android.feature.floatingball.FloatingBallSettingsBus
 
 private enum class SettingsLeaf(@StringRes val titleRes: Int, val icon: ImageVector, @StringRes val groupRes: Int, val implemented: Boolean) {
     APPEARANCE(R.string.settings_leaf_appearance, Icons.Rounded.Brush, R.string.settings_group_personalization, true),
     LANGUAGE(R.string.settings_leaf_language, Icons.Rounded.Language, R.string.settings_group_personalization, true),
     GENERAL(R.string.settings_leaf_general, Icons.Rounded.Tune, R.string.settings_group_personalization, true),
+    FLOATING_BALL(R.string.settings_leaf_floating_ball, Icons.Rounded.TouchApp, R.string.settings_group_personalization, true),
     QUICK_MESSAGES(R.string.settings_leaf_quick_messages, Icons.AutoMirrored.Rounded.Chat, R.string.settings_group_personalization, true),
     AGENTS(R.string.settings_leaf_agents, Icons.Rounded.Person, R.string.settings_group_ai_agents, true),
     MODEL_PROVIDERS(R.string.settings_leaf_model_providers, Icons.Rounded.Memory, R.string.settings_group_ai_agents, true),
@@ -98,6 +101,17 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     var agentDetail by remember { mutableStateOf<AgentType?>(null) }
     val inAgentDetail = leaf == SettingsLeaf.AGENTS && agentDetail != null
     BackHandler(enabled = leaf != null) { if (inAgentDetail) agentDetail = null else leaf = null }
+
+    // The floating ball's "ball settings" action lands here from anywhere in the
+    // app (MainShell fires the bus); jump straight to the FLOATING_BALL leaf.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        FloatingBallSettingsBus.pending.collect { requested ->
+            if (requested) {
+                leaf = SettingsLeaf.FLOATING_BALL
+                FloatingBallSettingsBus.pending.value = false
+            }
+        }
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -129,7 +143,8 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 SettingsLeaf.LANGUAGE -> LanguageContent()
                 SettingsLeaf.ABOUT -> AboutScreen(viewModel)
                 SettingsLeaf.QUICK_MESSAGES -> QuickMessagesContent()
-                SettingsLeaf.GENERAL -> GeneralContent()
+                SettingsLeaf.GENERAL -> GeneralContent(onOpenBallSettings = { leaf = SettingsLeaf.FLOATING_BALL })
+                SettingsLeaf.FLOATING_BALL -> FloatingBallContent(viewModel)
                 SettingsLeaf.MODEL_PROVIDERS -> ModelProvidersContent()
                 SettingsLeaf.SYSTEM -> SystemContent()
                 SettingsLeaf.OPEN_SOURCE_LICENSES -> OpenSourceLicensesScreen()

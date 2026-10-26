@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDropUp
 import androidx.compose.material.icons.rounded.ArrowDropDown
@@ -45,9 +46,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.feature.floatingball.FONT_STEPS
+import app.codeg.android.feature.floatingball.stepFontScale
+import kotlin.math.roundToInt
 
 @Composable
-fun GeneralContent(viewModel: GeneralViewModel = hiltViewModel()) {
+fun GeneralContent(
+    viewModel: GeneralViewModel = hiltViewModel(),
+    onOpenBallSettings: () -> Unit = {},
+) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val appSettings by viewModel.settings.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
@@ -71,6 +78,97 @@ fun GeneralContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 stringResource(R.string.general_folders_swipe_subtitle),
                 appSettings.foldersDeviceSwipe,
                 viewModel::setFoldersDeviceSwipe,
+            )
+        }
+        Section(stringResource(R.string.general_floating_ball_section)) {
+            ToggleRow(
+                stringResource(R.string.ball_enable_title),
+                stringResource(R.string.ball_enable_subtitle),
+                appSettings.floatBallEnabled,
+                viewModel::setFloatBallEnabled,
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ball_size_title)) },
+                supportingContent = { Text(stringResource(R.string.ball_size_subtitle)) },
+                trailingContent = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            "small" to R.string.ball_size_small,
+                            "medium" to R.string.ball_size_medium,
+                            "large" to R.string.ball_size_large,
+                        ).forEach { (id, labelRes) ->
+                            val selected = appSettings.floatBallSize == id
+                            Text(
+                                stringResource(labelRes),
+                                fontSize = 13.sp,
+                                color = if (selected) colors.onAccent else colors.textSecondary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (selected) colors.accent else colors.textPrimary.copy(alpha = 0.08f),
+                                    )
+                                    .clickable { viewModel.setFloatBallSize(id) }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ball_bindings_title)) },
+                supportingContent = { Text(stringResource(R.string.ball_bindings_subtitle)) },
+                trailingContent = {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                modifier = Modifier.clickable { onOpenBallSettings() },
+            )
+        }
+        Section(stringResource(R.string.general_font_section)) {
+            val stepIndex = FONT_STEPS.indexOfFirst { kotlin.math.abs(it - appSettings.fontScale) < 0.01f }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.general_font_scale_title)) },
+                supportingContent = { Text(stringResource(R.string.general_font_scale_subtitle)) },
+                trailingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StepButton(
+                            Icons.Rounded.Remove,
+                            enabled = stepIndex > 0,
+                            onClick = { viewModel.setFontScale(stepFontScale(appSettings.fontScale, -1)) },
+                        )
+                        Text(
+                            "${(appSettings.fontScale * 100).roundToInt()}%",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.textPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        )
+                        StepButton(
+                            Icons.Rounded.Add,
+                            enabled = stepIndex in 0 until FONT_STEPS.lastIndex,
+                            onClick = { viewModel.setFontScale(stepFontScale(appSettings.fontScale, +1)) },
+                        )
+                    }
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
             )
         }
         Section(stringResource(R.string.general_conversation_tools)) {

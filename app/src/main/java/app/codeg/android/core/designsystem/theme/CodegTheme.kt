@@ -12,7 +12,9 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Density
 import androidx.core.view.WindowCompat
 import app.codeg.android.core.datastore.ThemeMode
 
@@ -30,6 +32,7 @@ val LocalCodegDimens = staticCompositionLocalOf { CodegDimens() }
 fun CodegTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     accentId: String = AccentPalette.DEFAULT.id,
+    fontScaleFactor: Float = 1f,
     content: @Composable () -> Unit,
 ) {
     val isDark = when (themeMode) {
@@ -55,9 +58,19 @@ fun CodegTheme(
         }
     }
 
+    // In-app font scaling (batch v126): a multiplier ON TOP of the system font
+    // scale, applied by overriding LocalDensity so every sp-based size in the tree
+    // scales together (dp metrics pass through untouched). Clamped so a corrupt
+    // pref can never shrink text to zero or blow it to the moon.
+    val systemDensity = LocalDensity.current
+    val scaledDensity = remember(systemDensity, fontScaleFactor) {
+        Density(systemDensity.density, systemDensity.fontScale * fontScaleFactor.coerceIn(0.5f, 2f))
+    }
+
     CompositionLocalProvider(
         LocalCodegColors provides colors,
         LocalCodegDimens provides CodegDimens(),
+        LocalDensity provides scaledDensity,
     ) {
         MaterialTheme(
             colorScheme = material,

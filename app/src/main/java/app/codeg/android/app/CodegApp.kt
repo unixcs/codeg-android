@@ -31,7 +31,7 @@ fun CodegApp(appViewModel: AppViewModel = hiltViewModel()) {
     val settings by appViewModel.settings.collectAsStateWithLifecycle()
     val settingsLoaded by appViewModel.settingsLoaded.collectAsStateWithLifecycle()
 
-    CodegTheme(themeMode = settings.themeMode, accentId = settings.accentId) {
+    CodegTheme(themeMode = settings.themeMode, accentId = settings.accentId, fontScaleFactor = settings.fontScale) {
         CodegBackground {
             val servers by appViewModel.servers.collectAsStateWithLifecycle()
             // `settingsLoaded` keeps MainShell from composing on the DataStore

@@ -18,10 +18,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import app.codeg.android.feature.floatingball.FloatingBallCatalog
 
 /** Backs the Settings tab: live appearance prefs + the About server/version info. */
 @HiltViewModel
@@ -58,6 +60,25 @@ class SettingsViewModel @Inject constructor(
 
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { appSettingsStore.setThemeMode(mode) }
     fun setAccent(accentId: String) = viewModelScope.launch { appSettingsStore.setAccent(accentId) }
+
+    /** Ball gesture→action bindings for the binding editor (sanitized on read). */
+    val floatBallBindings: StateFlow<Map<String, String?>> = appSettingsStore.floatBallBindings
+        .map { FloatingBallCatalog.sanitize(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, FloatingBallCatalog.DEFAULT_BINDINGS)
+
+    /** Rebind one gesture. longPress is pinned to the settings entry (the editor
+     *  renders it read-only; this guard makes even a crafted call a no-op) so the
+     *  ball can never lose its way back to its own settings. */
+    fun setBallBinding(gesture: String, actionId: String?) {
+        viewModelScope.launch {
+            val current = FloatingBallCatalog.sanitize(appSettingsStore.floatBallBindings.first())
+            if (gesture == "longPress" || gesture !in FloatingBallCatalog.GESTURES) return@launch
+            val next = current.toMutableMap().apply {
+                this[gesture] = if (actionId == null || actionId in FloatingBallCatalog.ACTION_IDS) actionId else null
+            }
+            appSettingsStore.setFloatBallBindings(FloatingBallCatalog.sanitize(next))
+        }
+    }
 
     /** Copy the full crash report text (for pasting into a bug report). */
     fun copyCrashReport(crash: CrashRecord) {

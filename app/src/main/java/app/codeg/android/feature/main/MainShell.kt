@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -64,6 +65,10 @@ import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.designsystem.component.GlobalDeviceBar
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.activity.ActivityScreen
+import app.codeg.android.feature.floatingball.FloatingBallHost
+import app.codeg.android.feature.floatingball.FloatingBallSettingsBus
+import app.codeg.android.feature.floatingball.floatBallSizeDp
+import app.codeg.android.feature.floatingball.stepFontScale
 import app.codeg.android.feature.projects.ProjectDetailScreen
 import app.codeg.android.feature.search.SearchScreen
 import app.codeg.android.feature.projects.ProjectListScreen
@@ -367,7 +372,79 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         app.codeg.android.core.common.DeepLinkBus.consume(route)
     }
 
-    Scaffold(
+    // ---- Floating ball (batch v126) ----
+    // The ball rides ABOVE the whole shell (Scaffold + bottom bar) as its sibling
+    // inside a Box, so ball touches never leak into the tab-swipe / scroll layers.
+    // The registry below maps catalog action ids onto this shell's real handlers;
+    // "panel" never arrives here (the host opens its own action panel).
+    val ballBindings by appViewModel.floatBallBindings.collectAsStateWithLifecycle()
+    val ballPos by appViewModel.floatBallPos.collectAsStateWithLifecycle()
+    val ballContext = androidx.compose.ui.platform.LocalContext.current
+
+    // Jump to the rank-th most-recent conversation across devices, resolved from
+    // the device-local read marks ("<serverId>:<conversationId>" → openedAt).
+    // Selection must land before the push (session detail reads it once on entry).
+    fun openRecentConversation(rank: Int) {
+        val validServers = servers.map { it.id }.toSet()
+        val entry = appViewModel.sessionReadMarks.value.entries
+            .filter { it.key.substringBeforeLast(':') in validServers }
+            .sortedByDescending { it.value }
+            .getOrNull(rank) ?: return
+        val serverId = entry.key.substringBeforeLast(':')
+        val conversationId = entry.key.substringAfterLast(':').toIntOrNull() ?: return
+        appViewModel.selectServerAndWait(serverId) {
+            appViewModel.markSessionRead(entry.key)
+            nav.navigate("conversation/$conversationId")
+        }
+    }
+
+    // Ring-step the focused device (wraps); leaves aggregate "All" mode first so
+    // the step always lands on a concrete device.
+    fun switchServerBy(step: Int) {
+        if (servers.size < 2) return
+        val idx = servers.indexOfFirst { it.id == selectedProfile?.id }.coerceAtLeast(0)
+        val target = servers[(idx + step + servers.size) % servers.size]
+        appViewModel.setActivityAll(false)
+        appViewModel.selectServer(target.id)
+    }
+
+    val onBallAction: (String) -> Unit = { id ->
+        when (id) {
+            "newSession" -> nav.navigate(ROUTE_NEW_TASK)
+            "tabChats" -> onTab(HomeTab.CHATS)
+            "tabFolders" -> onTab(HomeTab.FOLDERS)
+            "tabActivity" -> onTab(HomeTab.ACTIVITY)
+            "tabSearch" -> onTab(HomeTab.SEARCH)
+            "tabSettings" -> onTab(HomeTab.SETTINGS)
+            "toggleThemeMode" -> appViewModel.toggleThemeMode()
+            "nextAccent" -> appViewModel.cycleAccent()
+            "fontScaleUp", "fontScaleDown", "fontScaleReset" -> {
+                val scale = when (id) {
+                    "fontScaleUp" -> stepFontScale(appViewModel.settings.value.fontScale, +1)
+                    "fontScaleDown" -> stepFontScale(appViewModel.settings.value.fontScale, -1)
+                    else -> 1f
+                }
+                appViewModel.setFontScale(scale)
+                android.widget.Toast.makeText(
+                    ballContext,
+                    ballContext.getString(R.string.ball_font_toast, (scale * 100).roundToInt()),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+            "recentSession1" -> openRecentConversation(0)
+            "recentSession2" -> openRecentConversation(1)
+            "recentSession3" -> openRecentConversation(2)
+            "switchServerNext" -> switchServerBy(+1)
+            "switchServerPrev" -> switchServerBy(-1)
+            "ballSettings" -> {
+                onTab(HomeTab.SETTINGS)
+                FloatingBallSettingsBus.open()
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
@@ -603,6 +680,16 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             }
             }
         }
+    }
+
+        FloatingBallHost(
+            enabled = appSettings.floatBallEnabled,
+            sizeDp = floatBallSizeDp(appSettings.floatBallSize),
+            bindings = ballBindings,
+            posRatio = ballPos,
+            onMoved = { fx, fy -> appViewModel.setFloatBallPos(fx, fy) },
+            onAction = onBallAction,
+        )
     }
 }
 

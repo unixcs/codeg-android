@@ -6,6 +6,9 @@ import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.AppSettings
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
+import app.codeg.android.core.datastore.ThemeMode
+import app.codeg.android.core.designsystem.theme.AccentPalette
+import app.codeg.android.feature.floatingball.FloatingBallCatalog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -81,6 +84,71 @@ class AppViewModel @Inject constructor(
     fun setActivityDeviceSwipe(enabled: Boolean) {
         viewModelScope.launch { appSettingsStore.setActivityDeviceSwipe(enabled) }
     }
+
+    // ---- Appearance + floating-ball passthroughs (batch v126) ----
+    // The ball's theme/font actions fire from MainShell, which owns this VM; the
+    // Settings screens have their own VMs but land on the same store.
+
+    fun setThemeMode(mode: ThemeMode) {
+        viewModelScope.launch { appSettingsStore.setThemeMode(mode) }
+    }
+
+    fun toggleThemeMode() {
+        val next = when (settings.value.themeMode) {
+            ThemeMode.LIGHT -> ThemeMode.DARK
+            else -> ThemeMode.LIGHT // SYSTEM resolves at render time; the ball's toggle just flips light/dark
+        }
+        setThemeMode(next)
+    }
+
+    fun setAccent(accentId: String) {
+        viewModelScope.launch { appSettingsStore.setAccent(accentId) }
+    }
+
+    /** Step to the next accent in palette order (wraps). */
+    fun cycleAccent() {
+        val all = AccentPalette.all
+        val index = all.indexOfFirst { it.id == settings.value.accentId }.let { i ->
+            if (i < 0) 0 else (i + 1) % all.size
+        }
+        setAccent(all[index].id)
+    }
+
+    fun setFontScale(scale: Float) {
+        viewModelScope.launch { appSettingsStore.setFontScale(scale) }
+    }
+
+    fun setFloatBallEnabled(enabled: Boolean) {
+        viewModelScope.launch { appSettingsStore.setFloatBallEnabled(enabled) }
+    }
+
+    fun setFloatBallSize(size: String) {
+        viewModelScope.launch { appSettingsStore.setFloatBallSize(size) }
+    }
+
+    /** Ball position as (fx, fy) screen fractions; null until the first drag. */
+    val floatBallPos: StateFlow<Pair<Float, Float>?> = appSettingsStore.floatBallPos
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setFloatBallPos(fx: Float, fy: Float) {
+        viewModelScope.launch { appSettingsStore.setFloatBallPos(fx, fy) }
+    }
+
+    /** Gesture→action bindings, sanitized against the gesture/action catalogs on
+     *  every emission so a corrupt or stale stored map can never crash or act wild.
+     *  Missing/null entries resolve to the catalog defaults. */
+    val floatBallBindings: StateFlow<Map<String, String?>> = appSettingsStore.floatBallBindings
+        .map { FloatingBallCatalog.sanitize(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, FloatingBallCatalog.DEFAULT_BINDINGS)
+
+    fun setFloatBallBindings(bindings: Map<String, String?>) {
+        viewModelScope.launch { appSettingsStore.setFloatBallBindings(FloatingBallCatalog.sanitize(bindings)) }
+    }
+
+    /** Raw read marks ("<serverId>:<conversationId>" → openedAt), for the ball's
+     *  recent-session shortcuts. */
+    val sessionReadMarks: StateFlow<Map<String, Long>> = appSettingsStore.sessionReadMarks
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /** Stamp a session as read (device-local read marks — see AppSettingsStore).
      *  Fire-and-forget: a navigation always follows, the write must never gate it. */
