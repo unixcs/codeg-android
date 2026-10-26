@@ -74,6 +74,20 @@ class GestureClassifier(
     var isDragging = false
         private set
 
+    /**
+     * Hold-to-drag armed flag (owner-driven fix, v126.1): after the UI's hold
+     * timer fires (~600ms, same moment long-press would qualify) any movement
+     * past [movePx] starts a drag — no stillness requirement, no fast-swipe
+     * fork. Kept separate from [isDragging] so an armed-but-untouched release
+     * still classifies as a long-press (ball settings), and an armed drag that
+     * moves ends as [GestureResult.DragEnd].
+     */
+    var armed = false
+        private set
+
+    /** True once this touch locked into gesture classification (fast-swipe start). */
+    val gestureStarted: Boolean get() = moved
+
     private var t0 = 0L
     private var x0 = 0f
     private var y0 = 0f
@@ -90,14 +104,31 @@ class GestureClassifier(
         y0 = y
         moved = false
         isDragging = false
+        armed = false
         path.clear()
         anchorX = x
         anchorY = y
         return GestureResult.None
     }
 
+    /** Arm hold-to-drag. No-op once the touch became a gesture or a drag. */
+    fun arm() {
+        if (!moved && !isDragging) armed = true
+    }
+
     fun onMove(t: Long, x: Float, y: Float): GestureResult {
         if (isDragging) return GestureResult.Dragging
+        if (armed) {
+            // Hold timer already elapsed: ANY further movement drags the ball —
+            // even if it is slow, even if the finger jittered before the timer.
+            if (hypot(x - x0, y - y0) >= movePx) {
+                armed = false
+                isDragging = true
+                pendingTapGeneration = null
+                return GestureResult.EnterDrag
+            }
+            return GestureResult.None
+        }
         val total = hypot(x - x0, y - y0)
         if (!moved && total >= movePx) {
             if (t - t0 < tapMs) {
@@ -192,6 +223,7 @@ class GestureClassifier(
     fun cancel() {
         moved = false
         isDragging = false
+        armed = false
         path.clear()
     }
 
@@ -207,6 +239,7 @@ class GestureClassifier(
     private fun resetGesture() {
         moved = false
         isDragging = false
+        armed = false
         path.clear()
     }
 

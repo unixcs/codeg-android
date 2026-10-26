@@ -227,6 +227,56 @@ class GestureClassifierTest {
         assertTrue(r is GestureResult.DragEnd)
     }
 
+    // ---- armed (hold-to-drag, v126.1) ----
+
+    @Test
+    fun `arm turns any later movement into a drag`() {
+        val c = classifier()
+        c.onDown(1000, 100f, 100f)
+        c.arm()
+        assertTrue(c.armed)
+        // 700ms after down, slow — the pre-arm path needs stillness first; armed
+        // must not care about timing or prior micro-jitter.
+        val enter = c.onMove(1700, 120f, 100f)
+        assertTrue("got $enter", enter is GestureResult.EnterDrag)
+        assertFalse(c.armed)
+        assertTrue(c.onMove(1750, 60f, 100f) is GestureResult.Dragging)
+        assertTrue(c.onUp(1800, 50f, 100f) is GestureResult.DragEnd)
+    }
+
+    @Test
+    fun `armed and released without moving still fires long press`() {
+        // The two hold roles coexist: hold 600ms → DRAG if you move, SETTINGS if
+        // you let go. A sub-threshold wiggle must not turn into a drag.
+        val c = classifier()
+        c.onDown(1000, 100f, 100f)
+        c.arm()
+        assertTrue(c.onMove(1700, 105f, 100f) is GestureResult.None) // 5px jitter
+        val r = c.onUp(1750, 105f, 100f)
+        assertTrue("got $r", r is GestureResult.LongPress)
+        assertFalse(c.armed)
+    }
+
+    @Test
+    fun `arm is a no-op once a fast swipe is under way`() {
+        val c = classifier()
+        c.onDown(1000, 100f, 100f)
+        c.onMove(1050, 60f, 100f) // fast start → gesture mode
+        c.arm()
+        assertFalse(c.armed)
+        val r = c.onUp(1100, 20f, 100f)
+        assertTrue("got $r", r is GestureResult.Named && r.gesture == "left")
+    }
+
+    @Test
+    fun `armed is cleared on the next down`() {
+        val c = classifier()
+        c.onDown(1000, 100f, 100f)
+        c.arm()
+        c.onDown(2000, 100f, 100f)
+        assertFalse(c.armed)
+    }
+
     // ---- cancellation ----
 
     @Test
