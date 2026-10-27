@@ -90,6 +90,20 @@ class ProjectsViewModel @Inject constructor(
         }
     }
 
+    /** Remove a folder from the workspace view (files stay on disk). Returns an error message or null. */
+    suspend fun removeFolder(folderId: Int): String? {
+        val c = client ?: return "No server selected"
+        return try {
+            c.removeFolderFromWorkspace(folderId)
+            fetch(initial = false)
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.displayMessage()
+        }
+    }
+
     /** The server's home directory (for the filesystem browser's initial location). */
     suspend fun homeDirectory(): String =
         client?.let { runCatching { it.getHomeDirectory() }.getOrNull() } ?: "/"

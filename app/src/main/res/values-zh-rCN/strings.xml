@@ -89,6 +89,12 @@
     <string name="projects_empty_title">还没有文件夹</string>
     <string name="projects_empty_message">打开一个文件夹或克隆仓库开始使用。</string>
     <string name="projects_load_failed">无法加载文件夹</string>
+    <!-- 批v129：文件夹长按操作 -->
+    <string name="folders_action_copy_path">复制绝对路径</string>
+    <string name="folders_action_remove">从工作区移除</string>
+    <string name="folders_path_copied">路径已复制</string>
+    <string name="folders_remove_title">移除“%1$s”？</string>
+    <string name="folders_remove_message">该文件夹将从列表和 Codeg 中消失，但服务器上的文件不受影响，之后可随时重新添加。</string>
     <string name="projects_tab_files">文件</string>
     <string name="projects_tab_changes">更改</string>
     <string name="projects_tab_commits">提交</string>
@@ -981,7 +987,7 @@
     <string name="general_font_scale_title">字号</string>
     <string name="general_font_scale_subtitle">在系统字号基础上整体缩放应用内文字</string>
     <string name="ball_enable_title">显示悬浮球</string>
-    <string name="ball_enable_subtitle">任意界面快速操作；长按球进入球设置</string>
+    <string name="ball_enable_subtitle">任意界面快速操作；按住球 1 秒拖动可移动位置</string>
     <string name="ball_size_title">球大小</string>
     <string name="ball_size_subtitle">小、中、大三档</string>
     <string name="ball_size_small">小</string>
@@ -989,10 +995,9 @@
     <string name="ball_size_large">大</string>
     <string name="ball_bindings_title">手势绑定</string>
     <string name="ball_bindings_subtitle">为点按和滑动分配动作</string>
-    <string name="ball_bindings_hint">点按手势行可更换动作；慢速拖动移动球，快速滑动触发手势。</string>
+    <string name="ball_bindings_hint">点按手势行可更换动作；移动球：按住 1 秒后拖动，球全程跟手；快速滑动触发手势。</string>
     <string name="ball_bindings_group_taps">点按类</string>
     <string name="ball_bindings_group_swipes">滑动类</string>
-    <string name="ball_binding_fixed">固定</string>
     <string name="ball_binding_tap_to_pick">更改</string>
     <string name="ball_action_none">未绑定</string>
     <string name="ball_panel_title">快捷操作</string>
@@ -1017,7 +1022,6 @@
     <string name="ball_action_ball_settings">球设置</string>
     <string name="ball_gesture_tap">单击</string>
     <string name="ball_gesture_double_tap">双击</string>
-    <string name="ball_gesture_long_press">长按</string>
     <string name="ball_gesture_left">左滑（←）</string>
     <string name="ball_gesture_right">右滑（→）</string>
     <string name="ball_gesture_up">上滑（↑）</string>

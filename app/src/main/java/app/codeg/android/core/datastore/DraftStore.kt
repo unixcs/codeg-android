@@ -45,12 +45,22 @@ class DraftStore @Inject constructor(
         decode(dataStore.data.first()[KEY])[key] ?: DraftEntry()
 
     suspend fun setText(key: String, text: String) {
+        setTextAll(listOf(key), text)
+    }
+
+    /** Clear (or set) several keys atomically — used by the send flow, which must
+     *  remove both the pre-send new-task key and the post-create conversation key in
+     *  one DataStore edit so a crash between them can't resurrect the sent text. */
+    suspend fun setTextAll(keys: List<String>, text: String) {
+        if (keys.isEmpty()) return
         dataStore.edit { prefs ->
             val map = decode(prefs[KEY]).toMutableMap()
-            if (text.isEmpty()) {
-                map.remove(key)
-            } else {
-                map[key] = DraftEntry(text.take(MAX_DRAFT_CHARS), System.currentTimeMillis())
+            for (key in keys.distinct()) {
+                if (text.isEmpty()) {
+                    map.remove(key)
+                } else {
+                    map[key] = DraftEntry(text.take(MAX_DRAFT_CHARS), System.currentTimeMillis())
+                }
             }
             prefs[KEY] = json.encodeToString(SERIALIZER, map)
         }

@@ -43,6 +43,10 @@ data class ListConversationsBody(
 @Serializable
 data class ConversationIdBody(val conversationId: Int)
 
+/** Body for `remove_folder_from_workspace` (drops the folder from the workspace view). */
+@Serializable
+data class FolderIdBody(val folderId: Int)
+
 @Serializable
 data class CreateConversationBody(
     val folderId: Int,

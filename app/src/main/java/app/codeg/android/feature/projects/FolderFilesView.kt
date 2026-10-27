@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
@@ -76,6 +77,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -464,6 +466,10 @@ private fun FileActionSheet(
     var showMove by remember { mutableStateOf(false) }
     var showDownloadBrowser by remember { mutableStateOf(false) }
     var shareBusy by remember { mutableStateOf(false) }
+    // 批v129: copy-absolute-path feedback (brief confirmation text under the path).
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1500); copied = false } }
     val context = androidx.compose.ui.platform.LocalContext.current
     val rel = target.path.removePrefix("$rootPath/")
 
@@ -486,6 +492,9 @@ private fun FileActionSheet(
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text(target.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(rel, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = colors.textTertiary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            if (copied) {
+                Text(stringResource(R.string.folders_path_copied), color = colors.accent, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            }
             error?.let {
                 Text(it, color = colors.danger, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
             }
@@ -534,6 +543,12 @@ private fun FileActionSheet(
                         )
                     }
                 }
+            }
+            // 批v129: the absolute path is the most common thing to hand the agent
+            // as context — copy it straight from the action sheet.
+            ActionRow(Icons.Rounded.ContentCopy, stringResource(R.string.folders_action_copy_path)) {
+                clipboard.setText(AnnotatedString(target.path))
+                copied = true
             }
             ActionRow(Icons.Rounded.DriveFileRenameOutline, stringResource(R.string.files_action_rename)) { showRename = true }
             ActionRow(Icons.Rounded.UploadFile, stringResource(R.string.files_action_move)) { showMove = true }

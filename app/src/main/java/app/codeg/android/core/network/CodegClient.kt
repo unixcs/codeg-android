@@ -14,6 +14,7 @@ import app.codeg.android.core.model.CreateConversationBody
 import app.codeg.android.core.model.EmptyBody
 import app.codeg.android.core.model.FetchKimiModelsBody
 import app.codeg.android.core.model.FindConnectionBody
+import app.codeg.android.core.model.FolderIdBody
 import app.codeg.android.core.model.PiCommandValidation
 import app.codeg.android.core.model.PiConfigProjection
 import app.codeg.android.core.model.TaskIdBody
@@ -349,6 +350,11 @@ class CodegClient(
     /** Register/open a folder by absolute path; returns the upserted [FolderDetail]. */
     suspend fun openFolder(path: String): FolderDetail =
         decode(send("open_folder", encode(PathBody(path))), FolderDetail.serializer())
+
+    /** Remove a folder from the workspace view (does not delete files on disk). */
+    suspend fun removeFolderFromWorkspace(folderId: Int) {
+        send("remove_folder_from_workspace", encode(FolderIdBody(folderId)))
+    }
 
     /** The server's home directory (bare JSON string). */
     suspend fun getHomeDirectory(): String =

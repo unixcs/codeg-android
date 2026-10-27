@@ -16,6 +16,7 @@ import app.codeg.android.core.datastore.SelectorPrefsStore
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.datastore.filterHiddenAgents
 import app.codeg.android.core.model.AcpEvent
+import app.codeg.android.core.model.AgentOptionsSnapshot
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.AvailableCommandInfo
 import app.codeg.android.core.model.ConnectionStatus
@@ -216,9 +217,17 @@ class SessionDetailViewModel @Inject constructor(
 
     private var draftSaveJob: Job? = null
 
-    private suspend fun clearPersistedDraft() {
+    private suspend fun clearPersistedDraft(preSendKey: String? = null) {
         draftSaveJob?.cancel()
-        runCatching { draftStore.setText(currentDraftKey(), "") }
+        // One atomic edit removing both keys: the key the draft lived under before the
+        // send (new-task key on a first send — the one that used to leak into the next
+        // new-task screen) plus whichever key currentDraftKey() resolves to now
+        // (conversation key after creation; identical to preSendKey on later sends).
+        val keys = buildList {
+            if (preSendKey != null) add(preSendKey)
+            add(currentDraftKey())
+        }
+        runCatching { draftStore.setTextAll(keys, "") }
     }
 
     // endregion
@@ -390,6 +399,12 @@ class SessionDetailViewModel @Inject constructor(
         // The EXACT conversation this send created up front (a first send), so a rollback deletes
         // that row and not whatever conversationId happens to be by the time the failure lands.
         var createdId: Int? = null
+        // The draft lived under the new-task key ("<server>:new:<folderId>") until the
+        // conversation below is created; after that currentDraftKey() resolves to the
+        // conversation key, so clearing only "the current key" would strand the sent
+        // text under the old key and leak it into the next new-task screen. Capture the
+        // pre-send key up front and clear BOTH.
+        val preSendDraftKey = currentDraftKey()
         try {
             ensureConversationCreated(text.ifEmpty { "Image" })
             if (createdConversation) createdId = conversationId
@@ -397,7 +412,7 @@ class SessionDetailViewModel @Inject constructor(
             // on [appScope], so a back-navigation can't cancel it mid-DataStore-write and
             // resurrect the sent text on the next visit. Generated sends (plan follow-ups)
             // must not consume the user's pending draft.
-            if (clearDraft) clearPersistedDraft()
+            if (clearDraft) clearPersistedDraft(preSendDraftKey)
             try {
                 attemptSend(c, text, attachments, clientMessageId, freshConnection = false)
             } catch (e: CancellationException) {
@@ -1506,7 +1521,7 @@ class SessionDetailViewModel @Inject constructor(
                 _ui.update { it.copy(configOptions = seeded) }
             }
             commands = snap?.availableCommands.orEmpty().ifEmpty {
-                val described = runCatching { c.describeAgentOptions(agent, folder?.path) }.getOrNull()
+                val described = describeCatalog(c)
                 described?.configOptions?.takeIf { it.isNotEmpty() }?.let { seeded ->
                     _ui.update { it.copy(configOptions = seeded) }
                 }
@@ -1610,8 +1625,7 @@ class SessionDetailViewModel @Inject constructor(
         val gen = workspaceGeneration
         _ui.update { it.copy(availableCommands = emptyList(), configOptions = emptyList()) }
         viewModelScope.launch {
-            val described = runCatching { c.describeAgentOptions(agent, folder?.path) }.getOrNull()
-                ?: return@launch
+            val described = describeCatalog(c) ?: return@launch
             if (gen != workspaceGeneration) return@launch
             _ui.update {
                 it.copy(
@@ -1746,10 +1760,48 @@ class SessionDetailViewModel @Inject constructor(
 
     // region Agent options (mode / config)
 
+    /**
+     * In-memory cache of the per-agent options catalog (the `describeAgentOptions`
+     * probe that spawns a real agent CLI server-side and takes seconds). Keyed by
+     * (agent, workspace path); lives for the VM's lifetime, so reopening the sheet
+     * — the common case: new session → look at models → close → reopen — renders
+     * instantly from the cache while a background refresh revalidates.
+     * [CachedOptions] is only the raw catalog; the remembered-pick resolution below
+     * still runs per open so a changed preference is honored without re-probing.
+     */
+    private data class CachedCatalog(val snapshot: AgentOptionsSnapshot)
+    private val catalogCache = mutableMapOf<Pair<AgentType, String?>, CachedCatalog>()
+    /** In-flight probe per cache key: a rapid open-close-open (or agent switch) reuses
+     *  one probe instead of queueing a second behind the server's per-agent mutex. */
+    private val catalogInFlight = mutableMapOf<Pair<AgentType, String?>, Deferred<AgentOptionsSnapshot?>>()
+
+    private fun catalogKey(): Pair<AgentType, String?> = agent to folder?.path
+
+    private suspend fun describeCatalog(c: CodegClient): AgentOptionsSnapshot? {
+        val key = catalogKey()
+        catalogCache[key]?.let { return it.snapshot }
+        val existing = synchronized(catalogInFlight) { catalogInFlight[key] }
+        if (existing != null) return try { existing.await() } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+        val deferred = viewModelScope.async {
+            runCatching { c.describeAgentOptions(key.first, key.second) }.getOrNull()
+        }
+        synchronized(catalogInFlight) { catalogInFlight[key] = deferred }
+        deferred.invokeOnCompletion { synchronized(catalogInFlight) { catalogInFlight.remove(key, deferred) } }
+        return try {
+            deferred.await()?.also { snap -> catalogCache[key] = CachedCatalog(snap) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** Load the session's modes + config plus the selection to highlight. When a live
      *  session exists its snapshot is authoritative; otherwise it probes the per-agent
      *  catalog (slower) and pre-selects the user's remembered pick (validated against the
-     *  catalog), falling back to the catalog's fresh-session defaults. iOS parity. */
+     *  catalog), falling back to the catalog's fresh-session defaults. iOS parity.
+     *  Returns the catalog from the in-memory cache when present (instant sheet open);
+     *  the caller may then [refreshAgentOptions] to revalidate in the background. */
     suspend fun loadAgentOptions(): AgentOptionsData {
         val c = client ?: return AgentOptionsData()
         val convId = conversationId
@@ -1765,7 +1817,7 @@ class SessionDetailViewModel @Inject constructor(
         }
         // No live session (draft / idle) — probe the catalog and pre-select the remembered
         // pick so the sheet opens on the user's last-used mode/config, not the server default.
-        val described = runCatching { c.describeAgentOptions(agent, folder?.path) }.getOrNull()
+        val described = describeCatalog(c)
         val modes = described?.modes
         val options = described?.configOptions.orEmpty()
         // Same resolution as [connectWithPreferences]: when THIS conversation has its own
@@ -1783,6 +1835,45 @@ class SessionDetailViewModel @Inject constructor(
             opt.id to (saved ?: opt.kind.currentValue ?: "")
         }.filterValues { it.isNotEmpty() }
         return AgentOptionsData(modes, options, modeId, config)
+    }
+
+    /**
+     * Background revalidation for a cached options sheet. A cache hit makes the sheet
+     * open instantly, but the catalog may have drifted (a config the agent dropped, a
+     * new model). This re-probes [describeCatalog] (dropping the cached entry first)
+     * and reports the fresh resolution via [onLoaded], unless the agent/folder context
+     * changed meanwhile. Errors are swallowed: a stale cache beats no data, and the
+     * user's next apply reconciles. Returns the Job so a caller can join it.
+     */
+    fun refreshAgentOptions(onLoaded: suspend (AgentOptionsData) -> Unit): Job {
+        val c = client ?: return Job().apply { complete() }
+        val key = catalogKey()
+        val forAgent = key.first
+        val forFolder = folder
+        return viewModelScope.launch {
+            try {
+                catalogCache.remove(key)
+                val described = describeCatalog(c) ?: return@launch
+                // Context switched while the probe ran — the sheet already reloaded for
+                // the new context; this result is for a dead key.
+                if (agent != forAgent || folder?.path != forFolder?.path) return@launch
+                val modes = described.modes
+                val options = described.configOptions
+                val prefs = runCatching { selectorPrefs.prefs(forAgent) }.getOrDefault(SelectorPrefs())
+                val modeId = prefs.modeId
+                    ?.takeIf { saved -> modes?.availableModes?.any { it.id == saved } == true }
+                    ?: modes?.currentModeId
+                val config = options.associate { opt ->
+                    val saved = prefs.configValues?.get(opt.id)?.takeIf { it in opt.kind.allSelectValues() }
+                    opt.id to (saved ?: opt.kind.currentValue ?: "")
+                }.filterValues { it.isNotEmpty() }
+                onLoaded(AgentOptionsData(modes, options, modeId, config))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Stale cache stays on screen; nothing to do.
+            }
+        }
     }
 
     /** A live connection to apply options to. Reuses a cached/live connection, and — for a

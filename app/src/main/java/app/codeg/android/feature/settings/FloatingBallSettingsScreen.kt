@@ -38,9 +38,9 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.floatingball.FloatingBallCatalog
 
 /**
- * Floating-ball gesture binding editor (batch v126): all 17 gestures, one row
- * each, tap a row to pick its action (or unbind) from a radio dialog. longPress
- * is fixed to the ball-settings entry so settings can never be locked out.
+ * Floating-ball gesture binding editor (batch v126; v129 removed the longPress
+ * gesture — the 1s hold now moves the ball): all 16 gestures, one row each, tap
+ * a row to pick its action (or unbind) from a radio dialog.
  */
 @Composable
 fun FloatingBallContent(viewModel: SettingsViewModel = hiltViewModel()) {
@@ -66,8 +66,8 @@ fun FloatingBallContent(viewModel: SettingsViewModel = hiltViewModel()) {
             modifier = Modifier.padding(start = 12.dp),
         )
         listOf(
-            stringResource(R.string.ball_bindings_group_taps) to listOf("tap", "doubleTap", "longPress"),
-            stringResource(R.string.ball_bindings_group_swipes) to FloatingBallCatalog.GESTURES.drop(3),
+            stringResource(R.string.ball_bindings_group_taps) to listOf("tap", "doubleTap"),
+            stringResource(R.string.ball_bindings_group_swipes) to FloatingBallCatalog.GESTURES.drop(2),
         ).forEach { (groupTitle, gestures) ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(groupTitle, style = MaterialTheme.typography.labelLarge, color = colors.textTertiary, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
@@ -78,13 +78,12 @@ fun FloatingBallContent(viewModel: SettingsViewModel = hiltViewModel()) {
                         .background(colors.bgElevated.copy(alpha = 0.5f)),
                 ) {
                     gestures.forEachIndexed { index, gesture ->
-                        val fixed = gesture == "longPress"
                         ListItem(
                             headlineContent = { Text(stringResource(FloatingBallCatalog.gestureLabel(gesture))) },
                             supportingContent = { Text(actionLabel(bindings[gesture])) },
                             trailingContent = {
                                 Text(
-                                    stringResource(if (fixed) R.string.ball_binding_fixed else R.string.ball_binding_tap_to_pick),
+                                    stringResource(R.string.ball_binding_tap_to_pick),
                                     fontSize = 12.sp,
                                     color = colors.textTertiary,
                                 )
@@ -94,7 +93,7 @@ fun FloatingBallContent(viewModel: SettingsViewModel = hiltViewModel()) {
                                 headlineColor = colors.textPrimary,
                                 supportingColor = colors.accent,
                             ),
-                            modifier = Modifier.clickable(enabled = !fixed) { picking = gesture },
+                            modifier = Modifier.clickable { picking = gesture },
                         )
                         if (index < gestures.lastIndex) {
                             HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(start = 60.dp))

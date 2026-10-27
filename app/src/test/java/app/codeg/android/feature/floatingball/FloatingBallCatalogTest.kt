@@ -5,15 +5,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Catalog invariants for the floating ball (batch v126): the 17-gesture /
+ * Catalog invariants for the floating ball (batch v126; v129 dropped the
+ * longPress gesture — the 1s hold now moves the ball): the 16-gesture /
  * 18-action tables and the binding sanitize semantics (web loadBindings port),
  * plus the font ladder the ball's font actions step through.
  */
 class FloatingBallCatalogTest {
 
     @Test
-    fun `seventeen unique gestures`() {
-        assertEquals(17, FloatingBallCatalog.GESTURES.size)
+    fun `sixteen unique gestures`() {
+        assertEquals(16, FloatingBallCatalog.GESTURES.size)
         assertEquals(FloatingBallCatalog.GESTURES.size, FloatingBallCatalog.GESTURES.toSet().size)
     }
 
@@ -38,13 +39,6 @@ class FloatingBallCatalogTest {
                 action == null || action in FloatingBallCatalog.ACTION_IDS,
             )
         }
-    }
-
-    @Test
-    fun `longPress is pinned to ball settings`() {
-        // The escape hatch: settings must stay reachable no matter what the user
-        // binds elsewhere. The editor enforces it; the default table starts there.
-        assertEquals("ballSettings", FloatingBallCatalog.DEFAULT_BINDINGS["longPress"])
     }
 
     @Test
@@ -84,7 +78,7 @@ class FloatingBallCatalogTest {
     }
 
     @Test
-    fun `sanitize always emits the full seventeen-key table`() {
+    fun `sanitize always emits the full sixteen-key table`() {
         val out = FloatingBallCatalog.sanitize(mapOf("up" to "tabChats"))
         assertEquals(FloatingBallCatalog.GESTURES.toSet(), out.keys)
     }

@@ -7,9 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pure-JVM tests for the floating-ball gesture classifier (batch v126). Every
- * threshold and branch of the state machine is pinned here — the classifier is
- * the only place gesture semantics live, and the web port must not drift.
+ * Pure-JVM tests for the floating-ball gesture classifier (batch v126; v129
+ * drag model rework). Every threshold and branch of the state machine is pinned
+ * here — the classifier is the only place gesture semantics live.
  *
  * Timeline convention: t0=1000 keeps every timestamp positive so the
  * double-tap window arithmetic can't lean on a zero-initialized clock.
@@ -69,20 +69,25 @@ class GestureClassifierTest {
     }
 
     @Test
-    fun `long press at threshold fires on release`() {
+    fun `hold past threshold without moving fires nothing`() {
+        // v129: the old longPress action is gone — a 1s hold arms drag mode and
+        // a no-move release simply ends. It must also kill the tap chain.
         val c = classifier()
         c.onDown(1000, 100f, 100f)
-        val r = c.onUp(1600, 100f, 100f) // 600ms hold, no move
-        assertTrue(r is GestureResult.LongPress)
+        c.arm()
+        val r = c.onUp(2100, 100f, 100f)
+        assertTrue("got $r", r is GestureResult.None)
+        assertNull(c.pendingTapGeneration)
     }
 
     @Test
-    fun `long press wins over the double-tap window`() {
+    fun `hold without arming also fires nothing`() {
+        // Release-time semantics don't depend on the UI timer having fired: a
+        // >1s still hold is a drag entry that never moved, not a tap.
         val c = classifier()
-        tap(c, 1000)
-        c.onDown(1100, 100f, 100f)
-        val r = c.onUp(1750, 100f, 100f) // held 650ms
-        assertTrue(r is GestureResult.LongPress)
+        c.onDown(1000, 100f, 100f)
+        val r = c.onUp(2100, 100f, 100f)
+        assertTrue(r is GestureResult.None)
     }
 
     @Test
@@ -202,32 +207,56 @@ class GestureClassifierTest {
         assertTrue("got $r", r is GestureResult.Named && r.gesture == "upLeft")
     }
 
-    // ---- drag fork ----
+    // ---- drag fork (v129: hold 1s is the ONLY drag entry) ----
 
     @Test
-    fun `slow move enters drag mode and ends with DragEnd`() {
+    fun `slow move before the hold classifies as a gesture not a drag`() {
+        // The old slow-start drag fork is gone: any movement before the hold
+        // threshold is gesture material, fast or slow.
+        val c = classifier()
+        c.onDown(1000, 300f, 100f)
+        val r = c.onMove(1500, 250f, 100f) // moved 50px but 500ms after down
+        assertTrue("got $r", r is GestureResult.None)
+        assertTrue(c.gestureStarted)
+        val up = c.onUp(1550, 220f, 100f)
+        assertTrue("got $up", up is GestureResult.Named && up.gesture == "left")
+    }
+
+    @Test
+    fun `armed hold then movement enters drag and ends with DragEnd`() {
         val c = classifier()
         c.onDown(1000, 100f, 100f)
-        assertTrue(c.onMove(1400, 105f, 100f) is GestureResult.None) // still < movePx
-        val enter = c.onMove(1500, 120f, 100f) // moved 20px but 500ms after down
-        assertTrue(enter is GestureResult.EnterDrag)
+        c.arm() // UI hold timer fired at 1s
+        val enter = c.onMove(1700, 110f, 100f) // 10px past the 2px drag-entry bar
+        assertTrue("got $enter", enter is GestureResult.EnterDrag)
         assertTrue(c.isDragging)
-        assertTrue(c.onMove(1600, 60f, 60f) is GestureResult.Dragging)
-        assertTrue(c.onUp(1700, 50f, 50f) is GestureResult.DragEnd)
+        assertTrue(c.onMove(1750, 60f, 60f) is GestureResult.Dragging)
+        assertTrue(c.onUp(1800, 50f, 50f) is GestureResult.DragEnd)
         assertFalse(c.isDragging)
     }
 
     @Test
-    fun `drag does not classify a gesture on release`() {
+    fun `armed drag does not classify a gesture on release`() {
         val c = classifier()
         c.onDown(1000, 100f, 100f)
-        c.onMove(1500, 120f, 100f) // EnterDrag
-        c.onMove(1600, 220f, 100f) // dragged 100px right
-        val r = c.onUp(1700, 300f, 100f)
+        c.arm()
+        c.onMove(1700, 110f, 100f) // EnterDrag
+        c.onMove(1800, 220f, 100f) // dragged 120px right
+        val r = c.onUp(1900, 300f, 100f)
         assertTrue(r is GestureResult.DragEnd)
     }
 
-    // ---- armed (hold-to-drag, v126.1) ----
+    @Test
+    fun `sub-entry jitter after arming does not start a drag`() {
+        // 1px noise must not yank the ball; only a real movement (>= 2px) does.
+        val c = classifier()
+        c.onDown(1000, 100f, 100f)
+        c.arm()
+        assertTrue(c.onMove(1700, 100.5f, 100f) is GestureResult.None)
+        assertFalse(c.isDragging)
+    }
+
+    // ---- armed (hold-to-drag, v129: 1s hold) ----
 
     @Test
     fun `arm turns any later movement into a drag`() {
@@ -235,8 +264,8 @@ class GestureClassifierTest {
         c.onDown(1000, 100f, 100f)
         c.arm()
         assertTrue(c.armed)
-        // 700ms after down, slow — the pre-arm path needs stillness first; armed
-        // must not care about timing or prior micro-jitter.
+        // 700ms after down, slow — armed must not care about timing or prior
+        // micro-jitter (the user committed by holding past the threshold).
         val enter = c.onMove(1700, 120f, 100f)
         assertTrue("got $enter", enter is GestureResult.EnterDrag)
         assertFalse(c.armed)
@@ -245,15 +274,16 @@ class GestureClassifierTest {
     }
 
     @Test
-    fun `armed and released without moving still fires long press`() {
-        // The two hold roles coexist: hold 600ms → DRAG if you move, SETTINGS if
-        // you let go. A sub-threshold wiggle must not turn into a drag.
+    fun `armed and released without moving fires nothing`() {
+        // v129: hold-and-release is a no-move drag entry, not the old settings
+        // longPress. Sub-entry jitter (1px < dragEntryPx) stays absorbed too,
+        // and the release is past holdMs — no action, tap chain broken.
         val c = classifier()
         c.onDown(1000, 100f, 100f)
         c.arm()
-        assertTrue(c.onMove(1700, 105f, 100f) is GestureResult.None) // 5px jitter
-        val r = c.onUp(1750, 105f, 100f)
-        assertTrue("got $r", r is GestureResult.LongPress)
+        assertTrue(c.onMove(1700, 101f, 100f) is GestureResult.None) // 1px jitter
+        val r = c.onUp(2050, 101f, 100f) // held ~1s before releasing
+        assertTrue("got $r", r is GestureResult.None)
         assertFalse(c.armed)
     }
 
@@ -294,9 +324,11 @@ class GestureClassifierTest {
 
     @Test
     fun `cancel during drag leaves no dragging state behind`() {
+        // v129 drag entry: arm via the hold timer, then move past dragEntryPx.
         val c = classifier()
         c.onDown(1000, 100f, 100f)
-        c.onMove(1500, 120f, 100f)
+        c.arm()
+        assertTrue(c.onMove(1500, 120f, 100f) is GestureResult.EnterDrag)
         assertTrue(c.isDragging)
         c.cancel()
         assertFalse(c.isDragging)

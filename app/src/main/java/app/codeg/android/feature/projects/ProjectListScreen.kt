@@ -1,7 +1,9 @@
 package app.codeg.android.feature.projects
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,8 +20,10 @@ import androidx.compose.material.icons.automirrored.rounded.AltRoute
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,21 +31,28 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +71,7 @@ import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.theme.colorFromHex
 import app.codeg.android.core.model.FolderDetail
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +84,9 @@ fun ProjectListScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var showBrowser by remember { mutableStateOf(false) }
     var showClone by remember { mutableStateOf(false) }
+    // 批v129: long-press a folder row → action sheet (copy path / remove from workspace).
+    var actionFolder by remember { mutableStateOf<FolderDetail?>(null) }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -138,7 +153,7 @@ fun ProjectListScreen(
                                     if (index > 0) {
                                         HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(start = 66.dp))
                                     }
-                                    FolderRow(folder, ui.runningCount(folder.id)) { onOpenFolder(folder.id) }
+                                    FolderRow(folder, ui.runningCount(folder.id), onLongClick = { actionFolder = folder }) { onOpenFolder(folder.id) }
                                 }
                             }
                         }
@@ -168,20 +183,38 @@ fun ProjectListScreen(
             onDismiss = { showClone = false },
         )
     }
+    actionFolder?.let { folder ->
+        FolderActionSheet(
+            folder = folder,
+            onRemove = {
+                actionFolder = null
+                scope.launch { viewModel.removeFolder(folder.id) }
+            },
+            onDismiss = { actionFolder = null },
+        )
+    }
 }
 
 /**
  * One folder as a borderless grouped row: a colored [FolderBadge] tile, the name
  * with its full path + branch underneath, a trailing running-count pill or
  * relative last-opened time, then a drill-in chevron. The enclosing [GlassCard]
- * draws the surface; rows are split by inset hairlines.
+ * draws the surface; rows are split by inset hairlines. Long-press opens the
+ * [FolderActionSheet] (copy path / remove from workspace) — batch v129.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FolderRow(folder: FolderDetail, running: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun FolderRow(
+    folder: FolderDetail,
+    running: Int,
+    modifier: Modifier = Modifier,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+) {
     val colors = CodegTheme.colors
     val tile = colorFromHex(folder.color) ?: colors.accent
     Row(
-        modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 14.dp, vertical = 12.dp),
+        modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -238,3 +271,69 @@ fun BranchPill(branch: String) {
 
 private fun sortedFolders(folders: List<FolderDetail>): List<FolderDetail> =
     folders.sortedWith(compareBy({ it.sortOrder }, { it.name.lowercase() }))
+
+/** One action row in [FolderActionSheet]. */
+@Composable
+private fun FolderActionRow(icon: ImageVector, label: String, tint: Color = CodegTheme.colors.textPrimary, onClick: () -> Unit) {
+    val colors = CodegTheme.colors
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        Text(label, fontSize = 14.sp, color = tint)
+    }
+}
+
+/**
+ * Long-press actions for a workspace folder (batch v129): copy its absolute
+ * path (hand it to the agent as context) and remove it from the workspace view
+ * — the server only unregisters the folder, files stay on disk.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FolderActionSheet(
+    folder: FolderDetail,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    var confirmRemove by remember { mutableStateOf(false) }
+    var copied by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+            Text(folder.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(folder.path, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = colors.textTertiary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            FolderActionRow(Icons.Rounded.ContentCopy, stringResource(R.string.folders_action_copy_path)) {
+                clipboard.setText(AnnotatedString(folder.path))
+                copied = true
+                scope.launch { kotlinx.coroutines.delay(1500); copied = false }
+            }
+            FolderActionRow(Icons.Rounded.LinkOff, stringResource(R.string.folders_action_remove), tint = colors.danger) { confirmRemove = true }
+        }
+    }
+
+    if (copied) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.folders_path_copied)) },
+            confirmButton = { TextButton(onClick = { copied = false }) { Text(stringResource(R.string.common_ok)) } },
+        )
+    }
+
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text(stringResource(R.string.folders_remove_title, folder.name)) },
+            text = { Text(stringResource(R.string.folders_remove_message), color = colors.textSecondary) },
+            confirmButton = {
+                TextButton(onClick = { confirmRemove = false; onRemove() }) { Text(stringResource(R.string.folders_action_remove), color = colors.danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(R.string.common_cancel)) } },
+        )
+    }
+}

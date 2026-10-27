@@ -408,9 +408,23 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         appViewModel.selectServer(target.id)
     }
 
+    // Open the bare new-task screen. Repeated floating-ball gestures (or FAB taps)
+    // must NEVER stack a second one: popUpTo the new-task destination inclusive
+    // replaces the existing entry in place, so Back from it always lands on the tab
+    // the user came from — exactly one clean composer, no matter how many times the
+    // gesture fires. (launchSingleTop alone can't dedupe here: the graph registers
+    // three route-pattern variants, and navigate-to-constant vs the pattern with
+    // default args are matched as separate entries.)
+    val openNewTask: () -> Unit = {
+        nav.navigate(ROUTE_NEW_TASK) {
+            popUpTo(ROUTE_NEW_TASK) { inclusive = true }
+            launchSingleTop = true
+        }
+    }
+
     val onBallAction: (String) -> Unit = { id ->
         when (id) {
-            "newSession" -> nav.navigate(ROUTE_NEW_TASK)
+            "newSession" -> openNewTask()
             "tabChats" -> onTab(HomeTab.CHATS)
             "tabFolders" -> onTab(HomeTab.FOLDERS)
             "tabActivity" -> onTab(HomeTab.ACTIVITY)
@@ -540,7 +554,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         selectedId = selectedProfile?.id,
                         onManageServers = { nav.navigate(ROUTE_SERVERS) },
                         onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
-                        onNewTask = { nav.navigate(ROUTE_NEW_TASK) },
+                        onNewTask = openNewTask,
                         onHandoff = { folderId, ref -> nav.navigate(handoffRoute(folderId, ref)) },
                     )
                 }

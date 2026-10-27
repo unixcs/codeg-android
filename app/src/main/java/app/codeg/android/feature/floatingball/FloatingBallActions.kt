@@ -11,9 +11,11 @@ import app.codeg.android.R
  * defines ids, labels and the default binding table — no lambdas, fully testable.
  */
 object FloatingBallCatalog {
-    /** All 17 bindable gestures (web parity): 3 tap-class + 14 directions. */
+    /** All 16 bindable gestures: 2 tap-class + 14 directions. The old
+     *  "longPress" action was removed in v129 — a 1s hold now moves the ball
+     *  (and firing nothing on a no-move release), so it is no longer bindable. */
     val GESTURES = listOf(
-        "tap", "doubleTap", "longPress",
+        "tap", "doubleTap",
         "left", "right", "up", "upLeft", "upRight",
         "upDown", "upThenLeft", "upThenRight",
         "upLeftThenRight", "upRightThenLeft", "upRightThenDown", "upLeftThenDown",
@@ -45,14 +47,14 @@ object FloatingBallCatalog {
 
     /**
      * Defaults keep the web version's muscle memory (tap=panel, left=new session)
-     * mapped onto app-native actions. longPress is fixed to the ball settings page
-     * so settings stay reachable even with wild bindings. Exactly one gesture is
-     * deliberately unbound (upRightThenLeft) as a misfire guard.
+     * mapped onto app-native actions. The 1s hold is the fixed drag-to-move entry
+     * (v129) and fires no action, so settings stay reachable via the tap panel.
+     * Exactly one gesture is deliberately unbound (upRightThenLeft) as a misfire
+     * guard.
      */
     val DEFAULT_BINDINGS: Map<String, String?> = mapOf(
         "tap" to "panel",
         "doubleTap" to "tabActivity",
-        "longPress" to "ballSettings",
         "left" to "newSession",
         "right" to "tabFolders",
         "up" to "panel",
@@ -85,7 +87,6 @@ object FloatingBallCatalog {
     fun gestureLabel(gesture: String): Int = when (gesture) {
         "tap" -> R.string.ball_gesture_tap
         "doubleTap" -> R.string.ball_gesture_double_tap
-        "longPress" -> R.string.ball_gesture_long_press
         "left" -> R.string.ball_gesture_left
         "right" -> R.string.ball_gesture_right
         "up" -> R.string.ball_gesture_up

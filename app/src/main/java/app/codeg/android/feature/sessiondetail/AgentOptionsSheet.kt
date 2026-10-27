@@ -72,6 +72,7 @@ import app.codeg.android.core.model.FolderDetail
 import app.codeg.android.core.model.GitBranchList
 import app.codeg.android.core.model.SessionConfigOption
 import app.codeg.android.core.model.SessionConfigSelectOption
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private enum class SheetPage { Main, Branch }
@@ -111,7 +112,12 @@ fun AgentOptionsSheet(
     var applying by remember { mutableStateOf<Set<String>>(emptySet()) }
     val applyFailedNote = stringResource(R.string.agentopts_apply_failed)
 
-    // Reload the agent's options whenever the (draft) agent or folder changes.
+    // Reload the agent's options whenever the (draft) agent or folder changes, then
+    // revalidate. A cached catalog (see SessionDetailViewModel) makes the initial
+    // resolve near-instant; the refresh re-probes in the background and swaps in
+    // fresh rows. First open for this agent+workspace still blocks on the spinner —
+    // the probe spawns a real agent CLI server-side — but the common reopen case
+    // (close sheet → reopen) renders immediately from cache instead of spinning.
     LaunchedEffect(ui.agent, ui.selectedFolderId) {
         loading = true
         note = null
@@ -123,6 +129,17 @@ fun AgentOptionsSheet(
         currentMode = data.initialModeId
         currentValues = data.initialConfig
         loading = false
+        // Stale-while-revalidate: the sheet is showing last-known options; re-probe
+        // (this also re-seeds the VM cache for the next open) and adopt the fresh
+        // resolution. The callback only fires if the agent/folder context still matches.
+        // Joining the Job means a context switch cancels the pending adoption with this
+        // effect (instead of landing stale rows after the switch), and the rows stay
+        // tappable while the re-probe runs — `loading` is already false.
+        viewModel.refreshAgentOptions { fresh ->
+            data = fresh
+            currentMode = fresh.initialModeId
+            currentValues = fresh.initialConfig
+        }.join()
     }
 
     ModalBottomSheet(

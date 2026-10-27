@@ -89,6 +89,12 @@
     <string name="projects_empty_title">No folders</string>
     <string name="projects_empty_message">Open a folder or clone a repo to get started.</string>
     <string name="projects_load_failed">Couldn\'t load folders</string>
+    <!-- Batch v129: folder long-press actions -->
+    <string name="folders_action_copy_path">Copy absolute path</string>
+    <string name="folders_action_remove">Remove from workspace</string>
+    <string name="folders_path_copied">Path copied</string>
+    <string name="folders_remove_title">Remove “%1$s”?</string>
+    <string name="folders_remove_message">The folder disappears from this list and from Codeg, but its files stay untouched on the server. You can re-add it anytime.</string>
     <string name="projects_tab_files">Files</string>
     <string name="projects_tab_changes">Changes</string>
     <string name="projects_tab_commits">Commits</string>
@@ -995,7 +1001,7 @@
     <string name="general_font_scale_title">Font size</string>
     <string name="general_font_scale_subtitle">App-wide text size, on top of the system setting</string>
     <string name="ball_enable_title">Show floating ball</string>
-    <string name="ball_enable_subtitle">Quick actions from anywhere; long-press the ball for its settings</string>
+    <string name="ball_enable_subtitle">Quick actions from anywhere; hold the ball 1s and move to reposition it</string>
     <string name="ball_size_title">Ball size</string>
     <string name="ball_size_subtitle">Small, medium or large diameter</string>
     <string name="ball_size_small">Small</string>
@@ -1003,10 +1009,9 @@
     <string name="ball_size_large">Large</string>
     <string name="ball_bindings_title">Gesture bindings</string>
     <string name="ball_bindings_subtitle">Assign actions to taps and swipes</string>
-    <string name="ball_bindings_hint">Tap a gesture row to change its action. A slow drag moves the ball; fast swipes fire gestures.</string>
+    <string name="ball_bindings_hint">Tap a gesture row to change its action. Moving the ball: hold it 1s, then drag — it follows your finger. Swipes fire gestures.</string>
     <string name="ball_bindings_group_taps">Tap gestures</string>
     <string name="ball_bindings_group_swipes">Swipe gestures</string>
-    <string name="ball_binding_fixed">Fixed</string>
     <string name="ball_binding_tap_to_pick">Change</string>
     <string name="ball_action_none">Not bound</string>
     <string name="ball_panel_title">Quick actions</string>
@@ -1031,7 +1036,6 @@
     <string name="ball_action_ball_settings">Ball settings</string>
     <string name="ball_gesture_tap">Tap</string>
     <string name="ball_gesture_double_tap">Double tap</string>
-    <string name="ball_gesture_long_press">Long press</string>
     <string name="ball_gesture_left">Swipe left (←)</string>
     <string name="ball_gesture_right">Swipe right (→)</string>
     <string name="ball_gesture_up">Swipe up (↑)</string>

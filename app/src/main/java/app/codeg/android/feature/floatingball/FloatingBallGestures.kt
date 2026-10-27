@@ -3,42 +3,48 @@ package app.codeg.android.feature.floatingball
 import kotlin.math.hypot
 
 /**
- * Pure-JVM floating-ball gesture classifier (batch v126), ported from the web
- * codeg floating ball (`codeg-floating-ball.user.js`), itself ported from MindFS
- * quickSwitch.ts. No Compose / Android dependency — the ball composable feeds it
- * pointer events in container coordinates and turns the returned [GestureResult]s
- * into binding fires; every threshold and branch here is unit-tested.
+ * Pure-JVM floating-ball gesture classifier (batch v126; drag model reworked in
+ * v129 per owner spec). No Compose / Android dependency — the ball composable
+ * feeds it pointer events in container coordinates and turns the returned
+ * [GestureResult]s into binding fires; every threshold and branch here is
+ * unit-tested.
  *
- * Deviations from the web original (both adversarial-review fixes, not regressions):
- * 1. On up, a two-segment path is folded BEFORE the net-displacement gate — the web
- *    gates `foldGesture` behind `total >= MOVE_PX`, which silently kills every
- *    "returns to origin" fold (a clean ↑↓ ends where it started, so its net
- *    displacement is ~0). Here the gate only applies to the single-segment branch.
- * 2. The double-tap timer does not live here. The classifier tracks the pending-tap
- *    generation; the composable layer runs the delay and only fires if the
- *    generation still matches (the web's setTimeout fires into whatever gesture
- *    happens to be running 300ms later).
+ * v129 drag model (owner-specified, replaces the web port's two-path fork):
+ * - ANY movement before the hold threshold classifies as a GESTURE — the old
+ *   "slow start = drag the ball" path is gone (it fought gesture recognition
+ *   and misfired).
+ * - Holding [holdMs] (1s) arms drag mode; the first real movement then drags,
+ *   and release with no movement fires NOTHING (the old long-press action —
+ *   ball settings — was removed with it; settings stay reachable via the tap
+ *   panel).
+ * Deviations from the web original kept (both adversarial-review fixes):
+ * 1. On up, a two-segment path is folded BEFORE the net-displacement gate — the
+ *    web gates `foldGesture` behind `total >= MOVE_PX`, which silently kills
+ *    every "returns to origin" fold (a clean ↑↓ ends where it started, so its
+ *    net displacement is ~0). Here the gate only applies to the single-segment
+ *    branch.
+ * 2. The double-tap timer does not live here. The classifier tracks the
+ *    pending-tap generation; the composable layer runs the delay and only fires
+ *    if the generation still matches (the web's setTimeout fires into whatever
+ *    gesture happens to be running 300ms later).
  */
 sealed interface GestureResult {
     /** Nothing concluded yet (event absorbed). */
     object None : GestureResult
 
-    /** The finger stayed down past the fast-swipe window before moving — drag-to-move. */
+    /** The hold threshold elapsed and the finger started moving — drag-to-move. */
     object EnterDrag : GestureResult
 
     /** Drag continuation. */
     object Dragging : GestureResult
 
-    /** Drag released — caller snaps to an edge and persists the position. */
+    /** Drag released — caller parks the ball and persists the position. */
     object DragEnd : GestureResult
 
     /** A tap that may still become a double-tap; start the window timer on [generation]. */
     data class TapCandidate(val generation: Int) : GestureResult
 
     data class DoubleTap(val generation: Int) : GestureResult
-
-    /** Released after [GestureClassifier.longPressMs] without moving (release-time semantics). */
-    data class LongPress(val generation: Int) : GestureResult
 
     /** A recognized swipe gesture; [gesture] is a key of [FloatingBallCatalog.GESTURES]. */
     data class Named(val gesture: String, val generation: Int) : GestureResult
@@ -47,16 +53,20 @@ sealed interface GestureResult {
 /**
  * Two-phase path recognizer. State machine per touch:
  * down → (moves) → segments accumulate against the last turning-point anchor →
- * up folds the path. Fast swipes (moving within [tapMs] of the down) classify as
- * gestures; slow presses that only then start moving switch to drag-the-ball mode.
+ * up folds the path. Every movement before [holdMs] classifies as a gesture;
+ * the hold arms drag mode ([arm]), after which movement drags the ball.
  * Create once per ball and reuse — [cancel] resets between gestures; nothing is
  * allocated per move.
  */
 class GestureClassifier(
     val tapMs: Long = 250L,
     val doubleTapMs: Long = 300L,
-    val longPressMs: Long = 600L,
+    /** Hold duration that arms drag-to-move (v129: 1s, owner-specified). */
+    val holdMs: Long = 1_000L,
     private val movePx: Float = 8f,
+    /** Post-arm movement that starts the drag — deliberately tiny: the user has
+     *  already committed to a drag by holding 1s, so follow almost immediately. */
+    private val dragEntryPx: Float = 2f,
     private val swipePx: Float = 30f,
 ) {
     /** Bumped on every [onDown] — the tap-timer generation guard. */
@@ -75,17 +85,16 @@ class GestureClassifier(
         private set
 
     /**
-     * Hold-to-drag armed flag (owner-driven fix, v126.1): after the UI's hold
-     * timer fires (~600ms, same moment long-press would qualify) any movement
-     * past [movePx] starts a drag — no stillness requirement, no fast-swipe
-     * fork. Kept separate from [isDragging] so an armed-but-untouched release
-     * still classifies as a long-press (ball settings), and an armed drag that
-     * moves ends as [GestureResult.DragEnd].
+     * Hold-to-drag armed flag (v129): after the UI's hold timer fires ([holdMs],
+     * 1s) any movement past [dragEntryPx] starts a drag — no stillness
+     * requirement, no gesture classification. Kept separate from [isDragging]
+     * so an armed-but-untouched release is simply absorbed (no action), and an
+     * armed drag that moves ends as [GestureResult.DragEnd].
      */
     var armed = false
         private set
 
-    /** True once this touch locked into gesture classification (fast-swipe start). */
+    /** True once this touch locked into gesture classification (movement before the hold). */
     val gestureStarted: Boolean get() = moved
 
     private var t0 = 0L
@@ -119,9 +128,10 @@ class GestureClassifier(
     fun onMove(t: Long, x: Float, y: Float): GestureResult {
         if (isDragging) return GestureResult.Dragging
         if (armed) {
-            // Hold timer already elapsed: ANY further movement drags the ball —
-            // even if it is slow, even if the finger jittered before the timer.
-            if (hypot(x - x0, y - y0) >= movePx) {
+            // Hold threshold already elapsed: essentially ANY further movement
+            // drags the ball — even slow, even if the finger jittered before
+            // the timer (dragEntryPx only rejects placement-level noise).
+            if (hypot(x - x0, y - y0) >= dragEntryPx) {
                 armed = false
                 isDragging = true
                 pendingTapGeneration = null
@@ -131,16 +141,11 @@ class GestureClassifier(
         }
         val total = hypot(x - x0, y - y0)
         if (!moved && total >= movePx) {
-            if (t - t0 < tapMs) {
-                // Fast start → this touch is a gesture; any pending single tap dies.
-                moved = true
-                pendingTapGeneration = null
-            } else {
-                // Held still past the fast window, then moved → drag the ball.
-                isDragging = true
-                pendingTapGeneration = null
-                return GestureResult.EnterDrag
-            }
+            // v129: every pre-hold movement is a gesture candidate — fast OR
+            // slow. The old slow-start drag fork is gone (the 1s hold is the
+            // only way into drag mode).
+            moved = true
+            pendingTapGeneration = null
         }
         if (!moved) return GestureResult.None
 
@@ -173,8 +178,16 @@ class GestureClassifier(
         }
         val dur = t - t0
         if (!moved) {
+            if (dur >= holdMs) {
+                // Held past the drag threshold but never moved: the drag armed
+                // and ended without a drag. No action fires (the old long-press
+                // action was removed in v129) — and the tap chain is broken so
+                // a tap-hold-tap sequence can't read as a double tap.
+                lastTapUpAt = 0L
+                resetGesture()
+                return GestureResult.None
+            }
             val result: GestureResult = when {
-                dur >= longPressMs -> GestureResult.LongPress(gen)
                 // Double-tap requires a PREVIOUS tap still pending (a candidate the
                 // timer hasn't consumed). lastTapUpAt alone would misfire on the
                 // very first tap ever (t - 0 < window), and an intervening gesture

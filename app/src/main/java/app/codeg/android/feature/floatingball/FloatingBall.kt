@@ -62,15 +62,22 @@ private val PANEL_WIDTH = 230.dp
 private const val INDEFINITE_MS = 3_600_000L
 
 /**
- * The in-app floating ball overlay (batch v126). Rides above the whole MainShell
- * (bottom bar and full-screen routes included) as a sibling of the Scaffold:
- * touches on the ball never leak into the tab-swipe / nested-scroll layers below.
+ * The in-app floating ball overlay (batch v126; drag model reworked in v129).
+ * Rides above the whole MainShell (bottom bar and full-screen routes included)
+ * as a sibling of the Scaffold: touches on the ball never leak into the
+ * tab-swipe / nested-scroll layers below.
  *
  * Performance contract (the "silky" requirement): gesture classification is a
  * synchronous pure calculation inside the pointer callbacks; the ball's position
  * is a state read ONLY inside the offset lambda (placement-phase — a drag frame
  * re-places the ball without recomposing it); press feedback goes through a
  * graphicsLayer lambda; DataStore is written once per drag release.
+ *
+ * v129 interaction (owner-specified): moving before the 1s hold fires gestures
+ * (the slow-move drag path is gone); holding 1s arms drag mode — the ball
+ * swells — and every movement after that follows the finger 1:1; releasing
+ * after the hold without moving fires nothing. Show/hide lives in Settings →
+ * General → 悬浮球 (already present).
  *
  * @param bindings gesture key → action id (null = unbound), already sanitized.
  * @param posRatio persisted position as screen fractions; null until loaded.
@@ -144,7 +151,7 @@ fun FloatingBallHost(
                 // back-gesture band steals horizontal swipes started on the ball.
                 .systemGestureExclusion()
                 .graphicsLayer {
-                    // dragArmed = held ~600ms: the ball swells to say "drag me now".
+                    // dragArmed = held 1s: the ball swells to say "drag me now".
                     val scale = when {
                         dragArmed -> 1.16f
                         pressed -> 1.08f
@@ -264,22 +271,25 @@ private fun Offset.toIntOffset() = IntOffset(x.roundToInt(), y.roundToInt())
 
 /**
  * The ball's raw pointer handler. Hand-rolled instead of detectDragGestures
- * because the fast-swipe vs hold-drag fork needs the down timestamp, and the
+ * because the gesture-vs-hold-drag fork needs the down timestamp, and the
  * classifier wants every intermediate sample.
  *
- * Frame discipline (the v126.1 follow-the-finger fix): every sample is
- * translated into the CONTAINER frame using the ball's position FROZEN at
- * gesture start. `main.position` is local to the ball node, which itself moves
- * while dragging — computing the drag delta from local positions feeds the
- * ball's own motion back into the delta (the ball chases its own tail, halving
- * and oscillating the follow). The frozen frame breaks that loop.
+ * Frame discipline — THE fix for the v126 "not following the finger" lag
+ * (v129 rework): while dragging, every sample is translated into the container
+ * frame using the ball's position LIVE at that sample (`getPos()`), not a frame
+ * frozen at gesture start. `main.position` is local to the ball node, which
+ * itself moves while dragging; converting through a frozen origin makes the
+ * computed finger position drift behind by exactly the distance the ball has
+ * traveled, so the ball lags/oscillates. Re-deriving `origin` per move event
+ * keeps `origin + main.position` a true container coordinate, and
+ * `ballTarget = fingerNow - grabOffset` follows 1:1 with zero latency (the
+ * offset is set on the placement phase — no recomposition, no animation).
  *
- * Drag model (owner-specified): hold ~600ms → the drag arms (ball swells;
- * classifier.armed) → ANY movement then drags, release parks the ball where
- * the finger left it (clamped to the screen minus margin — no edge snapping).
- * The pre-existing slow-move path (stillness past the fast-swipe window, then
- * a deliberate move) also enters drag. Hold-600ms-and-release-without-moving
- * still fires long-press (ball settings).
+ * Drag model (v129, owner-specified): hold 1s arms drag mode (ball swells) —
+ * then ANY movement ≥ 2px drags, release parks the ball where the finger left
+ * it (clamped to the screen minus margin — no edge snapping). Movement before
+ * the hold is always a gesture. Releasing after the hold without moving fires
+ * nothing.
  */
 private fun Modifier.pointerInputBall(
     classifier: GestureClassifier,
@@ -296,14 +306,17 @@ private fun Modifier.pointerInputBall(
     Modifier.pointerInput(Unit) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
-            val origin = getPos()
-            fun Offset.toContainer() = Offset(x + origin.x, y + origin.y)
-            var dragBase: IntOffset? = null
-            var grabContainer = Offset.Zero
             var lastT = down.uptimeMillis
-            classifier.onDown(down.uptimeMillis, down.position.x + origin.x, down.position.y + origin.y)
+            classifier.onDown(
+                down.uptimeMillis,
+                down.position.x + getPos().x,
+                down.position.y + getPos().y,
+            )
             setPressed(true)
             setArmed(false)
+            // Drag state: the finger's offset from the ball's top-left at drag
+            // entry — held constant through the drag so the ball tracks 1:1.
+            var grabOffset = Offset.Zero
             try {
                 while (true) {
                     // While nothing is armed/dragging/classified, cap the wait at
@@ -312,7 +325,7 @@ private fun Modifier.pointerInputBall(
                     // out). Expiry arms hold-to-drag.
                     val timeoutMs =
                         if (classifier.armed || classifier.isDragging || classifier.gestureStarted) INDEFINITE_MS
-                        else (down.uptimeMillis + classifier.longPressMs - lastT).coerceAtLeast(1L)
+                        else (down.uptimeMillis + classifier.holdMs - lastT).coerceAtLeast(1L)
                     val event = withTimeoutOrNull(timeoutMs) { awaitPointerEvent() }
                     if (event == null) {
                         classifier.arm()
@@ -335,21 +348,27 @@ private fun Modifier.pointerInputBall(
                         if (main.isConsumed) {
                             classifier.cancel()
                         } else {
-                            val c = main.position.toContainer()
-                            when (val res = classifier.onUp(main.uptimeMillis, c.x, c.y)) {
+                            // Container-frame finger position at release: the ball
+                            // has been moving under the finger, so re-derive the
+                            // origin live (frozen would misreport by the drag distance).
+                            val origin = getPos()
+                            when (val res = classifier.onUp(
+                                main.uptimeMillis,
+                                main.position.x + origin.x,
+                                main.position.y + origin.y,
+                            )) {
                                 is GestureResult.TapCandidate -> onPendingTap(res.generation)
                                 is GestureResult.DoubleTap -> {
                                     clearPendingTap()
                                     onGesture("doubleTap")
                                 }
-                                is GestureResult.LongPress -> onGesture("longPress")
                                 is GestureResult.Named -> onGesture(res.gesture)
                                 is GestureResult.DragEnd -> {
                                     // Park where the finger released — constrained to
-                                    // the screen (no snap-to-edge; v126.1).
-                                    val final = dragBase?.let { constrain(it + (c - grabContainer).toIntOffset()) }
-                                        ?: getPos()
-                                    onDragEnd(final)
+                                    // the screen (no snap-to-edge).
+                                    val origin2 = getPos()
+                                    val finger = Offset(main.position.x + origin2.x, main.position.y + origin2.y)
+                                    onDragEnd(constrain((finger - grabOffset).toIntOffset()))
                                 }
                                 else -> Unit
                             }
@@ -357,21 +376,32 @@ private fun Modifier.pointerInputBall(
                         break
                     }
                     if (main.positionChanged()) {
-                        val c = main.position.toContainer()
-                        when (classifier.onMove(main.uptimeMillis, c.x, c.y)) {
+                        when (classifier.onMove(
+                            main.uptimeMillis,
+                            main.position.x + getPos().x,
+                            main.position.y + getPos().y,
+                        )) {
                             GestureResult.EnterDrag -> {
-                                dragBase = getPos()
-                                grabContainer = c
+                                // Grab offset: finger relative to the ball's top-left,
+                                // both in container coordinates, at drag entry.
+                                val origin = getPos()
+                                val finger = Offset(main.position.x + origin.x, main.position.y + origin.y)
+                                grabOffset = finger - Offset(origin.x.toFloat(), origin.y.toFloat())
                                 setArmed(false) // armed → actually dragging now
+                                // First placement immediately — no one-frame hitch
+                                // between arming and the first follow frame.
+                                setPos(constrain((finger - grabOffset).toIntOffset()))
                             }
                             GestureResult.Dragging -> {
-                                val base = dragBase
-                                if (base == null) {
-                                    dragBase = getPos()
-                                    grabContainer = c
-                                } else {
-                                    setPos(base + (c - grabContainer).toIntOffset())
-                                }
+                                // LIVE frame: origin = the ball's position as of the
+                                // previous placement, so origin + local finger offset
+                                // reconstructs the true container finger position.
+                                // ballTarget = fingerNow - grabOffset is then exact —
+                                // the ball sits under the finger every frame, no lag,
+                                // no oscillation, no self-feedback loop.
+                                val origin = getPos()
+                                val finger = Offset(main.position.x + origin.x, main.position.y + origin.y)
+                                setPos(constrain((finger - grabOffset).toIntOffset()))
                             }
                             else -> Unit
                         }

@@ -66,13 +66,13 @@ class SettingsViewModel @Inject constructor(
         .map { FloatingBallCatalog.sanitize(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, FloatingBallCatalog.DEFAULT_BINDINGS)
 
-    /** Rebind one gesture. longPress is pinned to the settings entry (the editor
-     *  renders it read-only; this guard makes even a crafted call a no-op) so the
-     *  ball can never lose its way back to its own settings. */
+    /** Rebind one gesture. Unknown gesture ids are rejected (a sanitize no-op).
+     *  The v129 longPress pin is gone with the gesture itself — the 1s hold is
+     *  the fixed drag-to-move entry and fires no action. */
     fun setBallBinding(gesture: String, actionId: String?) {
         viewModelScope.launch {
             val current = FloatingBallCatalog.sanitize(appSettingsStore.floatBallBindings.first())
-            if (gesture == "longPress" || gesture !in FloatingBallCatalog.GESTURES) return@launch
+            if (gesture !in FloatingBallCatalog.GESTURES) return@launch
             val next = current.toMutableMap().apply {
                 this[gesture] = if (actionId == null || actionId in FloatingBallCatalog.ACTION_IDS) actionId else null
             }
