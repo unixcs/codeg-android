@@ -1,5 +1,8 @@
 package app.codeg.android.core.designsystem.component
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Column
@@ -172,14 +175,17 @@ private fun DocHtmlPreview(html: String) {
 private fun ShareIconButton(fileName: String, content: String) {
     val context = LocalContext.current
     val tint = CodegTheme.colors.textSecondary
-    IconButton(onClick = { shareDocument(context, fileName, content) }) {
+    // Share write off the main thread (batch v130): the >100KB path wrote a file
+    // to flash inline in the click handler.
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    IconButton(onClick = { scope.launch { shareDocument(context, fileName, content) } }) {
         Icon(Icons.Rounded.Share, contentDescription = stringResource(R.string.doc_preview_share), tint = tint)
     }
 }
 
 private const val SHARE_TEXT_LIMIT = 100_000
 
-internal fun shareDocument(context: Context, fileName: String, content: String) {
+internal suspend fun shareDocument(context: Context, fileName: String, content: String) {
     val send: Intent = if (content.length <= SHARE_TEXT_LIMIT) {
         Intent(Intent.ACTION_SEND)
             .setType("text/plain")
@@ -188,7 +194,8 @@ internal fun shareDocument(context: Context, fileName: String, content: String) 
     } else {
         val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
         val file = java.io.File(dir, fileName.substringAfterLast('/').ifEmpty { "document.txt" })
-        runCatching { file.writeText(content.take(SHARE_TEXT_LIMIT)) }
+        // Caller is already off Main (shareDocument runs in a scope on Default).
+        withContext(Dispatchers.IO) { runCatching { file.writeText(content.take(SHARE_TEXT_LIMIT)) } }
         val uri = androidx.core.content.FileProvider.getUriForFile(
             context,
             context.packageName + ".fileprovider",

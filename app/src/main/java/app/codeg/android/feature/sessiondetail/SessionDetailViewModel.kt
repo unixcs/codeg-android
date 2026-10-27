@@ -3,6 +3,7 @@ package app.codeg.android.feature.sessiondetail
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -81,6 +82,8 @@ import javax.inject.Inject
  *  socket reopen can't recover it). Any other reason is a transient socket drop. */
 private const val REASON_CONNECTION_GONE = "connection_gone"
 
+private const val TAG = "SessionDetailVM"
+
 /** Max consecutive silent re-attaches before falling back to a transcript reconcile. */
 private const val MAX_STREAM_RECONNECTS = 6
 
@@ -92,7 +95,7 @@ private const val HANDOFF_DIR = ".codeg-handoff"
 
 /** Bounded snapshot poll after an options apply (~2.3s total) — `set_*` only enqueues
  *  the change server-side, so we reconcile against the authoritative snapshot. */
-private const val RECONCILE_ATTEMPTS = 6
+private const val RECONCILE_ATTEMPTS = 3
 
 /** Status-line copy shown while the agent is thinking (no tool running). Hardcoded to
  *  match the send-flow literal — the transient status micro-copy is intentionally not
@@ -551,91 +554,119 @@ class SessionDetailViewModel @Inject constructor(
         val gen = streamGeneration
         val attached = CompletableDeferred<Unit>()
         consumerJob?.cancel()
+        // The consumer's body is wrapped in ONE try/catch (v130 crash fix): a throw inside
+        // `collect` (applyEvent/seedLiveFromSnapshot/restorePending — e.g. the unguarded
+        // ParsedPermission.parse on a malformed permission card) would otherwise sail
+        // through this unhandled `viewModelScope.launch` and kill the process. Only
+        // RUNNING sessions open a stream, which is exactly the reported crash shape
+        // ("偶发性点开动态页运行中的会话闪退"). A failure downgrades to the same paths
+        // a dead socket takes: in-flight turns fail with a notice, idle ones reconcile.
         consumerJob = viewModelScope.launch {
-            val s = repository.eventStream(p) ?: run {
-                if (!attached.isCompleted) attached.complete(Unit)
-                return@launch
-            }
-            stream = s
-            s.frames().collect { frame ->
-                if (gen != streamGeneration) return@collect
-                when (frame) {
-                    StreamFrame.Ready -> s.attach(subscriptionId, conn, lastSeq.takeIf { it > 0 })
-                    is StreamFrame.Snapshot -> {
-                        streamReconnects = 0
-                        frame.snapshot.eventSeq?.let { lastSeq = it }
-                        // Steering eligibility rides EVERY snapshot (initial send, attach,
-                        // reconnect): one unconditional update covers all five openStream
-                        // paths, so the queue's insert affordance tracks the session's real
-                        // channels instead of a stale attach-time guess.
-                        _ui.update {
-                            it.copy(
-                                steeringAvailable = frame.snapshot.nativeSteeringAvailable ||
-                                    frame.snapshot.feedbackToolAvailable,
-                            )
-                        }
-                        if (seedOnAttach && !seedLiveFromSnapshot(frame.snapshot)) {
-                            // Idle connection — nothing in flight.
-                            if (keepWhenIdle) {
-                                // Manual reconnect: adopt the snapshot's identity +
-                                // advertised state, drop the idle-turn placeholder, and
-                                // keep the NEW connection (do NOT close the stream —
-                                // that's the reconnect's whole point). Still reconcile:
-                                // the turn may have finished while the CLI looked wedged.
-                                restorePending(frame.snapshot)
-                                liveBuilder = null
-                                _ui.update {
-                                    it.copy(
-                                        isInFlight = false,
-                                        runStartedAt = null,
-                                        sendStatus = null,
-                                        live = null,
-                                        liveFromReattach = false,
-                                    )
-                                }
-                                if (!attached.isCompleted) attached.complete(Unit)
-                                reconcileAfterMissedLive()
-                            } else {
-                                // Automatic reattach of a turn that just ended — abort and
-                                // let the transcript reconcile show the final state.
-                                if (!attached.isCompleted) attached.complete(Unit)
-                                abortIdleReattach()
+            try {
+                val s = repository.eventStream(p) ?: run {
+                    if (!attached.isCompleted) attached.complete(Unit)
+                    return@launch
+                }
+                stream = s
+                s.frames().collect { frame ->
+                    if (gen != streamGeneration) return@collect
+                    when (frame) {
+                        StreamFrame.Ready -> s.attach(subscriptionId, conn, lastSeq.takeIf { it > 0 })
+                        is StreamFrame.Snapshot -> {
+                            streamReconnects = 0
+                            frame.snapshot.eventSeq?.let { lastSeq = it }
+                            // Steering eligibility rides EVERY snapshot (initial send, attach,
+                            // reconnect): one unconditional update covers all five openStream
+                            // paths, so the queue's insert affordance tracks the session's real
+                            // channels instead of a stale attach-time guess.
+                            _ui.update {
+                                it.copy(
+                                    steeringAvailable = frame.snapshot.nativeSteeringAvailable ||
+                                        frame.snapshot.feedbackToolAvailable,
+                                )
                             }
-                            return@collect
-                        }
-                        // Only adopt a snapshot's pending permission/question on a reattach or a
-                        // mid-turn reconnect — the initial send handshake snapshot is pre-prompt
-                        // state and could surface a stale card (iOS skips it there).
-                        if (seedOnAttach || !awaitAttach) restorePending(frame.snapshot)
-                        if (!attached.isCompleted) attached.complete(Unit)
-                    }
-                    is StreamFrame.Replay -> {
-                        streamReconnects = 0
-                        pendingReattachSeed = false
-                        frame.events.forEach { applyEvent(it.event, it.seq) }
-                        if (!attached.isCompleted) attached.complete(Unit)
-                    }
-                    is StreamFrame.Event -> applyEvent(frame.envelope.event, frame.envelope.seq)
-                    is StreamFrame.Detached -> {
-                        // A detach before the attach is confirmed means the server rejected this
-                        // connection (stale/unknown). Fail the awaited handshake so the send path
-                        // retries with a fresh connect, rather than reconnecting to a dead id. A
-                        // silent reconnect (awaitAttach=false) still drives the reconnect loop.
-                        if (awaitAttach && !attached.isCompleted) {
-                            attached.completeExceptionally(StreamAttachFailed(frame.reason))
-                        } else {
-                            handleStreamEnded(gen, frame.reason)
-                        }
-                    }
-                    StreamFrame.Pong -> Unit
-                    is StreamFrame.Closed -> {
-                        if (awaitAttach && !attached.isCompleted) {
-                            attached.completeExceptionally(StreamAttachFailed(frame.reason))
-                        } else {
+                            if (seedOnAttach && !seedLiveFromSnapshot(frame.snapshot)) {
+                                // Idle connection — nothing in flight.
+                                if (keepWhenIdle) {
+                                    // Manual reconnect: adopt the snapshot's identity +
+                                    // advertised state, drop the idle-turn placeholder, and
+                                    // keep the NEW connection (do NOT close the stream —
+                                    // that's the reconnect's whole point). Still reconcile:
+                                    // the turn may have finished while the CLI looked wedged.
+                                    restorePending(frame.snapshot)
+                                    liveBuilder = null
+                                    _ui.update {
+                                        it.copy(
+                                            isInFlight = false,
+                                            runStartedAt = null,
+                                            sendStatus = null,
+                                            live = null,
+                                            liveFromReattach = false,
+                                        )
+                                    }
+                                    if (!attached.isCompleted) attached.complete(Unit)
+                                    reconcileAfterMissedLive()
+                                } else {
+                                    // Automatic reattach of a turn that just ended — abort and
+                                    // let the transcript reconcile show the final state.
+                                    if (!attached.isCompleted) attached.complete(Unit)
+                                    abortIdleReattach()
+                                }
+                                return@collect
+                            }
+                            // Only adopt a snapshot's pending permission/question on a reattach or a
+                            // mid-turn reconnect — the initial send handshake snapshot is pre-prompt
+                            // state and could surface a stale card (iOS skips it there).
+                            if (seedOnAttach || !awaitAttach) restorePending(frame.snapshot)
                             if (!attached.isCompleted) attached.complete(Unit)
-                            handleStreamEnded(gen, frame.reason)
+                        }
+                        is StreamFrame.Replay -> {
+                            frame.events.forEach { applyEvent(it.event, it.seq) }
+                            // Reset the reconnect budget only AFTER the replay landed:
+                            // resetting first would let a poison payload (an event that
+                            // throws every time, so this catch fires before any reset
+                            // could survive) keep the reconnect loop alive forever.
+                            streamReconnects = 0
+                            pendingReattachSeed = false
+                            if (!attached.isCompleted) attached.complete(Unit)
+                        }
+                        is StreamFrame.Event -> applyEvent(frame.envelope.event, frame.envelope.seq)
+                        is StreamFrame.Detached -> {
+                            // A detach before the attach is confirmed means the server rejected this
+                            // connection (stale/unknown). Fail the awaited handshake so the send path
+                            // retries with a fresh connect, rather than reconnecting to a dead id. A
+                            // silent reconnect (awaitAttach=false) still drives the reconnect loop.
+                            if (awaitAttach && !attached.isCompleted) {
+                                attached.completeExceptionally(StreamAttachFailed(frame.reason))
+                            } else {
+                                handleStreamEnded(gen, frame.reason)
+                            }
+                        }
+                        StreamFrame.Pong -> Unit
+                        is StreamFrame.Closed -> {
+                            if (awaitAttach && !attached.isCompleted) {
+                                attached.completeExceptionally(StreamAttachFailed(frame.reason))
+                            } else {
+                                if (!attached.isCompleted) attached.complete(Unit)
+                                handleStreamEnded(gen, frame.reason)
+                            }
                         }
                     }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                // Same two-way split as the Detached/Closed frames above: an unconfirmed
+                // handshake only fails the await (the send/reattach path retries with a
+                // fresh connect) — driving the reconnect loop here too would run two
+                // connection attempts against a dead id and burn reconnect budget.
+                // A silent reconnect (awaitAttach=false) downgrades to the normal
+                // ended-stream logic: in-flight turns reconnect, idle ones reconcile.
+                Log.w(TAG, "stream consumer failed", e)
+                if (awaitAttach && !attached.isCompleted) {
+                    attached.completeExceptionally(StreamAttachFailed(e.message))
+                } else {
+                    handleStreamEnded(gen, e.message)
                 }
             }
         }
@@ -708,7 +739,9 @@ class SessionDetailViewModel @Inject constructor(
                 openStream(found.connectionId, seedOnAttach = true)
             } catch (e: StreamAttachFailed) {
                 // The live connection vanished before we could attach — the turn has ended;
-                // clear the placeholder and refetch the final transcript.
+                // clear the placeholder and refetch the final transcript. Close the half-
+                // open stream first or the consumer job and its socket linger (batch v130).
+                closeStream()
                 abortIdleReattach()
             }
         }
@@ -1951,8 +1984,17 @@ class SessionDetailViewModel @Inject constructor(
         } else {
             runCatching { selectorPrefs.saveMode(forAgent, modeId) }
         }
-        val c = client ?: return null
-        val conn = optionsConnection(forAgent, forFolder) ?: return null
+        val c = client
+        // Fast path (batch v130), DRAFT ONLY: a fresh draft's saved preference already
+        // carries to the server on the next acp_connect (preferredModeId) — do NOT spawn
+        // a real agent CLI just to apply a setting (that connect was the multi-second
+        // spin). A live conversation has no next-connect carrier, so if its connection
+        // can't be resolved we must revert (null) instead of reporting false success.
+        val draft = convId == null
+        if (c == null) return if (draft) modeId else null
+        val conn = connectionId?.takeIf { agent == forAgent && folder?.id == forFolder?.id }
+            ?: convId?.let { cid -> runCatching { c.findConnection(cid, externalId, forAgent)?.connectionId }.getOrNull() }
+            ?: return if (draft) modeId else null
         return try {
             c.acpSetMode(conn, modeId)
             reconcileSelection(conn, key = MODE_KEY, desired = modeId)
@@ -1979,8 +2021,14 @@ class SessionDetailViewModel @Inject constructor(
         } else {
             runCatching { selectorPrefs.saveConfig(forAgent, configId, valueId) }
         }
-        val c = client ?: return null
-        val conn = optionsConnection(forAgent, forFolder) ?: return null
+        val c = client
+        // Fast path, same as [applyMode]: draft-only optimism; a live conversation whose
+        // connection can't be resolved reverts (null).
+        val draft = convId == null
+        if (c == null) return if (draft) valueId else null
+        val conn = connectionId?.takeIf { agent == forAgent && folder?.id == forFolder?.id }
+            ?: convId?.let { cid -> runCatching { c.findConnection(cid, externalId, forAgent)?.connectionId }.getOrNull() }
+            ?: return if (draft) valueId else null
         return try {
             c.acpSetConfigOption(conn, configId, valueId)
             reconcileSelection(conn, key = configId, desired = valueId)
@@ -2010,13 +2058,17 @@ class SessionDetailViewModel @Inject constructor(
         val c = client ?: return desired
         var lastSeen: String? = null
         repeat(RECONCILE_ATTEMPTS) { attempt ->
-            delay(if (attempt == 0) 350L else 400L)
+            // Batch v130: 150/250/250ms — the optimistic checkmark is already on the pick;
+            // reconcile only confirms or reverts, so a long budget just holds the spinner.
+            delay(if (attempt == 0) 150L else 250L)
             val snap = runCatching { c.sessionSnapshot(conn) }.getOrNull() ?: return@repeat
             val current = snap.selectionFor(key) ?: return@repeat
             lastSeen = current
             if (current == desired) return current
         }
-        return lastSeen ?: desired
+        // Budget exhausted: the set itself succeeded, so the server adopts momentarily.
+        // Adopting a still-old snapshot value here would flip the checkmark back off.
+        return desired
     }
 
     // endregion
@@ -2144,8 +2196,11 @@ class SessionDetailViewModel @Inject constructor(
             val temp = File(appContext.cacheDir, "handoff-${System.currentTimeMillis()}.json")
             try {
                 // Serializing a long transcript + writing it is real work — keep it off
-                // the main thread (the JSON build also allocates heavily).
-                temp.writeText(withContext(Dispatchers.Default) { buildSessionHandoffJson(state) })
+                // the main thread (the JSON build also allocates heavily). Batch v130:
+                // the write itself moved to IO too — writeText on Main was a multi-MB
+                // flash write jank spike on long exports.
+                val json = withContext(Dispatchers.Default) { buildSessionHandoffJson(state) }
+                withContext(Dispatchers.IO) { temp.writeText(json) }
                 val name = "session-${externalId ?: conversationId ?: "draft"}-${System.currentTimeMillis()}.json"
                 val uploaded = c.uploadWorkspaceFile(
                     rootPath = root,

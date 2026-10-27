@@ -21,6 +21,9 @@
     <string name="server_test_connection">Test Connection</string>
     <string name="server_save">Save</string>
     <string name="server_delete">Delete</string>
+    <string name="server_hide">Hide device</string>
+    <string name="server_show">Show device</string>
+    <string name="server_hidden_hint">Hidden — not shown in device bar / activity</string>
     <string name="server_connection_ok">Connected · codeg %1$s</string>
     <string name="server_connection_failed">Connection failed: %1$s</string>
     <string name="server_section_connection">Connection</string>
@@ -106,7 +109,7 @@
     <string name="activity_empty_message">Running and recent sessions show up here.</string>
     <string name="activity_updated">Updated %1$s</string>
     <string name="activity_load_failed">Couldn\'t load activity</string>
-    <string name="activity_all">All Devices</string>
+    <string name="activity_all">All</string>
     <string name="activity_partial_failed">%1$d device(s) unreachable</string>
     <string name="devicebar_manage">Manage servers</string>
 

@@ -34,13 +34,23 @@ fun CodegApp(appViewModel: AppViewModel = hiltViewModel()) {
     CodegTheme(themeMode = settings.themeMode, accentId = settings.accentId, fontScaleFactor = settings.fontScale) {
         CodegBackground {
             val servers by appViewModel.servers.collectAsStateWithLifecycle()
+            val allServers by appViewModel.allServers.collectAsStateWithLifecycle()
             // `settingsLoaded` keeps MainShell from composing on the DataStore
             // defaults: the start tab / tab order must come from the saved values
             // on the first frame (NavHost pins its start destination once).
+            //
+            // The "no servers" branch keys off the FULL list, not the visible one:
+            // with every device hidden the visible list is empty but the devices
+            // (and the Servers management screen that can re-show them) still exist
+            // — dropping to onboarding there would strand the user with no way back
+            // (MainShell owns that screen; onboarding doesn't). MainShell handles
+            // an empty visible list gracefully: the device bar hides on `size > 1`
+            // and the tabs render their own empty states.
             val list = servers
+            val anySaved = allServers?.isNotEmpty() == true
             when {
-                list == null || !settingsLoaded -> Splash()
-                list.isEmpty() -> OnboardingRoot()
+                list == null || allServers == null || !settingsLoaded -> Splash()
+                list.isEmpty() && !anySaved -> OnboardingRoot()
                 else -> MainShell(appViewModel, list)
             }
         }

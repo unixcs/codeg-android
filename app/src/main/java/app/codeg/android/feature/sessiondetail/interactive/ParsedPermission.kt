@@ -46,7 +46,28 @@ data class ParsedPermission(
             modeTarget != null || url != null || query != null || prompt != null
 
     companion object {
-        fun parse(toolCall: JsonElement): ParsedPermission {
+        /**
+         * Parse a permission request's tool call. Runs on the live-stream hot path
+         * (every `permission_request` event and attach snapshot), so any malformed
+         * input must degrade to the raw-JSON fallback view instead of throwing —
+         * an exception here escaped the stream consumer unhandled and killed the
+         * process when opening a running session (v130 crash fix).
+         */
+        fun parse(toolCall: JsonElement): ParsedPermission =
+            runCatching { parseUnsafe(toolCall) }.getOrElse { e ->
+                // The fallback itself must never throw: rendering `toolCall` can OOM or
+                // overflow on a huge/deep payload — the very failure we're degrading from.
+                val preview = runCatching { toolCall.toString().take(2_000) }
+                    .getOrDefault("<unserializable tool_call>")
+                ParsedPermission(
+                    title = "Tool", kind = "tool", command = null, cwd = null, diffFiles = emptyList(),
+                    planMarkdown = null, planEntries = emptyList(), allowedPrompts = emptyList(),
+                    modeTarget = null, url = null, query = null, prompt = null,
+                    jsonPreview = preview + (e.message?.let { " // $it" } ?: ""),
+                )
+            }
+
+        private fun parseUnsafe(toolCall: JsonElement): ParsedPermission {
             val obj = toolCall as? JsonObject
             val rawKind = pickString(obj, listOf("kind", "toolName", "tool_name", "name", "type")) ?: "tool"
 

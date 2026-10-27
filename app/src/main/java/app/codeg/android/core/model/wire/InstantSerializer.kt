@@ -1,7 +1,6 @@
 package app.codeg.android.core.model.wire
 
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
@@ -45,7 +44,12 @@ object InstantSerializer : KSerializer<Instant> {
 
     override fun deserialize(decoder: Decoder): Instant {
         val raw = decoder.decodeString()
-        return Rfc3339.parse(raw)
-            ?: throw SerializationException("Unparseable RFC3339 date: $raw")
+        // Degrade instead of throw: a required Instant sits in ConversationSummary
+        // (createdAt/updatedAt/pinnedAt) and MessageTurn, so one malformed value
+        // would otherwise fail the whole list/detail decode and blank the screen.
+        return Rfc3339.parse(raw) ?: run {
+            android.util.Log.w("InstantSerializer", "Unparseable timestamp, degrading to EPOCH: $raw")
+            Instant.EPOCH
+        }
     }
 }

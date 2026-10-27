@@ -77,6 +77,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -90,6 +91,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -136,7 +138,9 @@ import app.codeg.android.feature.sessiondetail.timeline.SessionContextUsage
 import app.codeg.android.feature.sessiondetail.timeline.TimelineNode
 import app.codeg.android.feature.sessiondetail.timeline.TimelineRow
 import app.codeg.android.feature.sessiondetail.timeline.TranscriptTimeline
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.time.Instant
 
@@ -162,10 +166,11 @@ fun SessionDetailScreen(
     // Draft memory: hydrate the composer from DataStore on entry — but only AFTER load()
     // has resolved the server profile, so the draft key is the real `<serverId>:<id>` and
     // not the pre-load "?" slot. Only fills an empty composer so a restoreDraft from a
-    // failed send always wins.
+    // failed send always wins. Read failures (IO, prefs file damage) degrade to "no
+    // persisted draft" — the composer must never crash the screen over a draft.
     LaunchedEffect(ui.loading) {
         if (!ui.loading) {
-            val persisted = viewModel.loadPersistedDraft()
+            val persisted = runCatching { viewModel.loadPersistedDraft() }.getOrDefault("")
             if (draft.isEmpty() && persisted.isNotEmpty()) draft = persisted
         }
     }
@@ -176,7 +181,9 @@ fun SessionDetailScreen(
     // After process death the persisted draft (edits made before the crash) wins
     // over the raw seed, so an entry that was already saved-as-draft isn't reset.
     LaunchedEffect(seedText) {
-        if (!seedText.isNullOrEmpty() && draft.isEmpty() && viewModel.loadPersistedDraft().isEmpty()) {
+        if (!seedText.isNullOrEmpty() && draft.isEmpty() &&
+            runCatching { viewModel.loadPersistedDraft() }.getOrDefault("").isEmpty()
+        ) {
             draft = seedText
         }
     }
@@ -885,15 +892,20 @@ private fun AttachmentStrip(attachments: List<Attachment>, onRemove: (String) ->
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(attachments, key = { it.id }) { att ->
-            val bitmap = remember(att.id) {
-                runCatching {
-                    val bytes = android.util.Base64.decode(att.base64, android.util.Base64.DEFAULT)
-                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                }.getOrNull()
+            // Decode off the main thread (batch v130): up to 10 base64 + bitmap decodes
+            // inline in composition froze the first frame of the composer strip.
+            val bitmap by produceState<ImageBitmap?>(null, att.id) {
+                value = withContext(Dispatchers.Default) {
+                    runCatching {
+                        val bytes = android.util.Base64.decode(att.base64, android.util.Base64.DEFAULT)
+                        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                    }.getOrNull()
+                }
             }
             Box(Modifier.size(60.dp)) {
-                if (bitmap != null) {
-                    Image(bitmap, contentDescription = stringResource(R.string.sessiondetail_attachment), contentScale = ContentScale.Crop, modifier = Modifier.size(60.dp).clip(RoundedCornerShape(10.dp)))
+                val bmp = bitmap
+            if (bmp != null) {
+                    Image(bmp, contentDescription = stringResource(R.string.sessiondetail_attachment), contentScale = ContentScale.Crop, modifier = Modifier.size(60.dp).clip(RoundedCornerShape(10.dp)))
                 } else {
                     Box(Modifier.size(60.dp).clip(RoundedCornerShape(10.dp)).background(colors.codeSurface))
                 }

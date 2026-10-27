@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -86,6 +87,7 @@ fun ProjectListScreen(
     var showClone by remember { mutableStateOf(false) }
     // 批v129: long-press a folder row → action sheet (copy path / remove from workspace).
     var actionFolder by remember { mutableStateOf<FolderDetail?>(null) }
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     Scaffold(
@@ -188,7 +190,13 @@ fun ProjectListScreen(
             folder = folder,
             onRemove = {
                 actionFolder = null
-                scope.launch { viewModel.removeFolder(folder.id) }
+                scope.launch {
+                    // Surface the failure — a silent return leaves the row in place with
+                    // zero feedback (review round 3).
+                    viewModel.removeFolder(folder.id)?.let { err ->
+                        android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
             },
             onDismiss = { actionFolder = null },
         )
@@ -310,19 +318,20 @@ private fun FolderActionSheet(
             Text(folder.path, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = colors.textTertiary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             FolderActionRow(Icons.Rounded.ContentCopy, stringResource(R.string.folders_action_copy_path)) {
                 clipboard.setText(AnnotatedString(folder.path))
-                copied = true
+                // API 33+ shows its own clipboard overlay; only add inline feedback below it.
+                if (android.os.Build.VERSION.SDK_INT < 33) copied = true
                 scope.launch { kotlinx.coroutines.delay(1500); copied = false }
             }
             FolderActionRow(Icons.Rounded.LinkOff, stringResource(R.string.folders_action_remove), tint = colors.danger) { confirmRemove = true }
+            if (copied) {
+                Text(
+                    stringResource(R.string.folders_path_copied),
+                    fontSize = 12.sp,
+                    color = colors.textTertiary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
         }
-    }
-
-    if (copied) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(stringResource(R.string.folders_path_copied)) },
-            confirmButton = { TextButton(onClick = { copied = false }) { Text(stringResource(R.string.common_ok)) } },
-        )
     }
 
     if (confirmRemove) {

@@ -21,6 +21,9 @@
     <string name="server_test_connection">测试连接</string>
     <string name="server_save">保存</string>
     <string name="server_delete">删除</string>
+    <string name="server_hide">隐藏设备</string>
+    <string name="server_show">显示设备</string>
+    <string name="server_hidden_hint">已隐藏 · 不出现在设备栏和动态</string>
     <string name="server_connection_ok">已连接 · codeg %1$s</string>
     <string name="server_connection_failed">连接失败：%1$s</string>
     <string name="server_section_connection">连接</string>
@@ -106,7 +109,7 @@
     <string name="activity_empty_message">运行中和最近的会话会显示在这里。</string>
     <string name="activity_updated">更新于 %1$s</string>
     <string name="activity_load_failed">动态加载失败</string>
-    <string name="activity_all">全部设备</string>
+    <string name="activity_all">全部</string>
     <string name="activity_partial_failed">%1$d 台设备无法连接</string>
     <string name="devicebar_manage">管理服务器</string>
 

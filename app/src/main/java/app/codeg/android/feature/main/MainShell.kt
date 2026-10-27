@@ -669,11 +669,16 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             }
 
             composable(ROUTE_SERVERS) {
+                // The management screen lists EVERY saved device (hidden ones too)
+                // plus the visibility toggle — the only place a hidden device stays
+                // reachable, since the shell's day-to-day surfaces filter them out.
+                val allServers by appViewModel.allServers.collectAsStateWithLifecycle()
                 ServerListScreen(
-                    servers = servers,
+                    servers = allServers.orEmpty(),
                     selectedId = selectedProfile?.id,
                     onSelect = appViewModel::selectServer,
                     onDelete = appViewModel::deleteServer,
+                    onToggleVisible = appViewModel::setServerVisible,
                     onAdd = { nav.navigate(ROUTE_EDITOR) },
                     onEdit = { id -> nav.navigate("$ROUTE_EDITOR?serverId=$id") },
                     onBack = { nav.popBackStack() },

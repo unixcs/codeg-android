@@ -40,13 +40,15 @@ class ServerStore @Inject constructor(
         }
     }
 
-    /** Remove a profile; if it was selected, fall back to the first remaining. */
+    /** Remove a profile; if it was selected, fall back to the first remaining
+     *  VISIBLE one (a hidden device must not become the app's focused device just
+     *  because the previous one was deleted — the day-to-day surfaces don't list it). */
     suspend fun delete(id: String) {
         dataStore.edit { prefs ->
             val list = decode(prefs[PROFILES]).filterNot { it.id == id }
             prefs[PROFILES] = json.encodeToString(list)
             if (prefs[SELECTED] == id) {
-                val next = list.firstOrNull()?.id
+                val next = list.firstOrNull { it.visible }?.id
                 if (next != null) prefs[SELECTED] = next else prefs.remove(SELECTED)
             }
         }

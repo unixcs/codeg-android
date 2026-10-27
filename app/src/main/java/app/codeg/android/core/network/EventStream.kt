@@ -134,7 +134,7 @@ class EventStream(
         /** Derive the `ws(s)://host/ws/events` URL from an `http(s)` base URL. */
         fun websocketUrl(rawBaseUrl: String): String {
             val base = CodegClient.normalizeBaseUrl(rawBaseUrl)
-            val scheme = if (base.startsWith("https", ignoreCase = true)) "wss" else "ws"
+            val scheme = if (base.startsWith("https://", ignoreCase = true)) "wss" else "ws"
             val authority = base.substringAfter("://", base)
             return "$scheme://$authority/ws/events"
         }

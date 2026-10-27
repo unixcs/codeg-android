@@ -34,6 +34,9 @@ class ServerEditorViewModel @Inject constructor(
         private set
     var test by mutableStateOf<TestState>(TestState.Idle)
         private set
+    // Editing must not resurrect a hidden device: remember the saved visibility and
+    // write it back verbatim (the visibility toggle lives on the Servers screen).
+    private var savedVisible: Boolean = true
 
     init {
         if (editingId != null) loadExisting(editingId)
@@ -52,6 +55,7 @@ class ServerEditorViewModel @Inject constructor(
             name = profile.name
             url = profile.baseUrl
             token = repository.token(id).orEmpty()
+            savedVisible = profile.visible
         }
     }
 
@@ -74,6 +78,7 @@ class ServerEditorViewModel @Inject constructor(
                 id = id,
                 name = name.trim(),
                 baseUrl = CodegClient.normalizeBaseUrl(url),
+                visible = savedVisible,
             )
             repository.save(profile, token.trim())
             if (editingId == null) repository.select(id)

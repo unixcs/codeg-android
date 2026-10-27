@@ -12,4 +12,10 @@ data class ServerProfile(
     val id: String,
     val name: String,
     val baseUrl: String,
+    /**
+     * Whether the device shows up in day-to-day surfaces (device bar, swipe ring,
+     * aggregate activity feed, quick switches). Hidden devices stay saved and
+     * re-selectable from the Servers management screen, which lists everything.
+     */
+    val visible: Boolean = true,
 )

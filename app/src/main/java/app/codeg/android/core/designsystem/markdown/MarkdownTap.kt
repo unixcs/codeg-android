@@ -70,10 +70,8 @@ fun TappableMarkdownText(
                 if (url != null) {
                     if (onOpenUrl != null) {
                         onOpenUrl(url.item)
-                    } else {
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url.item)))
-                        }
+                    } else if (!openUrlExternally(context, url.item)) {
+                        // Non-http(s) scheme or no browser — the label stays tinted but inert.
                     }
                     return@detectTapGestures
                 }
@@ -103,9 +101,15 @@ fun TappableMarkdownText(
 )
 
 /** Swallow ActivityNotFoundException at one shared call site (browser open). */
-fun openUrlExternally(context: android.content.Context, url: String): Boolean = try {
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-    true
-} catch (_: ActivityNotFoundException) {
-    false
+fun openUrlExternally(context: android.content.Context, url: String): Boolean {
+    // Scheme allowlist: URLs come from agent output (markdown [text](url)), i.e.
+    // untrusted content — file://, content:// and custom schemes must never be
+    // handed to another component (adversarial review round 4).
+    if (Uri.parse(url).scheme?.lowercase() !in setOf("http", "https")) return false
+    return try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
 }

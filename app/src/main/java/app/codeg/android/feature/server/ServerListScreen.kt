@@ -18,6 +18,8 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -54,6 +56,7 @@ fun ServerListScreen(
     selectedId: String?,
     onSelect: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onToggleVisible: (String, Boolean) -> Unit,
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
     onBack: () -> Unit,
@@ -106,9 +109,15 @@ fun ServerListScreen(
                     ServerRow(
                         profile = profile,
                         selected = profile.id == selectedId,
-                        onClick = { onSelect(profile.id) },
+                        onClick = {
+                            // Selecting implies using — a hidden device can't be shown as
+                            // selected in the device bar, so reveal it on selection.
+                            if (!profile.visible) onToggleVisible(profile.id, true)
+                            onSelect(profile.id)
+                        },
                         onEdit = { onEdit(profile.id) },
                         onDelete = { pendingDelete = profile },
+                        onToggleVisible = { onToggleVisible(profile.id, !profile.visible) },
                     )
                 }
             }
@@ -142,6 +151,7 @@ private fun ServerRow(
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onToggleVisible: () -> Unit,
 ) {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
@@ -153,7 +163,11 @@ private fun ServerRow(
                     if (selected) {
                         Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                     }
-                    Text(profile.name, style = MaterialTheme.typography.titleSmall, color = colors.textPrimary)
+                    Text(
+                        profile.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (profile.visible) colors.textPrimary else colors.textTertiary,
+                    )
                 }
                 Text(
                     profile.baseUrl,
@@ -162,11 +176,30 @@ private fun ServerRow(
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.padding(top = 2.dp),
                 )
+                if (!profile.visible) {
+                    Text(
+                        stringResource(R.string.server_hidden_hint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textTertiary,
+                    )
+                }
             }
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = null, tint = colors.textTertiary)
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = {
+                        Text(stringResource(if (profile.visible) R.string.server_hide else R.string.server_show))
+                    },
+                    leadingIcon = {
+                        Icon(
+                            if (profile.visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = { menuOpen = false; onToggleVisible() },
+                )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.server_edit)) },
                     leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },

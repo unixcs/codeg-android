@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -33,6 +35,19 @@ class ServerRepository @Inject constructor(
     private val dispatchers: DispatcherProvider,
 ) {
     val profiles: Flow<List<ServerProfile>> = serverStore.profiles
+
+    /** The day-to-day subset: hidden devices are excluded from the device bar,
+     *  swipe ring, quick switches and the aggregate activity feed. The Servers
+     *  management screen keeps reading [profiles] (everything, with the toggle). */
+    val visibleProfiles: Flow<List<ServerProfile>> =
+        serverStore.profiles.map { list -> list.filter { it.visible } }
+
+    /** Flip a device's visibility without touching its token or selection. */
+    suspend fun setVisible(id: String, visible: Boolean) {
+        val profile = serverStore.profiles.first().firstOrNull { it.id == id } ?: return
+        serverStore.upsert(profile.copy(visible = visible))
+    }
+
     val selectedId: Flow<String?> = serverStore.selectedId
 
     /** Broadcast that a conversation was renamed/pinned/status-changed/deleted, so
@@ -79,8 +94,10 @@ class ServerRepository @Inject constructor(
     }
 
     suspend fun delete(id: String) {
-        serverStore.delete(id)
+        // Secret first (mirrors save): if the second step fails, a profile whose token
+        // is gone is visible and recoverable; an orphaned token blob never is.
         withContext(dispatchers.io) { secretStore.remove(id) }
+        serverStore.delete(id)
     }
 
     suspend fun select(id: String?) = serverStore.select(id)

@@ -12,6 +12,7 @@ import app.codeg.android.feature.floatingball.FloatingBallCatalog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -36,8 +37,15 @@ class AppViewModel @Inject constructor(
         .map { true }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    /** null = not loaded yet (show a splash); non-null = loaded (possibly empty). */
-    val servers: StateFlow<List<ServerProfile>?> = serverRepository.profiles
+    /** null = not loaded yet (show a splash); non-null = loaded (possibly empty).
+     *  Day-to-day subset only — hidden devices are excluded from the shell, device
+     *  bar/swipe/switching and the aggregate feed. The Servers management screen
+     *  reads [allServers] so hidden devices stay reachable there. */
+    val servers: StateFlow<List<ServerProfile>?> = serverRepository.visibleProfiles
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Every saved device, including hidden ones (Servers screen + its toggle). */
+    val allServers: StateFlow<List<ServerProfile>?> = serverRepository.profiles
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val selectedProfile: StateFlow<ServerProfile?> = serverRepository.selectedProfile
@@ -71,6 +79,22 @@ class AppViewModel @Inject constructor(
 
     fun deleteServer(id: String) {
         viewModelScope.launch { serverRepository.delete(id) }
+    }
+
+    /** Show/hide a device (Servers screen toggle). If the focused device was just
+     *  hidden, fall back to the first remaining visible one so the shell never
+     *  points at a device the day-to-day surfaces no longer list. */
+    fun setServerVisible(id: String, visible: Boolean) {
+        viewModelScope.launch {
+            serverRepository.setVisible(id, visible)
+            if (!visible && serverRepository.selectedId.first() == id) {
+                val fallback = serverRepository.visibleProfiles.first()
+                    .firstOrNull { it.id != id }
+                // No visible device left: clear selection (select(null)) rather than keep
+                // pointing the shell at a device no day-to-day surface lists.
+                serverRepository.select(fallback?.id)
+            }
+        }
     }
 
     fun setHomeTabOrder(routes: List<String>) {

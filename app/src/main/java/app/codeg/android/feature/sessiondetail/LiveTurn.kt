@@ -84,6 +84,13 @@ class LiveTurnBuilder(val id: String = "live-${java.util.UUID.randomUUID()}") {
     private val toolIndex = mutableMapOf<String, ToolBuilder>()
     private var seq = 0
 
+    /** Cap on a tool call's accumulated output. The card renders this string
+     *  verbatim, so an uncapped multi-MB tool stream means megabyte String copies
+     *  inside snapshot() on the main thread at the ~50ms emit cadence (adversarial
+     *  review round 5). We keep the TAIL: the freshest output is what's streaming. */
+    private val maxRawOutput = 128 * 1024
+    private val rawOutputOverflowMarker = "\n…（已截断，仅保留最近 128KB）\n"
+
     var livePlan: List<PlanEntry> = emptyList()
     var isStreaming: Boolean = true
     var stopReason: String? = null
@@ -162,9 +169,22 @@ class LiveTurnBuilder(val id: String = "live-${java.util.UUID.randomUUID()}") {
         if (!rawInput.isNullOrEmpty()) call.rawInput = rawInput
         if (content != null) call.content = content
         if (rawOutput != null) {
-            if (append) call.rawOutput.append(rawOutput) else { call.rawOutput.setLength(0); call.rawOutput.append(rawOutput) }
+            if (append) appendCapped(call.rawOutput, rawOutput) else { call.rawOutput.setLength(0); call.rawOutput.append(rawOutput) }
         }
         if (meta != null) call.meta = meta
+    }
+
+    private fun appendCapped(builder: StringBuilder, delta: String) {
+        builder.append(delta)
+        if (builder.length > maxRawOutput) {
+            val overflow = builder.length - maxRawOutput
+            builder.delete(0, overflow)
+            val markerAt = builder.indexOf(rawOutputOverflowMarker)
+            if (markerAt != 0) {
+                if (markerAt > 0) builder.delete(0, markerAt)
+                builder.insert(0, rawOutputOverflowMarker)
+            }
+        }
     }
 
     fun updatePlan(entries: List<PlanEntry>) { livePlan = entries }

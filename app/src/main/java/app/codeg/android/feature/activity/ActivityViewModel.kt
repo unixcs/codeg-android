@@ -9,8 +9,11 @@ import app.codeg.android.core.datastore.isSessionUnread
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.network.CodegClient
 import app.codeg.android.core.network.displayMessage
+import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -56,10 +59,14 @@ import javax.inject.Inject
 class ActivityViewModel @Inject constructor(
     private val repository: ServerRepository,
     settingsStore: AppSettingsStore,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(ActivityUiState())
     val ui: StateFlow<ActivityUiState> = _ui.asStateFlow()
+
+    /** App foreground signal (batch v130) — gates the 25s poll while backgrounded. */
+    private val foreground = (appContext as app.codeg.android.CodegApplication).appForeground
 
     /**
      * The Running / Last-24h sections the feed renders, sorted and with the folder tag
@@ -98,7 +105,6 @@ class ActivityViewModel @Inject constructor(
                 val isReset = profile?.id != lastProfileId || all != lastAll
                 lastProfileId = profile?.id
                 lastAll = all
-                lastTick = tick
                 onMode(profile, all, reset = isReset)
             }
         }
@@ -106,7 +112,9 @@ class ActivityViewModel @Inject constructor(
 
     private var lastProfileId: String? = null
     private var lastAll: Boolean = false
-    private var lastTick: Int = 0
+
+    /** One-shot manual-fetch flag consumed by the next poll iteration (batch v130). */
+    @Volatile private var manualOnce = false
 
     private suspend fun onMode(profile: ServerProfile?, all: Boolean, reset: Boolean) {
         pollJob?.cancel()
@@ -118,8 +126,17 @@ class ActivityViewModel @Inject constructor(
             _ui.value = ActivityUiState(loading = true)
         }
         pollJob = viewModelScope.launch {
+            // Foreground gate (batch v130): viewModelScope survives backgrounding, so this
+            // loop used to wake the radio against every device for the app's whole
+            // background life. Pause while backgrounded; on resume the bumped tick makes
+            // the mode-compare refetch immediately.
             while (true) {
-                fetch(profile, all)
+                // Foreground gate (batch v130): on resume the loop resumes and fetches
+                // immediately, which is the post-background refetch.
+                if (!foreground.value) foreground.first { it }
+                val manual = manualOnce
+                manualOnce = false
+                fetch(profile, all, manual = manual)
                 delay(25_000)
             }
         }
@@ -127,13 +144,18 @@ class ActivityViewModel @Inject constructor(
 
     fun refresh() {
         if (_ui.value.refreshing) return
-        // Run inside pollJob's scope (fresh child) so a mode switch cancels an
-        // in-flight refresh instead of letting its result land on the new mode.
-        val job = pollJob ?: return
+        restartPoll(manual = true)
+    }
+
+    /** Kill the current poll loop and start a fresh one for the current mode. A
+     *  cancelAndJoin + one-shot fetch (the old refresh/delete) left the recurring
+     *  25s poll dead until the next mode switch — the feed silently went stale. */
+    private fun restartPoll(manual: Boolean) {
+        manualOnce = manual
         viewModelScope.launch {
-            job.cancelAndJoin()
+            pollJob?.cancelAndJoin()
             repository.selectedProfile.first()?.let { profile ->
-                fetch(profile, repository.activityAll.value, manual = true)
+                onMode(profile, repository.activityAll.value, reset = false)
             }
         }
     }
@@ -163,17 +185,11 @@ class ActivityViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 _ui.update { it.copy(conversations = previous, error = e.displayMessage()) }
+                restartPoll(manual = false)
                 return@launch
             }
-            // Schedule one in-place refresh so Running/Recent re-bucket immediately.
-            pollJob?.let { job ->
-                viewModelScope.launch {
-                    job.cancelAndJoin()
-                    repository.selectedProfile.first()?.let { profile ->
-                        fetch(profile, repository.activityAll.value, manual = true)
-                    }
-                }
-            }
+            // Re-bucket Running/Recent immediately with a fresh (restarted) poll.
+            restartPoll(manual = true)
         }
     }
 
@@ -184,7 +200,15 @@ class ActivityViewModel @Inject constructor(
     ): List<ActivityRow> {
         val conversations = c.listConversations(sortBy = "updated").take(200)
         val folders = folderCache.getOrPut(serverId) {
-            runCatching { c.listFolders() }.getOrDefault(emptyList()).associate { f -> f.id to f.name }
+            try {
+                c.listFolders().associate { f -> f.id to f.name }
+            } catch (e: CancellationException) {
+                // A withTimeoutOrNull(10s) cancel must propagate — swallowing it here
+                // completed "normally" and the deadline never triggered.
+                throw e
+            } catch (_: Exception) {
+                emptyMap()
+            }
         }
         return conversations.map { conv -> ActivityRow(conv, serverId, "", folders[conv.folderId]) }
     }
@@ -209,7 +233,10 @@ class ActivityViewModel @Inject constructor(
                     )
                 }
             } else {
-                val servers = repository.profiles.first().orEmpty()
+                // Aggregate mode shows the day-to-day subset only: hidden devices
+                // contribute nothing (their data stays intact; the Servers screen
+                // can bring them back).
+                val servers = repository.profiles.first().orEmpty().filter { it.visible }
                 // Per-device scopes so folderId collisions across servers can't cross-
                 // contaminate; each device resolves its own folder names. A device that
                 // fails (offline / no token) is *counted*, never laundered into an
@@ -226,7 +253,12 @@ class ActivityViewModel @Inject constructor(
                             }
                             reachable += 1
                             try {
-                                fetchOne(client, server.id).map { it.copy(serverName = server.name) }
+                                // Per-device deadline (batch v130): a device that accepts
+                                // TCP but trickles bytes held awaitAll for the full 30s
+                                // OkHttp timeout per request, stalling the whole feed.
+                                withTimeoutOrNull(10_000) {
+                                    fetchOne(client, server.id).map { it.copy(serverName = server.name) }
+                                } ?: run { failed += 1; emptyList() }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {

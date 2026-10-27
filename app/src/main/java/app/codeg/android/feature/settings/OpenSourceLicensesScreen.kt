@@ -11,6 +11,8 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,6 +22,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.theme.CodegTheme
 
@@ -31,12 +35,16 @@ private const val LinesPerChunk = 80
 fun OpenSourceLicensesScreen() {
     val context = LocalContext.current
     val colors = CodegTheme.colors
-    val chunks = remember(context) {
-        runCatching {
-            context.assets.open(NoticeAsset).bufferedReader().use { it.readText() }
-        }.getOrNull()?.lineSequence()?.chunked(LinesPerChunk)?.map { lines ->
-            lines.joinToString("\n")
-        }?.toList().orEmpty()
+    // Load off the main thread (batch v130): the notices asset is hundreds of KB and
+    // a synchronous asset read + chunk in composition janked the first navigation here.
+    val chunks by produceState(emptyList(), context) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open(NoticeAsset).bufferedReader().use { it.readText() }
+            }.getOrNull()?.lineSequence()?.chunked(LinesPerChunk)?.map { lines ->
+                lines.joinToString("\n")
+            }?.toList().orEmpty()
+        }
     }
 
     if (chunks.isEmpty()) {
