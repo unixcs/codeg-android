@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.Difference
 import androidx.compose.material.icons.rounded.Extension
@@ -80,6 +81,7 @@ private enum class SettingsLeaf(@StringRes val titleRes: Int, val icon: ImageVec
     GENERAL(R.string.settings_leaf_general, Icons.Rounded.Tune, R.string.settings_group_personalization, true),
     FLOATING_BALL(R.string.settings_leaf_floating_ball, Icons.Rounded.TouchApp, R.string.settings_group_personalization, true),
     QUICK_MESSAGES(R.string.settings_leaf_quick_messages, Icons.AutoMirrored.Rounded.Chat, R.string.settings_group_personalization, true),
+    PROJECTS(R.string.settings_leaf_projects, Icons.Rounded.Bookmark, R.string.settings_group_personalization, true),
     AGENTS(R.string.settings_leaf_agents, Icons.Rounded.Person, R.string.settings_group_ai_agents, true),
     MODEL_PROVIDERS(R.string.settings_leaf_model_providers, Icons.Rounded.Memory, R.string.settings_group_ai_agents, true),
     EXPERTS(R.string.settings_leaf_experts, Icons.Rounded.School, R.string.settings_group_ai_agents, true),
@@ -109,6 +111,15 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
             if (requested) {
                 leaf = SettingsLeaf.FLOATING_BALL
                 FloatingBallSettingsBus.pending.value = false
+            }
+        }
+    }
+    // Same dance for the project sheets' 管理 link → 会话项目管理 leaf (batch v132).
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        app.codeg.android.feature.sessions.ProjectSettingsBus.pending.collect { requested ->
+            if (requested) {
+                leaf = SettingsLeaf.PROJECTS
+                app.codeg.android.feature.sessions.ProjectSettingsBus.pending.value = false
             }
         }
     }
@@ -143,6 +154,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 SettingsLeaf.LANGUAGE -> LanguageContent()
                 SettingsLeaf.ABOUT -> AboutScreen(viewModel)
                 SettingsLeaf.QUICK_MESSAGES -> QuickMessagesContent()
+                SettingsLeaf.PROJECTS -> SessionProjectsScreen()
                 SettingsLeaf.GENERAL -> GeneralContent(onOpenBallSettings = { leaf = SettingsLeaf.FLOATING_BALL })
                 SettingsLeaf.FLOATING_BALL -> FloatingBallContent(viewModel)
                 SettingsLeaf.MODEL_PROVIDERS -> ModelProvidersContent()

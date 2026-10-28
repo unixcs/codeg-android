@@ -1,5 +1,7 @@
 package app.codeg.android.feature.sessions
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.CallMade
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PushPin
@@ -69,13 +72,21 @@ fun SessionRow(
     onTogglePin: (() -> Unit)? = null,
     onHandoff: ((reference: String) -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    onAddToProject: (() -> Unit)? = null,
     serverName: String? = null,
     unread: Boolean = false,
+    /** Floating-ball "cycle session" feedback (batch v132): glowing border + tint. */
+    highlighted: Boolean = false,
 ) {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
-    val hasMenu = onTogglePin != null || onHandoff != null || onDelete != null
+    val hasMenu = onTogglePin != null || onHandoff != null || onDelete != null || onAddToProject != null
     val clipboard = LocalClipboardManager.current
+    val highlightBg by animateColorAsState(
+        targetValue = if (highlighted) colors.accent.copy(alpha = 0.16f) else Color.Transparent,
+        animationSpec = tween(160),
+        label = "focusBg",
+    )
     // The serialized session reference — the web composer's badge syntax
     // (`[title](codeg://session/<numeric id>)`; same `#id` fallback for a blank
     // title). The agent resolves the id via `get_session_info`. The label is
@@ -94,7 +105,18 @@ fun SessionRow(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
                 .then(
-                    if (selected) Modifier.background(colors.accent.copy(alpha = 0.18f)) else Modifier,
+                    if (selected) {
+                        Modifier.background(colors.accent.copy(alpha = 0.18f))
+                    } else {
+                        Modifier.background(highlightBg)
+                    },
+                )
+                .then(
+                    if (highlighted) {
+                        Modifier.border(1.5.dp, colors.accent, RoundedCornerShape(14.dp))
+                    } else {
+                        Modifier
+                    },
                 )
                 .combinedClickable(
                     onClick = onClick,
@@ -201,6 +223,15 @@ fun SessionRow(
                                     if (conversation.isPinned) R.string.session_unpin else R.string.session_pin,
                                 ),
                                 onClick = onTogglePin,
+                            ),
+                        )
+                    }
+                    if (onAddToProject != null) {
+                        add(
+                            CenteredAction(
+                                icon = Icons.Rounded.BookmarkAdd,
+                                label = stringResource(R.string.session_add_project),
+                                onClick = onAddToProject,
                             ),
                         )
                     }

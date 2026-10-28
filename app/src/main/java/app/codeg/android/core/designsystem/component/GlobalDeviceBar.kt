@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
@@ -40,10 +41,11 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 
 /**
  * The app-global device bar, pinned above every tab's content: one chip per saved
- * server plus an aggregate "All" chip that only applies to the Activity tab, and a
- * trailing manage-servers shortcut. Selecting a device re-points the whole app
- * (all four tabs refetch for that server); the aggregate chip is hidden outright on
- * non-Activity tabs so it can never promise a view the current tab can't show.
+ * server plus an aggregate "All" chip, and a trailing manage-servers shortcut.
+ * Selecting a device re-points the whole app (all tabs refetch for that server);
+ * the aggregate chip is hidden outright on tabs that don't support it (MainShell
+ * passes [showAll] — batch v132: Activity AND Chats, where it opens the project
+ * filter sheet), so it can never promise a view the current tab can't show.
  *
  * Rendered by [MainShell] only when the bottom bar is shown (tab routes) and more
  * than one server exists — single-device setups get nothing to switch.
@@ -69,6 +71,9 @@ fun GlobalDeviceBar(
     selectedId: String?,
     allSelected: Boolean,
     showAll: Boolean,
+    /** Active project name shown inside the All chip; null collapses the slot
+     *  so the chip's rhythm is unchanged when no filter is active (review #18). */
+    allSubtitle: String? = null,
     onSelectServer: (String) -> Unit,
     onSelectAll: () -> Unit,
     onManageServers: () -> Unit,
@@ -91,7 +96,22 @@ fun GlobalDeviceBar(
                         selected = allSelected,
                         leading = { iconTint -> Icon(Icons.Rounded.Dns, null, tint = iconTint, modifier = Modifier.size(14.dp)) },
                         onClick = onSelectAll,
-                    ) { Text(stringResource(R.string.activity_all)) }
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stringResource(R.string.activity_all))
+                            // Collapsed slot when no project filter is active.
+                            if (allSubtitle != null) {
+                                Text(
+                                    text = "· $allSubtitle",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (allSelected) colors.onAccent.copy(alpha = 0.85f) else colors.textTertiary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 88.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
             items(servers.size, key = { servers[it].id }) { i ->

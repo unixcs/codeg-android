@@ -83,6 +83,19 @@ class ServerRepository @Inject constructor(
 
     fun requestActivityRefresh() { _activityRefreshTick.value += 1 }
 
+    // Chats-tab aggregate ("全部") mode — the Chats twin of [activityAll]. Same
+    // lifecycle rules: in-memory only, a cold start lands on single-device mode.
+    private val _chatsAll = MutableStateFlow(false)
+    val chatsAll: StateFlow<Boolean> = _chatsAll.asStateFlow()
+
+    fun setChatsAll(all: Boolean) { _chatsAll.value = all }
+
+    /** Refresh tick for the aggregate Chats list (mode bumps + conversationsChanged). */
+    private val _chatsRefreshTick = MutableStateFlow(0)
+    val chatsRefreshTick: StateFlow<Int> = _chatsRefreshTick.asStateFlow()
+
+    fun requestChatsRefresh() { _chatsRefreshTick.value += 1 }
+
     /** The token for a profile, read off the IO dispatcher (Keystore decrypt). */
     suspend fun token(id: String): String? =
         withContext(dispatchers.io) { secretStore.get(id) }

@@ -3,9 +3,13 @@ package app.codeg.android.app
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.data.SessionFocusHub
+import app.codeg.android.core.data.SessionProjectRepository
 import app.codeg.android.core.datastore.AppSettings
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
+import app.codeg.android.core.datastore.SessionProject
+import app.codeg.android.core.datastore.SessionRef
 import app.codeg.android.core.datastore.ThemeMode
 import app.codeg.android.core.designsystem.theme.AccentPalette
 import app.codeg.android.feature.floatingball.FloatingBallCatalog
@@ -26,6 +30,9 @@ import javax.inject.Inject
 class AppViewModel @Inject constructor(
     private val serverRepository: ServerRepository,
     private val appSettingsStore: AppSettingsStore,
+    private val sessionProjectRepo: SessionProjectRepository,
+    /** Floating-ball session cycling — the shell dispatches the ball actions here. */
+    val focusHub: SessionFocusHub,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = appSettingsStore.settings
@@ -78,7 +85,10 @@ class AppViewModel @Inject constructor(
     }
 
     fun deleteServer(id: String) {
-        viewModelScope.launch { serverRepository.delete(id) }
+        viewModelScope.launch {
+            serverRepository.delete(id)
+            onServerDeleted(id)
+        }
     }
 
     /** Show/hide a device (Servers screen toggle). If the focused device was just
@@ -178,5 +188,53 @@ class AppViewModel @Inject constructor(
      *  Fire-and-forget: a navigation always follows, the write must never gate it. */
     fun markSessionRead(key: String) {
         viewModelScope.launch { appSettingsStore.markSessionRead(key) }
+    }
+
+    // ---- Session projects + aggregate Chats mode (batch v132) ----
+
+    val chatsAll: StateFlow<Boolean> = serverRepository.chatsAll
+
+    fun setChatsAll(all: Boolean) = serverRepository.setChatsAll(all)
+
+    val sessionProjects: StateFlow<List<SessionProject>> = sessionProjectRepo.projects
+
+    val sessionProjectMembers: StateFlow<Map<String, List<SessionRef>>> = sessionProjectRepo.members
+
+    val activeProjectId: StateFlow<String?> = sessionProjectRepo.activeProjectId
+
+    fun setActiveProject(id: String?) = sessionProjectRepo.setActive(id)
+
+    /**
+     * Leave every aggregate context at once. THE exit path for device selection,
+     * swipes, row opens and the <2-visible-device reset, so a project filter can
+     * never silently survive behind a device chip or another tab (review #2/#3).
+     */
+    fun exitAggregate() {
+        serverRepository.setActivityAll(false)
+        serverRepository.setChatsAll(false)
+        sessionProjectRepo.setActive(null)
+    }
+
+    /**
+     * Create-and-join / create-and-filter in one gesture (R1-1): the filter is set
+     * straight from the created object — [SessionProjectRepository.projects] is at
+     * least one dispatcher hop behind the DataStore write, so routing through
+     * setActive()'s re-validation would silently drop the just-created id. Guarded
+     * by the CURRENT aggregate flags (R2-5): if the user left aggregate mode while
+     * the write was in flight, activating here would strand the filter behind a
+     * single-device view. Runs on viewModelScope (Main), so [onCreated] may touch
+     * Compose state.
+     */
+    fun createAndActivateProject(name: String, onCreated: (SessionProject) -> Unit = {}) {
+        viewModelScope.launch {
+            val project = sessionProjectRepo.create(name)
+            if (chatsAll.value || activityAll.value) sessionProjectRepo.activateCreated(project.id)
+            onCreated(project)
+        }
+    }
+
+    /** Device removed: its sessions' project memberships die with it. */
+    fun onServerDeleted(serverId: String) {
+        viewModelScope.launch { sessionProjectRepo.removeRefsForServer(serverId) }
     }
 }

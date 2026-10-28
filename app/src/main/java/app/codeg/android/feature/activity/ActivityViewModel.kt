@@ -2,9 +2,12 @@ package app.codeg.android.feature.activity
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.codeg.android.core.data.SessionFocusHub
+import app.codeg.android.core.data.SessionProjectRepository
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
+import app.codeg.android.core.datastore.SessionRef
 import app.codeg.android.core.datastore.isSessionUnread
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.network.CodegClient
@@ -59,6 +62,9 @@ import javax.inject.Inject
 class ActivityViewModel @Inject constructor(
     private val repository: ServerRepository,
     settingsStore: AppSettingsStore,
+    private val projectRepo: SessionProjectRepository,
+    /** Floating-ball session cycling (batch v132) — the aggregate list registers here. */
+    val focusHub: SessionFocusHub,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -73,17 +79,28 @@ class ActivityViewModel @Inject constructor(
      * pre-resolved — computed on [Dispatchers.Default] and recomputed only when the
      * conversations/folder names change (not on the 25s poll's spinner toggle). Keeps
      * the filter+sort off the main thread and out of composition, like the Chats list.
+     *
+     * Batch v132: in aggregate mode the active project's membership narrows the rows
+     * HERE (never in the fetch), so switching projects is instant and the filter is
+     * gated on [ServerRepository.activityAll] — a single-device feed can never be
+     * silently filtered by a leftover project selection (review #3).
      */
     val sections: StateFlow<List<ActivitySection>> =
-        _ui
-            .map { it.conversations }
-            .distinctUntilChanged()
-            .combine(settingsStore.sessionReadMarks) { conversations, readMarks ->
-                buildActivitySections(conversations, readMarks)
-            }
-            .distinctUntilChanged()
-            .flowOn(Dispatchers.Default)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        combine(
+            _ui.map { it.conversations }.distinctUntilChanged(),
+            settingsStore.sessionReadMarks,
+            repository.activityAll,
+            projectRepo.activeMemberKeys,
+        ) { conversations, readMarks, all, memberKeys ->
+            val narrowed = memberKeys
+                .takeIf { all }
+                ?.let { keys -> conversations.filter { row -> row.refKey in keys } }
+                ?: conversations
+            buildActivitySections(narrowed, readMarks)
+        }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private var pollJob: Job? = null
 
@@ -176,11 +193,19 @@ class ActivityViewModel @Inject constructor(
                 return@launch
             }
             val previous = _ui.value.conversations
+            // Scope the optimistic removal to the OWNING device: ids are server-local
+            // autoincrements and the same numeric id exists on other devices
+            // (pre-existing bug found in batch v132 review #4).
             _ui.update { state ->
-                state.copy(conversations = state.conversations.filterNot { it.conversation.id == row.conversation.id })
+                state.copy(
+                    conversations = state.conversations.filterNot {
+                        it.conversation.id == row.conversation.id && it.serverId == row.serverId
+                    },
+                )
             }
             try {
                 client.deleteConversation(row.conversation.id)
+                projectRepo.removeRef(row.serverId, row.conversation.id)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -191,6 +216,20 @@ class ActivityViewModel @Inject constructor(
             // Re-bucket Running/Recent immediately with a fresh (restarted) poll.
             restartPoll(manual = true)
         }
+    }
+
+    // ---- Project passthroughs for the hoisted AddToProjectSheet (batch v132) ----
+
+    val sessionProjects = projectRepo.projects
+    val projectMembers = projectRepo.members
+    val activeProjectId = projectRepo.activeProjectId
+
+    fun toggleProjectMembership(projectId: String, ref: SessionRef, member: Boolean) {
+        viewModelScope.launch { projectRepo.setMembership(projectId, ref, member) }
+    }
+
+    fun createProject(name: String, onCreated: (app.codeg.android.core.datastore.SessionProject) -> Unit = {}) {
+        viewModelScope.launch { onCreated(projectRepo.create(name)) }
     }
 
     /** Refresh one device's feed (also resolves its folder names, once). */
@@ -297,18 +336,7 @@ data class ActivityUiState(
     val hasLoaded: Boolean = false,
     val error: String? = null,
     val lastRefreshed: Instant? = null,
-) {
-    /**
-     * Whether the feed has nothing to show — no live session and nothing updated in the
-     * last 24h. A single unsorted pass (no allocation), read once for the empty-state
-     * decision; the displayed, sorted sections come from [ActivityViewModel.sections].
-     */
-    val isEmptyFeed: Boolean
-        get() {
-            val cutoff = Instant.now().minus(Duration.ofHours(24))
-            return conversations.none { it.conversation.status.isLive || it.conversation.updatedAt.isAfter(cutoff) }
-        }
-}
+)
 
 /** One feed row: the conversation plus the device it came from. `folderName` is
  *  pre-resolved per device in the aggregate feed (folderId is server-local);
@@ -319,7 +347,10 @@ data class ActivityRow(
     val serverName: String,
     val folderName: String? = null,
     val unread: Boolean = false,
-)
+) {
+    /** Cross-device identity (batch v132) — conversation ids are server-local. */
+    val refKey: String get() = "$serverId:${conversation.id}"
+}
 
 /** What an [ActivitySection] represents — drives its header icon / label / tint. */
 enum class ActivityKind { RUNNING, RECENT }

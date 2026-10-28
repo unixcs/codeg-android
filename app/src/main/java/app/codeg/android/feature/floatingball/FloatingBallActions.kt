@@ -40,6 +40,9 @@ object FloatingBallCatalog {
         "recentSession3" to R.string.ball_action_recent_3,
         "switchServerNext" to R.string.ball_action_server_next,
         "switchServerPrev" to R.string.ball_action_server_prev,
+        "cycleProject" to R.string.ball_action_cycle_project,
+        "cycleSession" to R.string.ball_action_cycle_session,
+        "openHighlighted" to R.string.ball_action_open_highlighted,
         "ballSettings" to R.string.ball_action_ball_settings,
     )
 

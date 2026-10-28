@@ -2,11 +2,13 @@ package app.codeg.android.feature.main
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,10 +26,12 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -37,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -48,6 +53,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,6 +67,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import kotlin.math.roundToInt
 import app.codeg.android.R
 import app.codeg.android.app.AppViewModel
+import app.codeg.android.core.data.FocusPreview
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.designsystem.component.GlobalDeviceBar
 import app.codeg.android.core.designsystem.theme.CodegTheme
@@ -76,7 +83,10 @@ import app.codeg.android.feature.server.ServerEditorScreen
 import app.codeg.android.feature.settings.SettingsScreen
 import app.codeg.android.feature.server.ServerListScreen
 import app.codeg.android.feature.sessiondetail.SessionDetailScreen
+import app.codeg.android.feature.sessions.ProjectFilterSheet
+import app.codeg.android.feature.sessions.ProjectSettingsBus
 import app.codeg.android.feature.sessions.SessionListScreen
+import app.codeg.android.feature.sessions.nextProjectFilter
 
 /**
  * Bottom-navigation destinations. Each carries an outlined icon (unselected) and
@@ -216,6 +226,12 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // Aggregate "All devices" mode (Activity tab), owned by ServerRepository so the
     // ActivityViewModel can react without ViewModel-to-ViewModel injection.
     val activityAll by appViewModel.activityAll.collectAsStateWithLifecycle()
+    // Aggregate "全部" mode for the Chats tab + the project filter (batch v132).
+    val chatsAll by appViewModel.chatsAll.collectAsStateWithLifecycle()
+    val sessionProjects by appViewModel.sessionProjects.collectAsStateWithLifecycle()
+    val sessionProjectMembers by appViewModel.sessionProjectMembers.collectAsStateWithLifecycle()
+    val activeProjectId by appViewModel.activeProjectId.collectAsStateWithLifecycle()
+    var showProjectSheet by remember { mutableStateOf(false) }
     // Single-flight for the aggregate row tap (leave All → select device → push the
     // conversation). Double-taps would otherwise stack two detail pages resolved
     // against whichever selection landed last.
@@ -279,6 +295,23 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // Any route change — switching tabs or pushing a full-screen detail — reveals the bar.
     LaunchedEffect(currentRoute) { barsVisible = true }
 
+    // Project-filter invariant (batch v132 review #3): activeProjectId != null only
+    // while the current surface is in an aggregate mode. Any landing outside that
+    // context (another tab, a detail push whose origin left All, cold start) clears
+    // it; re-entering Chats-aggregate after a detail pop KEEPS it because chatsAll
+    // survived in ServerRepository.
+    androidx.compose.runtime.LaunchedEffect(currentRoute, activityAll, chatsAll) {
+        val aggregateOn = (currentRoute == HomeTab.ACTIVITY.route && activityAll) ||
+            (currentRoute == HomeTab.CHATS.route && chatsAll)
+        if (!aggregateOn) appViewModel.setActiveProject(null)
+    }
+
+    // Fewer than two visible devices → the device bar (and every aggregate context)
+    // disappears; drop the modes instead of stranding the UI with no exit (review #13).
+    androidx.compose.runtime.LaunchedEffect(servers.size) {
+        if (servers.size < 2) appViewModel.exitAggregate()
+    }
+
     val onTab: (HomeTab) -> Unit = { tab ->
         nav.navigate(tab.route) {
             popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -329,9 +362,8 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     is DeviceSwipeVerdict.Device -> {
                         val server = servers.getOrNull(verdict.deviceIndex)
                         if (server == null) return@tabSwipeNavigation
-                        if (deviceSwipeScope == DeviceSwipeScope.WITH_ALL) {
-                            appViewModel.setActivityAll(false)
-                        }
+                        // Leaving any aggregate context (All/Chats-All/project filter).
+                        appViewModel.exitAggregate()
                         appViewModel.selectServer(server.id)
                     }
                     is DeviceSwipeVerdict.All -> appViewModel.setActivityAll(true)
@@ -398,14 +430,26 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         }
     }
 
-    // Ring-step the focused device (wraps); leaves aggregate "All" mode first so
-    // the step always lands on a concrete device.
+    // Ring-step the focused device (wraps); leaves every aggregate context first so
+    // the step always lands on a concrete device with no hidden project filter.
     fun switchServerBy(step: Int) {
         if (servers.size < 2) return
         val idx = servers.indexOfFirst { it.id == selectedProfile?.id }.coerceAtLeast(0)
         val target = servers[(idx + step + servers.size) % servers.size]
-        appViewModel.setActivityAll(false)
+        appViewModel.exitAggregate()
         appViewModel.selectServer(target.id)
+    }
+
+    // Open one cross-device session ref (floating-ball "openHighlighted"): same
+    // owning-device dance as the aggregate row taps, guarded by the same single-flight.
+    fun openRef(ref: app.codeg.android.core.datastore.SessionRef) {
+        if (handoffInFlight) return
+        handoffInFlight = true
+        appViewModel.exitAggregate()
+        appViewModel.selectServerAndWait(ref.serverId) {
+            handoffInFlight = false
+            openConversationAndMark(ref.serverId, ref.conversationId)
+        }
     }
 
     // Open the bare new-task screen. Repeated floating-ball gestures (or FAB taps)
@@ -450,6 +494,29 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             "recentSession3" -> openRecentConversation(2)
             "switchServerNext" -> switchServerBy(+1)
             "switchServerPrev" -> switchServerBy(-1)
+            // Batch v132 two-segment gestures: cycle the project filter, then walk
+            // the visible list. The project cycle only acts on the list tabs (no
+            // invisible jumps from Settings/Folders); entering "All" is implicit on
+            // the first fire so 【全部 → P1 → … → 全部】 works from anywhere on-tab.
+            // Single/zero-device setups stay OUT: aggregate has no visible exit
+            // there (the All chip needs >1 device) — R1-4.
+            "cycleProject" -> if (servers.size >= 2) when (currentRoute) {
+                HomeTab.ACTIVITY.route -> {
+                    if (!activityAll) appViewModel.setActivityAll(true)
+                    appViewModel.setActiveProject(
+                        nextProjectFilter(appViewModel.activeProjectId.value, appViewModel.sessionProjects.value),
+                    )
+                }
+                HomeTab.CHATS.route -> {
+                    if (!chatsAll) appViewModel.setChatsAll(true)
+                    appViewModel.setActiveProject(
+                        nextProjectFilter(appViewModel.activeProjectId.value, appViewModel.sessionProjects.value),
+                    )
+                }
+                else -> {}
+            }
+            "cycleSession" -> appViewModel.focusHub.cycle(currentRoute ?: "")
+            "openHighlighted" -> appViewModel.focusHub.highlightedRef(currentRoute ?: "")?.let { openRef(it) }
             "ballSettings" -> {
                 onTab(HomeTab.SETTINGS)
                 FloatingBallSettingsBus.open()
@@ -499,19 +566,40 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 GlobalDeviceBar(
                     servers = servers,
                     selectedId = selectedProfile?.id,
-                    allSelected = activityAll && currentRoute == HomeTab.ACTIVITY.route,
-                    showAll = currentRoute == HomeTab.ACTIVITY.route,
+                    // Batch v132: the All chip now also lives on the Chats tab (where
+                    // it toggles the aggregate list); the subtitle echoes the active
+                    // project so a filter is never invisible.
+                    allSelected = (activityAll && currentRoute == HomeTab.ACTIVITY.route) ||
+                        (chatsAll && currentRoute == HomeTab.CHATS.route),
+                    showAll = currentRoute == HomeTab.ACTIVITY.route || currentRoute == HomeTab.CHATS.route,
+                    allSubtitle = activeProjectId?.let { pid ->
+                        sessionProjects.firstOrNull { it.id == pid }?.name
+                    },
                     onSelectServer = { id ->
                         // Tapping the already-focused device (or "All" while a device
                         // is focused) must not restart the feed — the aggregate poll
-                        // treats any profile/tick emission as a mode change.
-                        if (activityAll || id != selectedProfile?.id) {
-                            appViewModel.setActivityAll(false)
+                        // treats any profile/tick emission as a mode change. chatsAll
+                        // joins the guard so an aggregate Chats list is escapable too.
+                        if (activityAll || chatsAll || id != selectedProfile?.id) {
+                            appViewModel.exitAggregate()
                             appViewModel.selectServer(id)
                         }
                     },
                     onSelectAll = {
-                        if (activityAll) appViewModel.refreshActivityAll() else appViewModel.setActivityAll(true)
+                        // Explicit tap on "All" = enter the aggregate mode AND open the
+                        // project sheet (programmatic entries — swipes, gestures — don't
+                        // open it). The second tap reopens the sheet to change/clear the
+                        // filter; refresh is pull-to-refresh on either tab.
+                        when (currentRoute) {
+                            HomeTab.CHATS.route -> {
+                                if (!chatsAll) appViewModel.setChatsAll(true)
+                                showProjectSheet = true
+                            }
+                            else -> {
+                                if (!activityAll) appViewModel.setActivityAll(true)
+                                showProjectSheet = true
+                            }
+                        }
                     },
                     onManageServers = { nav.navigate(ROUTE_SERVERS) },
                 )
@@ -556,6 +644,36 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
                         onNewTask = openNewTask,
                         onHandoff = { folderId, ref -> nav.navigate(handoffRoute(folderId, ref)) },
+                        // Aggregate rows carry their owning device — same single-flight
+                        // dance as the Activity aggregate (review #14). Exit is scoped
+                        // to THIS tab (chatsAll + filter) so the Activity tab's own
+                        // All mode survives, mirroring the Activity path (R1-6).
+                        onOpenAggregateRow = { serverId, conversationId ->
+                            if (!handoffInFlight) {
+                                handoffInFlight = true
+                                appViewModel.setChatsAll(false)
+                                appViewModel.setActiveProject(null)
+                                appViewModel.selectServerAndWait(serverId) {
+                                    handoffInFlight = false
+                                    openConversationAndMark(serverId, conversationId)
+                                }
+                            }
+                        },
+                        onHandoffAggregate = { serverId, folderId, ref ->
+                            if (!handoffInFlight) {
+                                handoffInFlight = true
+                                appViewModel.setChatsAll(false)
+                                appViewModel.setActiveProject(null)
+                                appViewModel.selectServerAndWait(serverId) {
+                                    handoffInFlight = false
+                                    nav.navigate(handoffRoute(folderId, ref))
+                                }
+                            }
+                        },
+                        onManageProjects = {
+                            ProjectSettingsBus.open()
+                            onTab(HomeTab.SETTINGS)
+                        },
                     )
                 }
             }
@@ -601,6 +719,10 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         }
                     },
                     onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
+                    onManageProjects = {
+                        ProjectSettingsBus.open()
+                        onTab(HomeTab.SETTINGS)
+                    },
                 )
             }
             composable(HomeTab.SEARCH.route) {
@@ -701,6 +823,34 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         }
     }
 
+        // Tapping the 全部 chip (either list tab) opens the project filter sheet
+        // (batch v132): 全部会话 / a project / create-and-activate. Rendered here —
+        // the sheet must float above whatever tab is showing, and both list tabs'
+        // chip taps route through onSelectAll into this one instance.
+        if (showProjectSheet) {
+            ProjectFilterSheet(
+                projects = sessionProjects,
+                counts = sessionProjectMembers.mapValues { it.value.size },
+                activeId = activeProjectId,
+                onSelect = { pid ->
+                    appViewModel.setActiveProject(pid)
+                    showProjectSheet = false
+                },
+                onCreateActivate = { name ->
+                    // Create-and-filter in one step (R1-1); close the sheet so the
+                    // freshly filtered list is immediately visible (R2-9).
+                    appViewModel.createAndActivateProject(name)
+                    showProjectSheet = false
+                },
+                onManage = {
+                    showProjectSheet = false
+                    ProjectSettingsBus.open()
+                    onTab(HomeTab.SETTINGS)
+                },
+                onDismiss = { showProjectSheet = false },
+            )
+        }
+
         FloatingBallHost(
             enabled = appSettings.floatBallEnabled,
             sizeDp = floatBallSizeDp(appSettings.floatBallSize),
@@ -709,6 +859,64 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             onMoved = { fx, fy -> appViewModel.setFloatBallPos(fx, fy) },
             onAction = onBallAction,
         )
+
+        // Focus-cycle preview card (batch v132): after the second ball gesture
+        // highlights a row, this transient card says WHAT was highlighted.
+        // Self-collecting (R2-8): a preview emit/clear recomposes only this card,
+        // not the whole shell scope.
+        FloatingBallPreviewCard(focusHub = appViewModel.focusHub)
+    }
+}
+
+/**
+ * Transient toast-like card naming the row the ball's "cycle session" gesture
+ * just highlighted — readable without hunting the glow down a long list.
+ * `lastPreview` holds the payload through the fade-out (null would blank the
+ * card mid-exit).
+ */
+@Composable
+private fun FloatingBallPreviewCard(focusHub: app.codeg.android.core.data.SessionFocusHub) {
+    val preview by focusHub.preview.collectAsStateWithLifecycle()
+    val colors = CodegTheme.colors
+    var lastPreview by remember { mutableStateOf<FocusPreview?>(null) }
+    // Capture on the AFTER-composition pass (R3-5): a state write during
+    // composition is the discouraged pattern and costs an extra recomposition.
+    val current = preview
+    androidx.compose.runtime.SideEffect { if (current != null) lastPreview = current }
+    Box(Modifier.fillMaxSize()) {
+        AnimatedVisibility(
+            visible = current != null,
+            enter = fadeIn(tween(120)),
+            exit = fadeOut(tween(240)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            val shown = lastPreview
+            if (shown != null) {
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    color = colors.textPrimary.copy(alpha = 0.92f),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.padding(bottom = 96.dp),
+                ) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Text(
+                            text = shown.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.bg,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = shown.serverName + "  ·  " + shown.position + "/" + shown.total,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.bg.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

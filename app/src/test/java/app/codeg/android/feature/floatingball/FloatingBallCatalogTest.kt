@@ -7,7 +7,7 @@ import org.junit.Test
 /**
  * Catalog invariants for the floating ball (batch v126; v129 dropped the
  * longPress gesture — the 1s hold now moves the ball): the 16-gesture /
- * 18-action tables and the binding sanitize semantics (web loadBindings port),
+ * 21-action tables and the binding sanitize semantics (web loadBindings port),
  * plus the font ladder the ball's font actions step through.
  */
 class FloatingBallCatalogTest {
@@ -24,6 +24,13 @@ class FloatingBallCatalogTest {
         assertEquals(ids.size, ids.toSet().size)
         assertTrue(ids.isNotEmpty())
         assertTrue(FloatingBallCatalog.ACTIONS.all { it.second != 0 })
+    }
+
+    @Test
+    fun `batch v132 session-project actions are bindable`() {
+        for (id in listOf("cycleProject", "cycleSession", "openHighlighted")) {
+            assertTrue("missing action $id", id in FloatingBallCatalog.ACTION_IDS)
+        }
     }
 
     @Test

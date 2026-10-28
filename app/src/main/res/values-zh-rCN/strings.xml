@@ -69,6 +69,21 @@
     <string name="sessions_load_failed">无法加载会话</string>
     <string name="sessions_empty_title">还没有会话</string>
     <string name="sessions_empty_message">新建一个任务，它就会显示在这里。</string>
+    <!-- 批v132：跨设备聚合 + 会话项目 -->
+    <string name="sessions_all_unreachable">所有设备都无法连接</string>
+    <string name="sessions_agg_empty_title">全部设备暂无会话</string>
+    <string name="sessions_agg_empty_message">各设备的最近会话会显示在这里。</string>
+    <string name="sessions_project_empty_title">该项目暂无会话</string>
+    <string name="sessions_project_empty_message">长按会话，选“添加到项目”。</string>
+    <string name="session_add_project">添加到项目</string>
+    <string name="add_project_title">添加到项目</string>
+    <string name="add_project_empty">还没有项目，在下方创建一个。</string>
+    <string name="add_project_new">新建项目</string>
+    <string name="add_project_new_hint">新项目名称</string>
+    <string name="project_filter_title">会话项目</string>
+    <string name="project_filter_all">全部会话</string>
+    <string name="project_filter_create">创建并筛选</string>
+    <string name="project_filter_manage">管理项目</string>
     <string name="session_load_failed">无法加载该会话</string>
     <string name="session_empty_title">还没有消息</string>
     <string name="session_empty_message">该会话的消息会显示在这里。</string>
@@ -748,6 +763,14 @@
     <string name="settings_leaf_language">语言</string>
     <string name="settings_leaf_general">通用</string>
     <string name="settings_leaf_quick_messages">快捷消息</string>
+    <string name="settings_leaf_projects">会话项目管理</string>
+    <string name="projects_empty">还没有项目</string>
+    <string name="projects_create">新建项目</string>
+    <string name="projects_name_hint">项目名称</string>
+    <string name="projects_rename">重命名</string>
+    <string name="projects_delete">删除项目</string>
+    <string name="projects_delete_confirm">删除项目不会删除其中的会话，只是解除归类。</string>
+    <string name="projects_member_count">%1$d 个会话</string>
     <string name="settings_leaf_agents">智能体</string>
     <string name="settings_leaf_model_providers">模型服务商</string>
     <string name="settings_leaf_experts">专家</string>
@@ -1023,6 +1046,9 @@
     <string name="ball_action_server_next">下一台设备</string>
     <string name="ball_action_server_prev">上一台设备</string>
     <string name="ball_action_ball_settings">球设置</string>
+    <string name="ball_action_cycle_project">循环切换项目</string>
+    <string name="ball_action_cycle_session">循环切换会话</string>
+    <string name="ball_action_open_highlighted">打开高亮会话</string>
     <string name="ball_gesture_tap">单击</string>
     <string name="ball_gesture_double_tap">双击</string>
     <string name="ball_gesture_left">左滑（←）</string>

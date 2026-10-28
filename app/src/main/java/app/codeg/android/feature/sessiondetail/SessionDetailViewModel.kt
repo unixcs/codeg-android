@@ -130,6 +130,7 @@ class SessionDetailViewModel @Inject constructor(
     private val conversationPrefs: ConversationSelectorStore,
     private val draftStore: DraftStore,
     private val deviceAgentPrefs: DeviceAgentPrefsStore,
+    private val projectRepo: app.codeg.android.core.data.SessionProjectRepository,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -1512,7 +1513,10 @@ class SessionDetailViewModel @Inject constructor(
         val id = conversationId ?: return
         viewModelScope.launch {
             runCatching { c.deleteConversation(id) }
-                .onSuccess { repository.notifyConversationsChanged(); onDeleted() }
+                .onSuccess {
+                    profile?.let { p -> projectRepo.removeRef(p.id, id) }
+                    repository.notifyConversationsChanged(); onDeleted()
+                }
                 .onFailure { e -> _ui.update { it.copy(notice = e.displayMessage()) } }
         }
     }

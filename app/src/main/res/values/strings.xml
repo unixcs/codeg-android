@@ -69,6 +69,21 @@
     <string name="sessions_load_failed">Couldn\'t load sessions</string>
     <string name="sessions_empty_title">No sessions yet</string>
     <string name="sessions_empty_message">Start a new task and it\'ll show up here.</string>
+    <!-- Batch v132: cross-device aggregate + session projects -->
+    <string name="sessions_all_unreachable">No device is reachable right now</string>
+    <string name="sessions_agg_empty_title">No sessions across devices</string>
+    <string name="sessions_agg_empty_message">Recent sessions from every device will appear here.</string>
+    <string name="sessions_project_empty_title">No sessions in this project</string>
+    <string name="sessions_project_empty_message">Long-press a session, then “Add to project”.</string>
+    <string name="session_add_project">Add to project</string>
+    <string name="add_project_title">Add to project</string>
+    <string name="add_project_empty">No projects yet — create one below.</string>
+    <string name="add_project_new">Create project</string>
+    <string name="add_project_new_hint">New project name</string>
+    <string name="project_filter_title">Session projects</string>
+    <string name="project_filter_all">All sessions</string>
+    <string name="project_filter_create">Create and filter</string>
+    <string name="project_filter_manage">Manage projects</string>
     <string name="session_load_failed">Couldn\'t load this session</string>
     <string name="session_empty_title">No messages yet</string>
     <string name="session_empty_message">Messages in this session will appear here.</string>
@@ -756,6 +771,14 @@
     <string name="settings_leaf_language">Language</string>
     <string name="settings_leaf_general">General</string>
     <string name="settings_leaf_quick_messages">Quick Messages</string>
+    <string name="settings_leaf_projects">Session Projects</string>
+    <string name="projects_empty">No projects yet</string>
+    <string name="projects_create">New project</string>
+    <string name="projects_name_hint">Project name</string>
+    <string name="projects_rename">Rename</string>
+    <string name="projects_delete">Delete project</string>
+    <string name="projects_delete_confirm">Deleting a project never deletes its sessions — it only removes the grouping.</string>
+    <string name="projects_member_count">%1$d sessions</string>
     <string name="settings_leaf_agents">Agents</string>
     <string name="settings_leaf_model_providers">Model Providers</string>
     <string name="settings_leaf_experts">Experts</string>
@@ -1037,6 +1060,9 @@
     <string name="ball_action_server_next">Next device</string>
     <string name="ball_action_server_prev">Previous device</string>
     <string name="ball_action_ball_settings">Ball settings</string>
+    <string name="ball_action_cycle_project">Cycle project filter</string>
+    <string name="ball_action_cycle_session">Cycle sessions</string>
+    <string name="ball_action_open_highlighted">Open highlighted session</string>
     <string name="ball_gesture_tap">Tap</string>
     <string name="ball_gesture_double_tap">Double tap</string>
     <string name="ball_gesture_left">Swipe left (←)</string>
