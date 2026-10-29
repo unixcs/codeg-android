@@ -55,7 +55,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -586,18 +585,18 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         }
                     },
                     onSelectAll = {
-                        // Explicit tap on "All" = enter the aggregate mode AND open the
-                        // project sheet (programmatic entries — swipes, gestures — don't
-                        // open it). The second tap reopens the sheet to change/clear the
-                        // filter; refresh is pull-to-refresh on either tab.
+                        // Two-stage tap (v133 owner call): the FIRST tap on "All" just
+                        // switches to the aggregate view; only a tap on an ALREADY-active
+                        // "All" opens the project sheet (to change/clear the filter).
+                        // Programmatic entries — swipes, gestures — never open it.
+                        // Per-tab flags: CHATS reads chatsAll, every other route reads
+                        // activityAll; refresh is pull-to-refresh on either tab.
                         when (currentRoute) {
                             HomeTab.CHATS.route -> {
-                                if (!chatsAll) appViewModel.setChatsAll(true)
-                                showProjectSheet = true
+                                if (!chatsAll) appViewModel.setChatsAll(true) else showProjectSheet = true
                             }
                             else -> {
-                                if (!activityAll) appViewModel.setActivityAll(true)
-                                showProjectSheet = true
+                                if (!activityAll) appViewModel.setActivityAll(true) else showProjectSheet = true
                             }
                         }
                     },

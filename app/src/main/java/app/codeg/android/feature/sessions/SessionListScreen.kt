@@ -4,7 +4,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +32,6 @@ import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,7 +58,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -142,7 +139,10 @@ fun SessionListScreen(
     var collapsed by remember(selectedId, display) { mutableStateOf(display.collapsedSections) }
     var hiddenTarget by remember { mutableStateOf<SessionSection?>(null) }
     var showHiddenManager by remember { mutableStateOf(false) }
-    var pendingDelete by remember { mutableStateOf<ConversationSummary?>(null) }
+    // Keyed on the owning device: a floating-ball device switch while a dialog is
+    // open must discard it — the held id is server-local and would hit the wrong device.
+    var pendingDelete by remember(selectedId) { mutableStateOf<ConversationSummary?>(null) }
+    var pendingRename by remember(selectedId) { mutableStateOf<ConversationSummary?>(null) }
     // Hoisted "添加到项目" target (one sheet per screen, review #9): the owning
     // device id rides along because conversation ids are server-local.
     var addToTarget by remember { mutableStateOf<Pair<String, ConversationSummary>?>(null) }
@@ -252,6 +252,7 @@ fun SessionListScreen(
                             onAddToProject = selectedId?.let { sid ->
                                 { conv -> addToTarget = sid to conv }
                             },
+                            onRename = { conv -> pendingRename = conv },
                             onLongPressSection = { section -> hiddenTarget = section },
                             onOpenHiddenManager = { showHiddenManager = true },
                             // A refresh that failed over a still-populated list: surface
@@ -302,6 +303,17 @@ fun SessionListScreen(
         )
     }
 
+    pendingRename?.let { conversation ->
+        SessionRenameDialog(
+            initialTitle = conversation.trimmedTitle.orEmpty(),
+            onConfirm = { title ->
+                viewModel.rename(conversation, title)
+                pendingRename = null
+            },
+            onDismiss = { pendingRename = null },
+        )
+    }
+
     addToTarget?.let { (serverId, conversation) ->
         val ref = SessionRef(serverId, conversation.id)
         AddToProjectSheet(
@@ -334,6 +346,7 @@ private fun SessionList(
     onHandoff: (folderId: Int, reference: String) -> Unit,
     onDelete: (ConversationSummary) -> Unit,
     onAddToProject: ((ConversationSummary) -> Unit)?,
+    onRename: (ConversationSummary) -> Unit,
     onLongPressSection: (SessionSection) -> Unit,
     onOpenHiddenManager: () -> Unit,
     refreshError: String?,
@@ -391,6 +404,7 @@ private fun SessionList(
                         onHandoff = { ref -> onHandoff(row.conversation.folderId, ref) },
                         onDelete = { onDelete(row.conversation) },
                         onAddToProject = onAddToProject?.let { cb -> { cb(row.conversation) } },
+                        onRename = { onRename(row.conversation) },
                     )
                 }
             }
@@ -669,6 +683,7 @@ private fun AggregateChatsList(
 
     var collapsed by rememberSaveable { mutableStateOf(setOf<String>()) }
     var pendingDelete by remember { mutableStateOf<AggregateRow?>(null) }
+    var pendingRename by remember { mutableStateOf<AggregateRow?>(null) }
     var addToTarget by remember { mutableStateOf<AggregateRow?>(null) }
 
     // Failure counters are remember keys (R3-4): a device with no visible rows
@@ -873,6 +888,7 @@ private fun AggregateChatsList(
                                         onHandoff = { ref -> onHandoff(item.row.serverId, item.row.conversation.folderId, ref) },
                                         onDelete = { pendingDelete = item.row },
                                         onAddToProject = { addToTarget = item.row },
+                                        onRename = { pendingRename = item.row },
                                     )
                                 }
                             }
@@ -890,6 +906,17 @@ private fun AggregateChatsList(
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null },
+        )
+    }
+
+    pendingRename?.let { row ->
+        SessionRenameDialog(
+            initialTitle = row.conversation.trimmedTitle.orEmpty(),
+            onConfirm = { title ->
+                viewModel.renameAggregate(row, title)
+                pendingRename = null
+            },
+            onDismiss = { pendingRename = null },
         )
     }
 

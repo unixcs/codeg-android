@@ -14,6 +14,7 @@ import app.codeg.android.core.datastore.DeviceAgentPrefsStore
 import app.codeg.android.core.datastore.DraftStore
 import app.codeg.android.core.datastore.SelectorPrefs
 import app.codeg.android.core.datastore.SelectorPrefsStore
+import app.codeg.android.core.datastore.resolveSelectorPrefs
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.datastore.filterHiddenAgents
 import app.codeg.android.core.model.AcpEvent
@@ -24,7 +25,6 @@ import app.codeg.android.core.model.ConnectionStatus
 import app.codeg.android.core.model.ContentBlock
 import app.codeg.android.core.model.ExpertListItem
 import app.codeg.android.core.model.PlanApprovalDecision
-import app.codeg.android.core.model.ImageData
 import app.codeg.android.core.model.QuickMessage
 import android.content.ContentResolver
 import android.net.Uri
@@ -486,13 +486,13 @@ class SessionDetailViewModel @Inject constructor(
         connectFolder: FolderDetail? = folder,
     ): String {
         val convId = conversationId
-        val prefs = (if (convId != null) {
+        // Layered resolution (v133): the conversation layer overrides per field; the
+        // agent-level pref (e.g. YOLO) survives a conversation that only ever picked a model.
+        val conv = if (convId != null) {
             runCatching { conversationPrefs.prefs(profile?.id, convId, connectAgent) }.getOrNull()
-                // The conversation never diverged — fall through to the global agent prefs.
-                ?.takeIf { it.modeId != null || !it.configValues.isNullOrEmpty() }
-        } else null)
-            ?: runCatching { selectorPrefs.prefs(connectAgent) }.getOrNull()
-            ?: SelectorPrefs()
+        } else null
+        val agentPrefs = runCatching { selectorPrefs.prefs(connectAgent) }.getOrNull() ?: SelectorPrefs()
+        val prefs = resolveSelectorPrefs(conv, agentPrefs)
         return c.connect(
             agentType = connectAgent,
             workingDir = connectFolder?.path,
@@ -1857,14 +1857,12 @@ class SessionDetailViewModel @Inject constructor(
         val described = describeCatalog(c)
         val modes = described?.modes
         val options = described?.configOptions.orEmpty()
-        // Same resolution as [connectWithPreferences]: when THIS conversation has its own
-        // locked picks the sheet pre-selects those; otherwise the global per-agent pref.
-        val prefs = (if (convId != null) {
+        // Same layered resolution as [connectWithPreferences] (v133): conversation picks
+        // override per field; the agent-level pref fills in whatever it never picked.
+        val conv = if (convId != null) {
             runCatching { conversationPrefs.prefs(profile?.id, convId, agent) }.getOrNull()
-                ?.takeIf { it.modeId != null || !it.configValues.isNullOrEmpty() }
-        } else null)
-            ?: runCatching { selectorPrefs.prefs(agent) }.getOrNull()
-            ?: SelectorPrefs()
+        } else null
+        val prefs = resolveSelectorPrefs(conv, runCatching { selectorPrefs.prefs(agent) }.getOrNull() ?: SelectorPrefs())
         val modeId = prefs.modeId?.takeIf { saved -> modes?.availableModes?.any { it.id == saved } == true }
             ?: modes?.currentModeId
         val config = options.associate { opt ->
@@ -1887,16 +1885,22 @@ class SessionDetailViewModel @Inject constructor(
         val key = catalogKey()
         val forAgent = key.first
         val forFolder = folder
+        // Draft→live can migrate mid-refresh (send created the conversation); a stale
+        // callback would then resolve prefs against the wrong layer — guard on it too.
+        val forConvId = conversationId
         return viewModelScope.launch {
             try {
                 catalogCache.remove(key)
                 val described = describeCatalog(c) ?: return@launch
                 // Context switched while the probe ran — the sheet already reloaded for
                 // the new context; this result is for a dead key.
-                if (agent != forAgent || folder?.path != forFolder?.path) return@launch
+                if (agent != forAgent || folder?.path != forFolder?.path || conversationId != forConvId) return@launch
                 val modes = described.modes
                 val options = described.configOptions
-                val prefs = runCatching { selectorPrefs.prefs(forAgent) }.getOrDefault(SelectorPrefs())
+                val conv = forConvId?.let {
+                    runCatching { conversationPrefs.prefs(profile?.id, it, forAgent) }.getOrNull()
+                }
+                val prefs = resolveSelectorPrefs(conv, runCatching { selectorPrefs.prefs(forAgent) }.getOrDefault(SelectorPrefs()))
                 val modeId = prefs.modeId
                     ?.takeIf { saved -> modes?.availableModes?.any { it.id == saved } == true }
                     ?: modes?.currentModeId
@@ -1970,19 +1974,22 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    /** Apply a mode pick. Always remembers it per agent (so it carries to the server on the
-     *  next `acp_connect`), resolves/establishes a connection ([optionsConnection]), enqueues
-     *  `set_mode`, and reconciles against the authoritative snapshot. Returns the
-     *  confirmed/normalized mode to highlight, or null when the connect/apply failed (the sheet
-     *  reverts the optimistic pick). */
+    /** Apply a mode pick. Remembers it (draft: straight to the per-agent default; live:
+     *  the conversation's own record first, and the per-agent default ONLY after the
+     *  server confirms — a failed apply must not pollute the global default), resolves/
+     *  establishes a connection ([optionsConnection]), enqueues `set_mode`, and reconciles
+     *  against the authoritative snapshot. Returns the confirmed/normalized mode to
+     *  highlight, or null when the connect/apply failed (the sheet reverts the optimistic
+     *  pick). Mode is a sticky global preference (v133 owner spec): unless manually
+     *  switched, every conversation reconnects at the last-picked mode (e.g. YOLO). */
     suspend fun applyMode(modeId: String): String? {
         // Pin the agent/folder BEFORE the first suspension (saveMode), so a draft agent/folder
         // switch mid-apply can't save the pref under the wrong agent or retarget the connect.
         val forAgent = agent
         val forFolder = folder
         val convId = conversationId
-        // Model-lock layering, same as [applyConfig]: a live conversation keeps its mode to
-        // itself; a fresh draft seeds the global per-agent pref.
+        // Config-model asymmetry: the MODEL stays a per-conversation lock ([applyConfig]),
+        // while a confirmed MODE pick becomes the agent's global default (written below).
         if (convId != null) {
             runCatching { conversationPrefs.saveMode(profile?.id, convId, forAgent, modeId) }
         } else {
@@ -2001,7 +2008,15 @@ class SessionDetailViewModel @Inject constructor(
             ?: return if (draft) modeId else null
         return try {
             c.acpSetMode(conn, modeId)
-            reconcileSelection(conn, key = MODE_KEY, desired = modeId)
+            // reconcileSelection returns the optimistic value even if its budget ran out —
+            // "applied" (the set went through), NOT "server-verified". Promoting it is still
+            // safe: the server ignores an unknown preferredModeId on the next connect, so a
+            // silently-rejected mode self-heals instead of sticking.
+            val applied = reconcileSelection(conn, key = MODE_KEY, desired = modeId)
+            // Live pick applied to the server: promote it to the agent-level default so
+            // other conversations reconnect at the same mode (draft already wrote above).
+            if (!draft) runCatching { selectorPrefs.saveMode(forAgent, applied) }
+            applied
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -52,6 +52,7 @@ import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.sessions.SessionDeleteDialog
+import app.codeg.android.feature.sessions.SessionRenameDialog
 import app.codeg.android.feature.sessions.SessionRow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,7 +64,10 @@ fun SearchScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val query by viewModel.query.collectAsStateWithLifecycle()
     val recent by viewModel.recent.collectAsStateWithLifecycle()
-    var pendingDelete by remember { mutableStateOf<ConversationSummary?>(null) }
+    // Keyed on the owning device: a floating-ball device switch while a dialog is
+    // open must discard it — the held id is server-local and would hit the wrong device.
+    var pendingDelete by remember(ui.serverId) { mutableStateOf<ConversationSummary?>(null) }
+    var pendingRename by remember(ui.serverId) { mutableStateOf<ConversationSummary?>(null) }
     val colors = CodegTheme.colors
 
     Scaffold(
@@ -146,6 +150,7 @@ fun SearchScreen(
                                 folderName = ui.folderNames[c.folderId],
                                 onTogglePin = { viewModel.setPinned(c, !c.isPinned) },
                                 onDelete = { pendingDelete = c },
+                                onRename = { pendingRename = c },
                             )
                         }
                     }
@@ -161,6 +166,17 @@ fun SearchScreen(
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null },
+        )
+    }
+
+    pendingRename?.let { conversation ->
+        SessionRenameDialog(
+            initialTitle = conversation.trimmedTitle.orEmpty(),
+            onConfirm = { title ->
+                viewModel.rename(conversation, title)
+                pendingRename = null
+            },
+            onDismiss = { pendingRename = null },
         )
     }
 }

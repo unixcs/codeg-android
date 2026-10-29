@@ -1,10 +1,8 @@
 package app.codeg.android.feature.activity
 
 import android.text.format.DateUtils
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,7 +16,6 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -53,6 +50,7 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.sessions.AddToProjectSheet
 import app.codeg.android.feature.sessions.CollapsibleSectionHeader
 import app.codeg.android.feature.sessions.SessionDeleteDialog
+import app.codeg.android.feature.sessions.SessionRenameDialog
 import app.codeg.android.feature.sessions.SessionRow
 import java.time.Instant
 
@@ -89,6 +87,7 @@ fun ActivityScreen(
     val highlight by viewModel.focusHub.highlight.collectAsStateWithLifecycle()
     var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var pendingDelete by remember { mutableStateOf<ActivityRow?>(null) }
+    var pendingRename by remember { mutableStateOf<ActivityRow?>(null) }
     var addToTarget by remember { mutableStateOf<ActivityRow?>(null) }
     val colors = CodegTheme.colors
     val listState = rememberLazyListState()
@@ -255,6 +254,7 @@ fun ActivityScreen(
                                         serverName = if (allMode) row.serverName else null,
                                         onDelete = { pendingDelete = row },
                                         onAddToProject = { addToTarget = row },
+                                        onRename = { pendingRename = row },
                                         unread = row.unread,
                                         highlighted = allMode &&
                                             highlight?.takeIf { it.owner == ACTIVITY_FOCUS_OWNER }
@@ -279,6 +279,17 @@ fun ActivityScreen(
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null },
+        )
+    }
+
+    pendingRename?.let { row ->
+        SessionRenameDialog(
+            initialTitle = row.conversation.trimmedTitle.orEmpty(),
+            onConfirm = { title ->
+                viewModel.rename(row, title)
+                pendingRename = null
+            },
+            onDismiss = { pendingRename = null },
         )
     }
 

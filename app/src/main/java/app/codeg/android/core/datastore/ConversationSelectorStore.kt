@@ -16,13 +16,16 @@ import javax.inject.Singleton
 /**
  * Per-conversation override layer over the per-agent [SelectorPrefsStore].
  *
- * Why: [SelectorPrefsStore] is keyed by agent GLOBALLY, so a model (or mode/config) pick
- * inside one conversation follows the user into every other conversation of the same
+ * Why: [SelectorPrefsStore] is keyed by agent GLOBALLY, so a model (config) pick inside
+ * one conversation would follow the user into every other conversation of the same
  * agent — on Android, where connections are ephemeral, each reconnect replays the
  * last-chosen model via `acp_connect` preferred values and the server faithfully applies
- * it. This store pins picks to `<serverId>:<conversationId>` so a conversation sticks to
- * its own model while the global agent prefs remain the fallback for everything else
- * (new conversations, options the conversation layer never touched).
+ * it. This store pins config picks to `<serverId>:<conversationId>` so a conversation
+ * sticks to its own model. MODE is deliberately NOT symmetric (batch v133): a confirmed
+ * mode pick is promoted to the agent-level default by SessionDetailViewModel.applyMode
+ * (mode is a sticky global preference), while config options stay conversation-locked.
+ * [resolveSelectorPrefs] layers the two: conversation overrides per field, agent prefs
+ * remain the fallback for everything the conversation layer never touched.
  */
 @Singleton
 class ConversationSelectorStore @Inject constructor(

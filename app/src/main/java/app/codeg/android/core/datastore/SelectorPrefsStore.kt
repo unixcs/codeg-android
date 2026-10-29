@@ -22,6 +22,28 @@ data class SelectorPrefs(
 )
 
 /**
+ * Layered resolution (batch v133): the conversation layer overrides per field and per
+ * config key; the agent layer is the fallback for everything the conversation never
+ * picked. Replaces the old all-or-nothing takeover, under which a conversation that had
+ * only ever picked a MODEL silently dropped the agent-level mode — every reconnect then
+ * omitted `preferredModeId` and the server fell back to its default (YOLO → Build).
+ *
+ * Explicit [conv]/[agent] params (no VM property reads): the connect path pins the agent
+ * before its first suspension and must not resolve against a switched context.
+ */
+fun resolveSelectorPrefs(conv: SelectorPrefs?, agent: SelectorPrefs): SelectorPrefs {
+    val config = when {
+        conv?.configValues == null -> agent.configValues
+        agent.configValues == null -> conv.configValues
+        else -> agent.configValues + conv.configValues
+    }
+    return SelectorPrefs(
+        modeId = conv?.modeId ?: agent.modeId,
+        configValues = config?.takeIf { it.isNotEmpty() },
+    )
+}
+
+/**
  * Local cache of agent mode/config selections, keyed by [AgentType.wire] — a port of
  * the web client's `codeg:selector-prefs` (and iOS `SelectorPrefsStore`).
  *

@@ -2,6 +2,7 @@ package app.codeg.android.feature.activity
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.codeg.android.R
 import app.codeg.android.core.data.SessionFocusHub
 import app.codeg.android.core.data.SessionProjectRepository
 import app.codeg.android.core.data.ServerRepository
@@ -189,7 +190,7 @@ class ActivityViewModel @Inject constructor(
             val profile = repository.profiles.first().orEmpty().firstOrNull { it.id == row.serverId }
             val client = profile?.let { repository.client(it) }
             if (client == null) {
-                _ui.update { it.copy(error = "No token for ${row.serverName}") }
+                _ui.update { it.copy(error = appContext.getString(R.string.sessions_missing_token)) }
                 return@launch
             }
             val previous = _ui.value.conversations
@@ -215,6 +216,40 @@ class ActivityViewModel @Inject constructor(
             }
             // Re-bucket Running/Recent immediately with a fresh (restarted) poll.
             restartPoll(manual = true)
+        }
+    }
+
+    /** Rename from the activity feed (batch v133). Awaits the owning device, patches
+     *  the row in place, then restarts the poll so the sections re-sort by the new
+     *  ordering data — rename has no optimistic local state to revert. */
+    fun rename(row: ActivityRow, title: String) {
+        viewModelScope.launch(Dispatchers.Main) {
+            val profile = repository.profiles.first().orEmpty().firstOrNull { it.id == row.serverId }
+            val client = profile?.let { repository.client(it) }
+            if (client == null) {
+                _ui.update { it.copy(error = appContext.getString(R.string.sessions_missing_token)) }
+                return@launch
+            }
+            try {
+                client.renameConversation(row.conversation.id, title)
+                _ui.update { state ->
+                    state.copy(
+                        conversations = state.conversations.map {
+                            if (it.conversation.id == row.conversation.id && it.serverId == row.serverId) {
+                                it.copy(conversation = it.conversation.copy(title = title))
+                            } else {
+                                it
+                            }
+                        },
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update { it.copy(error = e.displayMessage()) }
+                return@launch
+            }
+            restartPoll(manual = false)
         }
     }
 

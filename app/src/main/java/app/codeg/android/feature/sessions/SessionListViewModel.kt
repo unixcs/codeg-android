@@ -306,6 +306,30 @@ class SessionListViewModel @Inject constructor(
         }
     }
 
+    /** Rename an aggregate row on its OWNING device (ids are server-local, review #4),
+     *  then converge: patch the row in place and notify — the notification is what
+     *  drives singleStale so the single-device list refetches on the next visit. */
+    fun renameAggregate(row: AggregateRow, title: String) {
+        viewModelScope.launch {
+            val c = clientFor(row.serverId)
+            if (c == null) {
+                _agg.update { it.copy(error = appContext.getString(R.string.sessions_missing_token)) }
+                return@launch
+            }
+            try {
+                c.renameConversation(row.conversation.id, title)
+                _agg.update { it.updateServer(row.serverId) { convs -> convs.map {
+                    if (it.id == row.conversation.id) it.copy(title = title) else it
+                } } }
+                repository.notifyConversationsChanged()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _agg.update { it.copy(error = e.displayMessage()) }
+            }
+        }
+    }
+
     fun dismissAggregateError() = _agg.update { it.copy(error = null) }
 
     /** Whether the Chats tab currently shows the cross-device aggregate list. */
@@ -423,6 +447,33 @@ class SessionListViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 _ui.update { it.copy(conversations = previous, error = e.displayMessage()) }
+            }
+        }
+    }
+
+    /**
+     * Rename a conversation from the Chats list. Awaits the server, patches the row's
+     * title in place (trimmedTitle is derived), and notifies so the aggregate list (if
+     * another device's view is showing) converges too. On failure the error surfaces;
+     * nothing was changed locally beforehand.
+     */
+    fun rename(conversation: ConversationSummary, title: String) {
+        val active = client
+        if (active == null) {
+            _ui.update { it.copy(error = appContext.getString(R.string.sessions_missing_token)) }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                active.renameConversation(conversation.id, title)
+                _ui.update { state -> state.copy(conversations = state.conversations.map {
+                    if (it.id == conversation.id) it.copy(title = title) else it
+                }) }
+                repository.notifyConversationsChanged()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update { it.copy(error = e.displayMessage()) }
             }
         }
     }

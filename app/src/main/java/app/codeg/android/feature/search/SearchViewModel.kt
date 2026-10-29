@@ -44,6 +44,10 @@ class SearchViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             repository.selectedProfile.collectLatest { profile ->
+                // Results are server-local (ids collide across devices) and this VM
+                // outlives profile switches — stale rows must not survive a device
+                // change, or rename/pin/delete would hit the WRONG device's session.
+                _ui.update { it.copy(results = emptyList(), serverId = profile?.id) }
                 client = profile?.let { repository.client(it) }
                 folderNames = client?.let { c -> runCatching { c.listFolders() }.getOrNull()?.associate { it.id to it.name } } ?: emptyMap()
                 _ui.update { it.copy(folderNames = folderNames) }
@@ -109,6 +113,26 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Rename a search-result conversation (batch v133). Awaits the server, patches
+     * the row in place; failure surfaces the error (nothing was changed locally).
+     */
+    fun rename(conversation: ConversationSummary, title: String) {
+        val active = client ?: return
+        viewModelScope.launch {
+            try {
+                active.renameConversation(conversation.id, title)
+                _ui.update { state -> state.copy(results = state.results.map {
+                    if (it.id == conversation.id) it.copy(title = title) else it
+                }) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update { it.copy(error = e.displayMessage()) }
+            }
+        }
+    }
+
     private suspend fun runSearch(raw: String) {
         val q = raw.trim()
         if (q.isEmpty()) {
@@ -135,4 +159,7 @@ data class SearchUiState(
     val folderNames: Map<Int, String> = emptyMap(),
     val searching: Boolean = false,
     val error: String? = null,
+    /** Owning device of [results]; screens key pending dialogs on it so a floating-ball
+     *  device switch closes them before their stale server-local ids can misfire. */
+    val serverId: String? = null,
 )

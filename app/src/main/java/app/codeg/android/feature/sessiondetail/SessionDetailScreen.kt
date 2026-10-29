@@ -102,7 +102,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -1043,8 +1042,9 @@ private fun SessionContextChips(
             )
         }
         // Overflow chip → the full options sheet (mode/config/branch + the same
-        // pickers). Sits right after 会话信息 per the user's call: the row's two
-        // "doors" lead, everything after is passive context.
+        // pickers). v133 (owner call): the draft's folder switcher moved up right
+        // after this — model and folder are the two picks a new session needs,
+        // so they lead the row together.
         item(key = "ctx-more") {
             ContextChip(
                 icon = Icons.Rounded.MoreHoriz,
@@ -1054,19 +1054,8 @@ private fun SessionContextChips(
                 onClick = onOpenOptions,
             )
         }
-        // Device chip: read-only. A session is pinned to its server; switching devices
-        // happens on the Servers tab, not mid-composer.
-        if (ui.serverName != null) {
-            item(key = "ctx-device") {
-                ContextChip(
-                    icon = Icons.Rounded.Dns,
-                    label = ui.serverName,
-                    contentDescription = stringResource(R.string.compose_ctx_device),
-                    enabled = false,
-                )
-            }
-        }
-        // Folder chip: dropdown of the draft's available folders.
+        // Folder chip: dropdown of the draft's available folders — placed right
+        // after the options chip (v133 owner call: 新建会话时模型/目录都顺手可切).
         if (ui.folderName != null || editable) {
             item(key = "ctx-folder") {
                 if (editable) {
@@ -1102,6 +1091,18 @@ private fun SessionContextChips(
                         enabled = false,
                     )
                 }
+            }
+        }
+        // Device chip: read-only. A session is pinned to its server; switching devices
+        // happens on the Servers tab, not mid-composer.
+        if (ui.serverName != null) {
+            item(key = "ctx-device") {
+                ContextChip(
+                    icon = Icons.Rounded.Dns,
+                    label = ui.serverName,
+                    contentDescription = stringResource(R.string.compose_ctx_device),
+                    enabled = false,
+                )
             }
         }
         // Branch chip: shows the resolved branch; tapping opens the full sheet (which

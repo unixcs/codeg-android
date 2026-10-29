@@ -1,5 +1,9 @@
 package app.codeg.android.feature.floatingball
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,11 +58,15 @@ import app.codeg.android.R
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Margin the ball keeps from the screen edges (drag clamps inside it). */
 private val DOCK_MARGIN = 12.dp
 private val PANEL_WIDTH = 230.dp
+/** Gesture-follow trail limit, as a fraction of the viewport's short side (web parity:
+ *  a long swipe can't fling the visual ball off-screen; both reset on lift-off). */
+private const val FOLLOW_RATIO = 0.18f
 /** A "no timeout" stand-in for withTimeoutOrNull — one hour is forever here. */
 private const val INDEFINITE_MS = 3_600_000L
 
@@ -72,6 +81,12 @@ private const val INDEFINITE_MS = 3_600_000L
  * is a state read ONLY inside the offset lambda (placement-phase — a drag frame
  * re-places the ball without recomposing it); press feedback goes through a
  * graphicsLayer lambda; DataStore is written once per drag release.
+ *
+ * v133 gesture-follow (web parity): during any pre-hold gesture the ball visually
+ * trails the finger via an INNER graphicsLayer translation (clamped, spring-back on
+ * release) — inner, because an outer transform would shift the pointer coordinate
+ * space and cancel the displacement the classifier measures. The stored position
+ * still moves only on real drags.
  *
  * v129 interaction (owner-specified): moving before the 1s hold fires gestures
  * (the slow-move drag path is gone); holding 1s arms drag mode — the ball
@@ -96,6 +111,12 @@ fun FloatingBallHost(
     val density = LocalDensity.current
     val colors = CodegTheme.colors
     val classifier = remember { GestureClassifier() }
+    val scope = rememberCoroutineScope()
+    // Gesture-follow (v133, web parity): while a swipe/circle is in flight the ball
+    // VISUALLY trails the finger (raw offset from the touch origin, clamped) and
+    // springs back to its logical spot on release. Pure draw-phase translation —
+    // the stored position never moves during a gesture.
+    val follow = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var pos by remember { mutableStateOf<IntOffset?>(null) }
     var pressed by remember { mutableStateOf(false) }
@@ -165,9 +186,6 @@ fun FloatingBallHost(
                     scaleX = scale
                     scaleY = scale
                 }
-                .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(colors.accent, colors.accentDim)), CircleShape)
-                .border(1.5.dp, colors.onAccent.copy(alpha = 0.35f), CircleShape)
                 .pointerInputBall(
                     classifier = classifier,
                     getPos = { pos ?: defaultPos },
@@ -184,7 +202,31 @@ fun FloatingBallHost(
                     },
                     onGesture = { gesture -> fireGesture(bindings, gesture, onAction) { showPanel = !showPanel } },
                     constrain = ::clamp,
+                    maxFollowPx = (minOf(wPx, hPx) * FOLLOW_RATIO).roundToInt(),
+                    // snapTo runs on the host scope: the pointer loop is a restricted
+                    // suspension context and may not invoke arbitrary suspend values,
+                    // and snapTo completes immediately anyway (launch-per-event is
+                    // trivial; MutatorMutex serializes them).
+                    onFollowUpdate = { delta -> scope.launch { follow.snapTo(delta) } },
+                    onFollowRelease = {
+                        scope.launch {
+                            follow.animateTo(Offset.Zero, tween(200, easing = FastOutSlowInEasing))
+                        }
+                    },
                 )
+                // Gesture-follow translation — deliberately AFTER pointerInput: an outer
+                // layer transform would shift pointerInput's coordinate space and cancel
+                // the very finger displacement the classifier measures (the ball would
+                // follow its way into seeing zero movement). Inner = draw-phase only,
+                // zero recomposition; clip/background/border stay inside the layer so the
+                // whole ball moves, not just its silhouette.
+                .graphicsLayer {
+                    translationX = follow.value.x
+                    translationY = follow.value.y
+                }
+                .clip(CircleShape)
+                .background(Brush.radialGradient(listOf(colors.accent, colors.accentDim)), CircleShape)
+                .border(1.5.dp, colors.onAccent.copy(alpha = 0.35f), CircleShape)
                 .size(sizeDp),
             contentAlignment = Alignment.Center,
         ) {
@@ -302,6 +344,9 @@ private fun Modifier.pointerInputBall(
     onDragEnd: (IntOffset) -> Unit,
     onGesture: (String) -> Unit,
     constrain: (IntOffset) -> IntOffset,
+    maxFollowPx: Int,
+    onFollowUpdate: (Offset) -> Unit,
+    onFollowRelease: () -> Unit,
 ): Modifier = this.then(
     Modifier.pointerInput(Unit) {
         awaitEachGesture {
@@ -312,11 +357,16 @@ private fun Modifier.pointerInputBall(
                 down.position.x + getPos().x,
                 down.position.y + getPos().y,
             )
+            // Container-frame finger position at touch-down — the origin the gesture
+            // follow trails. pointerInput sits OUTSIDE the follow layer, so this stays
+            // exact no matter how far the ball has visually trailed.
+            val downFinger = Offset(down.position.x + getPos().x, down.position.y + getPos().y)
             setPressed(true)
             setArmed(false)
             // Drag state: the finger's offset from the ball's top-left at drag
             // entry — held constant through the drag so the ball tracks 1:1.
             var grabOffset = Offset.Zero
+            var gestureFollowed = false
             try {
                 while (true) {
                     // While nothing is armed/dragging/classified, cap the wait at
@@ -405,6 +455,28 @@ private fun Modifier.pointerInputBall(
                             }
                             else -> Unit
                         }
+                        // Gesture-follow (v133, web parity): once the touch has become a
+                        // gesture (moved past the dead zone, pre-hold), the ball visually
+                        // trails the finger's raw offset from the touch origin — fast
+                        // swipes, slow drifts, circles, all of them. Clamped per axis to
+                        // [maxFollowPx] AND to the visual screen bounds; the logical
+                        // position never moves, and release springs it back (finally).
+                        if (classifier.gestureStarted && !classifier.isDragging && !classifier.armed) {
+                            val finger = Offset(main.position.x + getPos().x, main.position.y + getPos().y)
+                            val delta = finger - downFinger
+                            val p = getPos()
+                            val bounded = constrain(
+                                IntOffset(p.x + delta.x.roundToInt(), p.y + delta.y.roundToInt()),
+                            )
+                            val limit = maxFollowPx.toFloat()
+                            onFollowUpdate(
+                                Offset(
+                                    (bounded.x - p.x).toFloat().coerceIn(-limit, limit),
+                                    (bounded.y - p.y).toFloat().coerceIn(-limit, limit),
+                                ),
+                            )
+                            gestureFollowed = true
+                        }
                         // A move that turned this touch into a gesture/drag kills the
                         // pending single tap — mirror that into the timer state.
                         if (classifier.pendingTapGeneration == null) clearPendingTap()
@@ -413,6 +485,9 @@ private fun Modifier.pointerInputBall(
             } finally {
                 setPressed(false)
                 setArmed(false)
+                // The visual trail springs home no matter how this touch ended —
+                // gesture fired, absorbed, cancelled, or aborted by a second finger.
+                if (gestureFollowed) onFollowRelease()
                 classifier.cancel()
             }
         }

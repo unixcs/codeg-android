@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.CallMade
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.rounded.BookmarkAdd
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PushPin
@@ -73,6 +74,7 @@ fun SessionRow(
     onHandoff: ((reference: String) -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     onAddToProject: (() -> Unit)? = null,
+    onRename: (() -> Unit)? = null,
     serverName: String? = null,
     unread: Boolean = false,
     /** Floating-ball "cycle session" feedback (batch v132): glowing border + tint. */
@@ -80,7 +82,8 @@ fun SessionRow(
 ) {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
-    val hasMenu = onTogglePin != null || onHandoff != null || onDelete != null || onAddToProject != null
+    val hasMenu = onTogglePin != null || onHandoff != null || onDelete != null || onAddToProject != null ||
+        onRename != null
     val clipboard = LocalClipboardManager.current
     val highlightBg by animateColorAsState(
         targetValue = if (highlighted) colors.accent.copy(alpha = 0.16f) else Color.Transparent,
@@ -223,6 +226,15 @@ fun SessionRow(
                                     if (conversation.isPinned) R.string.session_unpin else R.string.session_pin,
                                 ),
                                 onClick = onTogglePin,
+                            ),
+                        )
+                    }
+                    if (onRename != null) {
+                        add(
+                            CenteredAction(
+                                icon = Icons.Rounded.Edit,
+                                label = stringResource(R.string.session_rename),
+                                onClick = onRename,
                             ),
                         )
                     }
