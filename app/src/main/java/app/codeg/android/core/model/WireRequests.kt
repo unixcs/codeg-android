@@ -476,3 +476,32 @@ data class CursorStructuredConfig(
     val permissionsAllow: List<String>? = null,
     val permissionsDeny: List<String>? = null,
 )
+
+// MARK: - Session fork (batch v134, Codex only)
+
+/**
+ * `acp_fork` request. Property names ARE the wire names (the server's
+ * `AcpForkParams` is camelCase) — [CodegJson.request] writes them as-is.
+ * `conversationId`/`folderId` only matter when the connection is not yet linked to
+ * a conversation row; `forkFromTurnId` (a completed assistant turn id) picks the
+ * branch point — omitted = fork at the tail.
+ */
+@Serializable
+data class AcpForkBody(
+    val connectionId: String,
+    val conversationId: Int? = null,
+    val folderId: Int? = null,
+    val forkFromTurnId: String? = null,
+)
+
+/**
+ * `acp_fork` result. The server re-points the CURRENT conversation row at the new
+ * session (title gets a `[Fork] ` prefix) and adds a sibling row keeping the
+ * original history — the caller stays on the same row id.
+ */
+@Serializable
+data class ForkResult(
+    val forkedSessionId: String,
+    val originalSessionId: String? = null,
+    val siblingConversationId: Int? = null,
+)

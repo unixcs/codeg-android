@@ -92,6 +92,14 @@
     <string name="session_jump_to_latest">回到最新</string>
     <string name="session_agent_options">智能体选项</string>
     <string name="session_open_folder">打开项目文件夹</string>
+    <string name="fork_from_here">从此处分叉</string>
+    <string name="fork_turn_in_progress">当前有回合正在进行，请等结束后再试</string>
+    <string name="fork_unavailable">没有可用的会话连接，无法分叉</string>
+    <string name="fork_succeeded">已分叉到新会话</string>
+    <string name="general_new_session_section">新建会话</string>
+    <string name="general_default_folder_title">新建会话默认目录</string>
+    <string name="general_default_folder_follow">跟随上次使用</string>
+    <string name="general_default_folder_follow_last">跟随上次使用（%1$s）</string>
     <string name="sessions_collapse">收起</string>
     <string name="sessions_expand">展开</string>
     <string name="sessions_hide_action">隐藏</string>

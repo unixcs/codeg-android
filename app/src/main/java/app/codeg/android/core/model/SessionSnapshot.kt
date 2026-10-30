@@ -26,6 +26,12 @@ data class SessionSnapshot(
     val availableCommands: List<AvailableCommandInfo> = emptyList(),
     val modes: SessionModeState? = null,
     val configOptions: List<SessionConfigOption> = emptyList(),
+    // v134 (Codex fork): the server's snapshot builder carries these for whatever
+    // connection is attached to the conversation — including an IDLE one. SnakeCase
+    // response naming maps `fork_supported`/`connection_id` automatically. `fork_supported`
+    // is the server's verdict for the attached CLI (Codex today), not a client-side list.
+    val forkSupported: Boolean = false,
+    val connectionId: String? = null,
 )
 
 /** The current + available session modes. */

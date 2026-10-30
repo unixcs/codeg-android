@@ -16,6 +16,7 @@ import app.codeg.android.feature.floatingball.FloatingBallCatalog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -77,12 +78,31 @@ class AppViewModel @Inject constructor(
      * `selectedProfile.first()` right after (session detail reads it exactly once on
      * entry and would resolve the previous server).
      */
-    fun selectServerAndWait(id: String, onDone: () -> Unit) {
+    /** Select [id] and run [onDone] once the switch has LANDED. The callback is
+     *  suspend so it can re-read the selection: the composed state updates a frame
+     *  later, and a concurrent switch (floating ball / device bar) must be visible
+     *  to a handoff that is about to resolve server-local ids. */
+    fun selectServerAndWait(id: String, onDone: suspend () -> Unit) {
         viewModelScope.launch {
-            serverRepository.select(id)
-            onDone()
+            // A failed write (disk full, corrupt prefs) must still run [onDone]: the
+            // caller releases its single-flight flag there. The handoff's own
+            // selectedIdNow() check then sees the old selection and drops the tap.
+            runCatching { serverRepository.select(id) }
+            // The landing step reads DataStore again (it can throw on I/O) and
+            // navigates; a failure there must not surface as an uncaught coroutine
+            // crash — the tap is simply lost and the user can repeat it.
+            try {
+                onDone()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
         }
     }
+
+    /** The selection as of right now — a fresh DataStore read, not the state the
+     *  last recomposition saw. */
+    suspend fun selectedIdNow(): String? = serverRepository.selectedId.first()
 
     fun deleteServer(id: String) {
         viewModelScope.launch {

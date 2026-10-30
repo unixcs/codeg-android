@@ -440,6 +440,7 @@ fun SessionDetailScreen(
                     onTocClick = if (tocEntries.isNotEmpty()) ({ showToc = true }) else null,
                     onExpandClick = { showFullscreenEditor = true },
                     canSendOverride = ui.attachments.isNotEmpty(),
+                    sendBlocked = ui.forking,
                     statusBar = { SessionStatusRow(ui = ui) },
                     contextBar = {
                         SessionContextChips(
@@ -476,7 +477,7 @@ fun SessionDetailScreen(
                             icon = Icons.Rounded.Forum,
                             title = stringResource(R.string.session_load_failed),
                             message = ui.error!!,
-                            onRetry = viewModel::load,
+                            onRetry = { viewModel.load() },
                             retryLabel = stringResource(R.string.common_retry),
                         )
                     }
@@ -541,7 +542,15 @@ fun SessionDetailScreen(
                                     startsGroup = node.startsGroup,
                                     rail = node.rail,
                                 ) {
-                                    NodeBody(node)
+                                    NodeBody(
+                                        node,
+                                        // Fork entry rides the footer of every completed
+                                        // assistant group; null hides it for non-Codex agents
+                                        // and while a turn is in flight.
+                                        onForkFromTurn = if (ui.forkSupported && !ui.isInFlight && !ui.forking) {
+                                            viewModel::forkFromTurn
+                                        } else null,
+                                    )
                                 }
                             }
                         }
@@ -591,7 +600,7 @@ fun SessionDetailScreen(
             draft = ""
         },
         isInFlight = ui.isInFlight,
-        canSend = draft.isNotBlank() || ui.attachments.isNotEmpty(),
+        canSend = (draft.isNotBlank() || ui.attachments.isNotEmpty()) && !ui.forking,
     )
 }
 

@@ -120,15 +120,31 @@ class ActivityViewModel @Inject constructor(
                 // First emission for a *mode* change resets the feed; a tick-only bump
                 // (pull-to-refresh while already in this mode) refreshes in place so
                 // the loaded list stays visible and the spinner runs its course.
-                val isReset = profile?.id != lastProfileId || all != lastAll
+                // In aggregate mode the feed spans every device, so a selection
+                // change (floating ball) is not new data — resetting here used to
+                // wipe the 全部 list back to a spinner on every device switch.
+                val isReset = all != lastAll || (!all && profile?.id != lastProfileId)
+                val profileChanged = profile?.id != lastProfileId
+                val modeChanged = all != lastAll
+                val tickChanged = tick != lastTick
                 lastProfileId = profile?.id
                 lastAll = all
+                lastTick = tick
+                // Same reason, one step further: don't even restart the poll. onMode
+                // cancels the running loop and immediately re-fans-out over every
+                // device, which made a device switch in 全部 cost a full refetch.
+                // A tick bump must still get through — that is pull-to-refresh.
+                // (No profile check here: in aggregate mode a selection change IS the
+                // thing we want to ignore, so including it would make this guard
+                // unreachable.)
+                if (all && !modeChanged && !tickChanged) return@collectLatest
                 onMode(profile, all, reset = isReset)
             }
         }
     }
 
     private var lastProfileId: String? = null
+    private var lastTick: Int? = null
     private var lastAll: Boolean = false
 
     /** One-shot manual-fetch flag consumed by the next poll iteration (batch v130). */

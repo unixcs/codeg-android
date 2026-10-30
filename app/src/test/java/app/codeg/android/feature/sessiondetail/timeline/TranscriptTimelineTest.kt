@@ -50,6 +50,31 @@ class TranscriptTimelineTest {
     }
 
     @Test
+    fun `fork anchor is the last text-bearing turn, skipping a tool-only tail`() {
+        val turns = listOf(
+            user("u1", "hi"),
+            assistant("a1", listOf(ContentBlock.Text("the answer"))),
+            assistant("a2", listOf(ContentBlock.ToolUse("t1", "Read", """{"file_path":"a"}"""))),
+        )
+        val nodes = TranscriptTimeline.build(turns, emptyList(), null, agent)
+        val footer = nodes.mapNotNull { it.content as? NodeContent.Footer }.single()
+        // The server fingerprints assistant TEXT to find the branch point and
+        // silently tail-forks when it can't — the tool-only tail must not be the anchor.
+        assertEquals("a1", footer.forkTurnId)
+    }
+
+    @Test
+    fun `a run with no assistant text offers no fork anchor`() {
+        val turns = listOf(
+            user("u1", "hi"),
+            assistant("a1", listOf(ContentBlock.ToolUse("t1", "Read", """{"file_path":"a"}"""))),
+        )
+        val nodes = TranscriptTimeline.build(turns, emptyList(), null, agent)
+        val footer = nodes.mapNotNull { it.content as? NodeContent.Footer }.single()
+        assertEquals(null, footer.forkTurnId)
+    }
+
+    @Test
     fun `consecutive tools collapse into one group node`() {
         val blocks = listOf(
             ContentBlock.ToolUse("t1", "Read", """{"file_path":"a"}"""),

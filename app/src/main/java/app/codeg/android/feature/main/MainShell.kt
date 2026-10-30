@@ -235,6 +235,29 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // conversation). Double-taps would otherwise stack two detail pages resolved
     // against whichever selection landed last.
     var handoffInFlight by remember { mutableStateOf(false) }
+
+    // Single-flight "select the owning device, then open something on it" (v134).
+    // The selection write suspends, so while it runs the user can switch devices or
+    // navigate away; [onLanded] runs only when the switch really landed AND the stack
+    // is still where the tap came from. The in-flight flag is released on every exit
+    // path — including a failed DataStore write — or one bad tap would wedge every
+    // cross-device open until the process dies.
+    fun handoffTo(serverId: String, onLanded: suspend () -> Unit) {
+        if (handoffInFlight) return
+        handoffInFlight = true
+        val origin = nav.currentBackStackEntry?.destination?.route
+        appViewModel.selectServerAndWait(serverId) {
+            try {
+                if (nav.currentBackStackEntry?.destination?.route == origin &&
+                    appViewModel.selectedIdNow() == serverId
+                ) {
+                    onLanded()
+                }
+            } finally {
+                handoffInFlight = false
+            }
+        }
+    }
     // Open a conversation AND stamp it read in one place — every entry point that
     // shows a conversation from a list (Chats / Activity single / Activity aggregate /
     // Search) routes through this so the Activity unread dot always clears on open.
@@ -242,9 +265,43 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // write is fire-and-forget and never gates the navigation.
     val openConversationAndMark: (serverId: String?, conversationId: Int) -> Unit =
         { serverId, conversationId ->
-            if (serverId != null) appViewModel.markSessionRead("$serverId:$conversationId")
-            nav.navigate("conversation/$conversationId")
+            // Deep links carry no device — resolve against the current selection so
+            // the unread dot still clears (the mark is device-scoped).
+            val ownerId = serverId ?: selectedProfile?.id
+            // v134: repeated triggers of the SAME conversation (ball gestures re-fire
+            // in the window before the NavHost recomposes; recent-session ranks fire
+            // on the detail itself) must not stack duplicate detail entries — Back
+            // then needs one press per duplicate. Read the back queue DIRECTLY (it is
+            // in sync right after navigate(); the AsState flow is a frame late).
+            // Cross-device ids collide (server-local), so compare against the device
+            // the top detail was actually opened for (detailServerId), never the
+            // live selection the ball may have changed underneath.
+            val top = nav.currentBackStackEntry
+            val topId = top?.arguments?.getInt("id")
+            // The owning device rides the route, so it belongs to THIS entry: pushing
+            // another detail over it and coming back restores the right stamp, which a
+            // single shell-level field could not.
+            val topDevice = top?.arguments?.getString("serverId")
+            if (!isDuplicateDetailPush(top?.destination?.route, topId, conversationId, ownerId, topDevice)) {
+                // Marked only for a REAL open: re-triggering the conversation already
+                // on screen must not bump its "recent" timestamp again.
+                if (ownerId != null) appViewModel.markSessionRead("$ownerId:$conversationId")
+                nav.navigate(
+                    if (ownerId != null) "conversation/$conversationId?serverId=$ownerId"
+                    else "conversation/$conversationId",
+                )
+            }
         }
+    // Open a conversation from an aggregate ("全部") row (v134 rework). The
+    // owning-device selection still lands BEFORE the push (session detail reads
+    // selectedProfile exactly once on entry), but the aggregate mode itself now
+    // SURVIVES: the aggregate lists never consume selectedProfile, so the old
+    // pre-push clear of chatsAll/activityAll only served to strand Back on the
+    // single-device view instead of the 全部 surface the user came from. Each tab's
+    // All flag is independent and untouched (the old per-tab exit note is moot).
+    fun openAggregateRow(serverId: String, conversationId: Int) {
+        handoffTo(serverId) { openConversationAndMark(serverId, conversationId) }
+    }
     // Wide screens (tablets / landscape) use a side NavigationRail instead of the bottom bar.
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
 
@@ -294,15 +351,24 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // Any route change — switching tabs or pushing a full-screen detail — reveals the bar.
     LaunchedEffect(currentRoute) { barsVisible = true }
 
-    // Project-filter invariant (batch v132 review #3): activeProjectId != null only
-    // while the current surface is in an aggregate mode. Any landing outside that
-    // context (another tab, a detail push whose origin left All, cold start) clears
-    // it; re-entering Chats-aggregate after a detail pop KEEPS it because chatsAll
-    // survived in ServerRepository.
+    // Project-filter invariant (batch v132 review #3, v134 rework): the filter only
+    // lives while a tab surface is in an aggregate mode. Adjudicate ONLY on tab
+    // landings — a full-screen detail (conversation/handoff/project) pushed from an
+    // aggregate surface must not clear the filter, or Back couldn't return to the
+    // exact 全部 view it came from; the effect re-runs and enforces the invariant the
+    // moment the tab is revealed again.
     androidx.compose.runtime.LaunchedEffect(currentRoute, activityAll, chatsAll) {
-        val aggregateOn = (currentRoute == HomeTab.ACTIVITY.route && activityAll) ||
-            (currentRoute == HomeTab.CHATS.route && chatsAll)
-        if (!aggregateOn) appViewModel.setActiveProject(null)
+        // currentBackStackEntryAsState starts at null for one frame after rotation /
+        // process restore (the NavHost restores its graph during composition, after
+        // the initial read). Adjudicating on that frame used to clear the project
+        // filter while every aggregate flag survived the config change — wait for a
+        // real route instead.
+        if (currentRoute == null) return@LaunchedEffect
+        if (currentRoute in HomeTab.entries.map { it.route }) {
+            val aggregateOn = (currentRoute == HomeTab.ACTIVITY.route && activityAll) ||
+                (currentRoute == HomeTab.CHATS.route && chatsAll)
+            if (!aggregateOn) appViewModel.setActiveProject(null)
+        }
     }
 
     // Fewer than two visible devices → the device bar (and every aggregate context)
@@ -396,7 +462,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 "settings" -> toTab(HomeTab.SETTINGS)
                 else -> {}
             }
-            is app.codeg.android.core.common.DeepLinkRoute.OpenConversation -> nav.navigate("conversation/${route.id}")
+            is app.codeg.android.core.common.DeepLinkRoute.OpenConversation -> openConversationAndMark(null, route.id)
             is app.codeg.android.core.common.DeepLinkRoute.OpenProject -> nav.navigate("project/${route.id}")
             is app.codeg.android.core.common.DeepLinkRoute.OpenSettings -> toTab(HomeTab.SETTINGS)
         }
@@ -423,9 +489,12 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             .getOrNull(rank) ?: return
         val serverId = entry.key.substringBeforeLast(':')
         val conversationId = entry.key.substringAfterLast(':').toIntOrNull() ?: return
-        appViewModel.selectServerAndWait(serverId) {
-            appViewModel.markSessionRead(entry.key)
-            nav.navigate("conversation/$conversationId")
+        // Same single-flight as the aggregate row taps: two selection dances racing
+        // each other would push details resolved against whichever landed last.
+        handoffTo(serverId) {
+            // Same entry point as every other list open: the mark (same key) rides
+            // along and the v134 same-conversation dedupe applies.
+            openConversationAndMark(serverId, conversationId)
         }
     }
 
@@ -441,14 +510,10 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
 
     // Open one cross-device session ref (floating-ball "openHighlighted"): same
     // owning-device dance as the aggregate row taps, guarded by the same single-flight.
+    // v134: no exitAggregate — Back from the opened detail returns to the 全部 surface
+    // the highlight came from (same rule as the aggregate row taps).
     fun openRef(ref: app.codeg.android.core.datastore.SessionRef) {
-        if (handoffInFlight) return
-        handoffInFlight = true
-        appViewModel.exitAggregate()
-        appViewModel.selectServerAndWait(ref.serverId) {
-            handoffInFlight = false
-            openConversationAndMark(ref.serverId, ref.conversationId)
-        }
+        openAggregateRow(ref.serverId, ref.conversationId)
     }
 
     // Open the bare new-task screen. Repeated floating-ball gestures (or FAB taps)
@@ -648,26 +713,15 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         // to THIS tab (chatsAll + filter) so the Activity tab's own
                         // All mode survives, mirroring the Activity path (R1-6).
                         onOpenAggregateRow = { serverId, conversationId ->
-                            if (!handoffInFlight) {
-                                handoffInFlight = true
-                                appViewModel.setChatsAll(false)
-                                appViewModel.setActiveProject(null)
-                                appViewModel.selectServerAndWait(serverId) {
-                                    handoffInFlight = false
-                                    openConversationAndMark(serverId, conversationId)
-                                }
-                            }
+                            // v134: selection only — the aggregate mode survives so Back
+                            // returns to the 全部 surface (see openAggregateRow).
+                            openAggregateRow(serverId, conversationId)
                         },
                         onHandoffAggregate = { serverId, folderId, ref ->
-                            if (!handoffInFlight) {
-                                handoffInFlight = true
-                                appViewModel.setChatsAll(false)
-                                appViewModel.setActiveProject(null)
-                                appViewModel.selectServerAndWait(serverId) {
-                                    handoffInFlight = false
-                                    nav.navigate(handoffRoute(folderId, ref))
-                                }
-                            }
+                            // v134: selection only, exactly like a row tap — the
+                            // composer is pushed over the tab, so Back must land
+                            // back on the 全部 surface the user came from.
+                            handoffTo(serverId) { nav.navigate(handoffRoute(folderId, ref)) }
                         },
                         onManageProjects = {
                             ProjectSettingsBus.open()
@@ -689,33 +743,20 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     // wait for the selection to land, then push the conversation
                     // (session detail reads selectedProfile exactly once on entry).
                     onOpenRow = { serverId, conversationId ->
-                        if (!handoffInFlight) {
-                            handoffInFlight = true
-                            appViewModel.setActivityAll(false)
-                            appViewModel.selectServerAndWait(serverId) {
-                                handoffInFlight = false
-                                openConversationAndMark(serverId, conversationId)
-                            }
-                        }
+                        // v134: selection only — the aggregate mode survives so Back
+                        // returns to the 全部 surface (see openAggregateRow).
+                        openAggregateRow(serverId, conversationId)
                     },
                     onSelectServer = appViewModel::selectServer,
                     onManageServers = { nav.navigate(ROUTE_SERVERS) },
                     // Long-press handoff on an aggregate row must land on the OWNING
                     // device first (folderId is server-local), same dance as onOpenRow.
                     onHandoff = { serverId, folderId, ref ->
-                        if (!handoffInFlight) {
-                            handoffInFlight = true
-                            if (activityAll) {
-                                appViewModel.setActivityAll(false)
-                                appViewModel.selectServerAndWait(serverId) {
-                                    handoffInFlight = false
-                                    nav.navigate(handoffRoute(folderId, ref))
-                                }
-                            } else {
-                                handoffInFlight = false
-                                nav.navigate(handoffRoute(folderId, ref))
-                            }
-                        }
+                        // v134: selection only — keep the aggregate mode so Back from
+                        // the composer returns to the 全部 surface. Already on the
+                        // owning device in single mode, so no selection dance needed.
+                        if (activityAll) handoffTo(serverId) { nav.navigate(handoffRoute(folderId, ref)) }
+                        else nav.navigate(handoffRoute(folderId, ref))
                     },
                     onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
                     onManageProjects = {
@@ -732,8 +773,18 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             }
 
             composable(
-                route = "conversation/{id}",
-                arguments = listOf(navArgument("id") { type = NavType.IntType }),
+                // `serverId` is the owning device, stamped at push time. Optional so
+                // old pushes and any external route still resolve; the dedupe guard
+                // treats a missing value as "unknown device".
+                route = "conversation/{id}?serverId={serverId}",
+                arguments = listOf(
+                    navArgument("id") { type = NavType.IntType },
+                    navArgument("serverId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
             ) {
                 SessionDetailScreen(
                     onBack = { nav.popBackStack() },

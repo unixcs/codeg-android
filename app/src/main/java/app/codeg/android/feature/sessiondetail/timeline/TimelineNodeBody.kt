@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.CallSplit
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
@@ -89,7 +90,11 @@ val LocalSessionContext = staticCompositionLocalOf { SessionContextUsage() }
  * the iOS `NodeBody`.
  */
 @Composable
-fun NodeBody(node: TimelineNode, modifier: Modifier = Modifier) {
+fun NodeBody(
+    node: TimelineNode,
+    modifier: Modifier = Modifier,
+    onForkFromTurn: ((String) -> Unit)? = null,
+) {
     when (val c = node.content) {
         is NodeContent.User -> UserNodeBody(c.turn, modifier)
         is NodeContent.System -> SystemNodeBody(c.turn, modifier)
@@ -107,7 +112,12 @@ fun NodeBody(node: TimelineNode, modifier: Modifier = Modifier) {
         is NodeContent.ToolGroup -> ToolGroupCard(c.items, modifier, streaming = c.streaming)
         is NodeContent.Image -> InlineImage(c.image, c.caption, modifier)
         is NodeContent.Compaction -> ContextCompactionDivider(c.before, c.after, c.running, modifier)
-        is NodeContent.Footer -> TurnFooter(c.turn, c.questionId, modifier)
+        is NodeContent.Footer -> TurnFooter(
+            c.turn,
+            c.questionId,
+            onFork = onForkFromTurn?.let { cb -> c.forkTurnId?.let { id -> { cb(id) } } },
+            modifier = modifier,
+        )
         is NodeContent.Plan -> LivePlanView(c.entries, modifier)
         is NodeContent.Thinking -> ThinkingShimmer(modifier)
         is NodeContent.Error -> InlineTurnError(c.message, modifier)
@@ -185,7 +195,12 @@ private fun SystemNodeBody(turn: MessageTurn, modifier: Modifier) {
  * timestamp away — the whole reason this is a column, not one cramped row.
  */
 @Composable
-private fun TurnFooter(turn: MessageTurn, questionId: String?, modifier: Modifier) {
+private fun TurnFooter(
+    turn: MessageTurn,
+    questionId: String?,
+    modifier: Modifier,
+    onFork: (() -> Unit)? = null,
+) {
     val colors = CodegTheme.colors
     // Copy text joins every block → memoize it. Meta stays live so the clock
     // ("02:45") keeps honest rather than freezing at first composition.
@@ -232,6 +247,7 @@ private fun TurnFooter(turn: MessageTurn, questionId: String?, modifier: Modifie
         if (copyText.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CopyButton(copyText)
+                if (onFork != null) ForkButton(onFork)
                 if (questionId != null) JumpToQuestionButton(questionId)
             }
         } else if (questionId != null) {
@@ -273,6 +289,29 @@ private fun CopyButton(text: String) {
             )
         }
         Text(if (copied) stringResource(R.string.timeline_copied) else stringResource(R.string.timeline_copy), fontSize = 11.sp, color = colors.textTertiary)
+    }
+}
+
+@Composable
+private fun ForkButton(onFork: () -> Unit) {
+    val colors = CodegTheme.colors
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onFork)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Icon(
+            Icons.AutoMirrored.Rounded.CallSplit,
+            // The label below already reads "Fork from here"; a description here
+            // would make TalkBack announce it twice.
+            contentDescription = null,
+            tint = colors.textTertiary,
+            modifier = Modifier.size(13.dp),
+        )
+        Text(stringResource(R.string.fork_from_here), fontSize = 11.sp, color = colors.textTertiary)
     }
 }
 

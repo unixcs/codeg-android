@@ -82,6 +82,9 @@ fun ComposeBar(
     onTocClick: (() -> Unit)? = null,
     onExpandClick: (() -> Unit)? = null,
     canSendOverride: Boolean = false,
+    /** Disables send without swapping the button to Stop — used while a fork is
+     *  mid-flight (no turn to cancel, but a send would hit the wrong session). */
+    sendBlocked: Boolean = false,
     /** "Join queue" — shown only while a turn runs and the draft is non-empty. */
     onQueue: (() -> Unit)? = null,
     contextBar: (@Composable () -> Unit)? = null,
@@ -90,7 +93,7 @@ fun ComposeBar(
     onPickCommand: ((AvailableCommandInfo) -> Unit)? = null,
 ) {
     val colors = CodegTheme.colors
-    val canSend = (text.isNotBlank() || canSendOverride) && !isInFlight
+    val canSend = (text.isNotBlank() || canSendOverride) && !isInFlight && !sendBlocked
     val sendContainer by animateColorAsState(
         targetValue = if (isInFlight) colors.danger else colors.accent,
         animationSpec = tween(220),

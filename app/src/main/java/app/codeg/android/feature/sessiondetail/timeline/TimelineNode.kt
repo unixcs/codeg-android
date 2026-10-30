@@ -39,7 +39,15 @@ sealed interface NodeContent {
     /** A context-compaction boundary — rendered as a chrome-less divider, not a card.
      *  Token counts are Grok-only (codex sends none). */
     data class Compaction(val before: Int?, val after: Int?, val running: Boolean) : NodeContent
-    data class Footer(val turn: MessageTurn, val questionId: String?) : NodeContent
+    data class Footer(
+    val turn: MessageTurn,
+    val questionId: String?,
+    /** Fork anchor (v134): the last TEXT-bearing assistant turn id of the merged
+     *  group. Forking from it keeps the merged run's prose but DROPS the tool-only
+     *  turns after it — the server can only resolve a branch point by assistant text,
+     *  and a text-less anchor would silently tail-fork instead. */
+    val forkTurnId: String? = null,
+) : NodeContent
     data class Plan(val entries: List<PlanEntry>) : NodeContent
     data object Thinking : NodeContent
     data class Error(val message: String) : NodeContent
@@ -195,8 +203,17 @@ object TranscriptTimeline {
                 TurnRole.ASSISTANT -> {
                     var j = i + 1
                     while (j < source.size && source[j].role == TurnRole.ASSISTANT) j++
-                    val merged = merge(source.subList(i, j))
-                    nodes.addAll(assistantNodes(merged, lastUserId, agent))
+                    val run = source.subList(i, j)
+                    val merged = merge(run)
+                    // Fork anchor (v134): the LAST turn of the run that carries real
+                    // assistant text. The server fingerprints text blocks to locate the
+                    // branch point and silently tail-forks when it can't resolve one, so
+                    // anchoring on a text-less tool-call tail would make "fork from here"
+                    // a no-op. No text anywhere in the run → no fork entry.
+                    val forkTurnId = run.lastOrNull { turn ->
+                        turn.blocks.any { (it as? ContentBlock.Text)?.text?.isNotBlank() == true }
+                    }?.id
+                    nodes.addAll(assistantNodes(merged, forkTurnId, lastUserId, agent))
                     i = j
                 }
             }
@@ -220,11 +237,11 @@ object TranscriptTimeline {
 
     /** A merged reply → ordered part nodes + a footer (always emitted, even tool-only).
      *  Text parts split into per-block nodes; persisted text is parse-memoized. */
-    private fun assistantNodes(merged: MessageTurn, questionId: String?, agent: AgentType): List<TimelineNode> {
+    private fun assistantNodes(merged: MessageTurn, forkTurnId: String?, questionId: String?, agent: AgentType): List<TimelineNode> {
         val out = MessageRender.adaptTurn(merged)
             .flatMapIndexed { idx, part -> nodesFor(part, merged.id, idx, agent, cached = true) }
             .toMutableList()
-        out.add(TimelineNode("${merged.id}#footer", NodeContent.Footer(merged, questionId), agent))
+        out.add(TimelineNode("${merged.id}#footer", NodeContent.Footer(merged, questionId, forkTurnId), agent))
         return out
     }
 

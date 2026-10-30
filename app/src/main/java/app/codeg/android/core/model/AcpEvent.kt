@@ -87,6 +87,9 @@ sealed interface AcpEvent {
     ) : AcpEvent
     data class TurnComplete(val stopReason: String) : AcpEvent
     data class SessionStarted(val sessionId: String) : AcpEvent
+    /** Server broadcast after connect: whether the attached CLI supports session/fork. */
+    data class ForkSupported(val supported: Boolean) : AcpEvent
+
     data class ConversationLinked(val conversationId: Int, val folderId: Int) : AcpEvent
     data class ConversationStatusChanged(val conversationId: Int, val status: ConversationStatus) : AcpEvent
     data class StatusChanged(val status: ConnectionStatus) : AcpEvent
@@ -161,6 +164,7 @@ sealed interface AcpEvent {
                 )
                 "turn_complete" -> TurnComplete(obj.stringOrNull("stop_reason") ?: "end_turn")
                 "session_started" -> SessionStarted(obj.stringOrNull("session_id").orEmpty())
+            "fork_supported" -> ForkSupported(supported = obj.boolOrNull("supported") ?: false)
                 "conversation_linked" -> ConversationLinked(
                     conversationId = obj.intOrZero("conversation_id"),
                     folderId = obj.intOrZero("folder_id"),
@@ -276,6 +280,9 @@ data class LiveSessionSnapshot(
      *  text be injected into a running turn (`submit_session_feedback`). */
     val nativeSteeringAvailable: Boolean = false,
     val feedbackToolAvailable: Boolean = false,
+    /** Server-computed fork support for the attached CLI (v134 — the client trusts
+     *  this, so whichever agents the server advertises get the button). */
+    val forkSupported: Boolean = false,
 ) {
     companion object {
         fun fromWire(obj: JsonObject, json: Json): LiveSessionSnapshot =
@@ -301,6 +308,7 @@ data class LiveSessionSnapshot(
                 configOptions = decodeList(json, obj["config_options"], SessionConfigOption.serializer()),
                 nativeSteeringAvailable = (obj["native_steering_available"] as? JsonPrimitive)?.content == "true",
                 feedbackToolAvailable = (obj["feedback_tool_available"] as? JsonPrimitive)?.content == "true",
+                forkSupported = (obj["fork_supported"] as? JsonPrimitive)?.content == "true",
             )
 
         private fun JsonObject.intOrNull(key: String): Int? =

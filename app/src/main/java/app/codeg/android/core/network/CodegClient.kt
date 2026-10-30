@@ -2,7 +2,9 @@ package app.codeg.android.core.network
 
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.ConversationConnectionInfo
+import app.codeg.android.core.model.ForkResult
 import app.codeg.android.core.model.ConversationDetail
+import app.codeg.android.core.model.AcpForkBody
 import app.codeg.android.core.model.ConversationIdBody
 import app.codeg.android.core.model.ConnectBody
 import app.codeg.android.core.model.ConnectionIdBody
@@ -332,6 +334,20 @@ class CodegClient(
     suspend fun renameConversation(conversationId: Int, title: String) {
         send("update_conversation_title", encode(UpdateConversationTitleBody(conversationId, title)))
     }
+
+    /** Fork the session attached to [connectionId] (server `acp_fork`, batch v134 —
+     *  Codex only; other agents answer 500 and old servers 404). The response is
+     *  camelCase (`ForkResultInfo` renames), so it MUST decode through decodeCamel —
+     *  the default response decoder is SnakeCase and would null every field. */
+    suspend fun forkSession(
+        connectionId: String,
+        conversationId: Int?,
+        folderId: Int?,
+        forkFromTurnId: String?,
+    ): ForkResult = decodeCamel(
+        send("acp_fork", encode(AcpForkBody(connectionId, conversationId, folderId, forkFromTurnId))),
+        ForkResult.serializer(),
+    )
 
     /** Set a conversation's lifecycle status (server `update_conversation_status`). */
     suspend fun setStatus(conversationId: Int, status: String) {

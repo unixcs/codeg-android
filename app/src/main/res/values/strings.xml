@@ -92,6 +92,14 @@
     <string name="session_jump_to_latest">Jump to latest</string>
     <string name="session_agent_options">Agent options</string>
     <string name="session_open_folder">Open project folder</string>
+    <string name="fork_from_here">Fork from here</string>
+    <string name="fork_turn_in_progress">A turn is in progress — try again when it finishes</string>
+    <string name="fork_unavailable">No session connection available to fork</string>
+    <string name="fork_succeeded">Forked into a new session</string>
+    <string name="general_new_session_section">New session</string>
+    <string name="general_default_folder_title">Default folder for new sessions</string>
+    <string name="general_default_folder_follow">Follow last used</string>
+    <string name="general_default_folder_follow_last">Follow last used (%1$s)</string>
     <string name="sessions_collapse">Collapse</string>
     <string name="sessions_expand">Expand</string>
     <string name="sessions_hide_action">Hide</string>

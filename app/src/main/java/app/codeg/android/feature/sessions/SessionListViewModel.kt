@@ -78,6 +78,14 @@ class SessionListViewModel @Inject constructor(
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Inputs of the aggregate branch's one collector. */
+    private data class AggregateInput(
+        val profile: ServerProfile?,
+        val all: Boolean,
+        val tick: Int,
+        val profiles: List<ServerProfile>,
+    )
+
     /** The only [_ui] fields the grouping depends on, so spinner/error toggles don't re-sort. */
     private data class GroupingInput(
         val folders: List<FolderDetail>,
@@ -94,6 +102,16 @@ class SessionListViewModel @Inject constructor(
      *  is stale until the next [onProfile]. Eats the R2-6 skip guard (R3-2a). */
     private var singleStale = false
 
+    /** Last aggregate-branch inputs. The floating ball can switch devices while
+     *  the aggregate list is on screen; that only changes the selection, not the
+     *  fan-out, so it must not re-fetch (v134 — same rule as the activity feed).
+     *  The device SET is different: adding, deleting, hiding or renaming a device
+     *  changes what the fan-out should cover, so its signature is compared too —
+     *  otherwise the 全部 list keeps ghost rows for a device that is gone. */
+    private var lastAllMode: Boolean? = null
+    private var lastAggTick: Int? = null
+    private var lastDeviceSig: String? = null
+
     init {
         // Single mode machine (batch v132 review #1): the aggregate ("全部") branch
         // and the single-device branch share ONE collector so they can never write
@@ -104,10 +122,39 @@ class SessionListViewModel @Inject constructor(
                 repository.selectedProfile,
                 repository.chatsAll,
                 repository.chatsRefreshTick,
-            ) { profile, all, _ -> profile to all }
-                .collectLatest { (profile, all) ->
+                repository.profiles,
+            ) { profile, all, tick, profiles -> AggregateInput(profile, all, tick, profiles) }
+                // Every DataStore write re-emits selectedProfile/profiles (draft
+                // autosave, read marks, a select() from a handoff). Those emissions
+                // carry IDENTICAL inputs — dropping them here keeps collectLatest from
+                // cancelling a healthy in-flight fetch, which used to strand the busy
+                // flags (and silently swallow a pull-to-refresh).
+                .distinctUntilChanged()
+                .collectLatest { input ->
+                    val (profile, all, tick) = input
+                    val deviceSig = input.profiles
+                        .filter { it.visible }
+                        .joinToString("|") { "${it.id}:${it.name}:${it.baseUrl}" }
+                    val modeChanged = lastAllMode != all
+                    val tickChanged = tick != lastAggTick
+                    val devicesChanged = deviceSig != lastDeviceSig
+                    lastAllMode = all
+                    lastAggTick = tick
+                    lastDeviceSig = deviceSig
                     if (all) {
-                        fetchAggregate()
+                        // A profile-only change (ball gesture) leaves the aggregate
+                        // fan-out identical — refresh only on mode entry, an
+                        // invalidation tick, a device-set change, or the first load.
+                        if (modeChanged || tickChanged || devicesChanged || !_agg.value.hasLoaded) {
+                            fetchAggregate()
+                        } else {
+                            // collectLatest just cancelled whatever was in flight, so
+                            // nothing is busy any more. Clear the flags: a cancelled
+                            // refresh otherwise leaves isRefreshing=true forever and
+                            // pull-to-refresh (and the error banner's retry) refuse to
+                            // start again.
+                            _agg.update { it.copy(isLoading = false, isRefreshing = false) }
+                        }
                     } else {
                         // R2-6: aggregate→device flip with an UNCHANGED profile is a
                         // mode transition, not new data — skip the full refetch (the
@@ -119,6 +166,10 @@ class SessionListViewModel @Inject constructor(
                             "${profile.id}|${profile.baseUrl}" == loadedEndpoint &&
                             _ui.value.hasLoaded
                         ) {
+                            // collectLatest already cancelled any in-flight fetch;
+                            // clear the flags or isBusy stays true forever and every
+                            // later refresh/retry is refused.
+                            _ui.update { it.copy(isLoading = false, isRefreshing = false) }
                             return@collectLatest
                         }
                         onProfile(profile)

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.ArrowDropUp
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -28,12 +29,17 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -171,6 +177,91 @@ fun GeneralContent(
                 ),
             )
         }
+        Section(stringResource(R.string.general_new_session_section)) {
+            var showFolderPicker by rememberSaveable { mutableStateOf(false) }
+            // Summary line: the pin's name, or the last-used folder's name when
+            // following memory, so the row reads as a fact not a mode switch.
+            val lastUsedName = ui.lastUsedFolderId?.let { id ->
+                ui.draftFolders.firstOrNull { it.id == id }?.name?.takeIf { it.isNotBlank() }
+            }
+            val followLabel = lastUsedName
+                ?.let { stringResource(R.string.general_default_folder_follow_last, it) }
+                ?: stringResource(R.string.general_default_folder_follow)
+            // A pin whose folder was closed/deleted server-side is NOT a pin any more:
+            // the new-task resolver skips it, so showing "#12" (and an option list with
+            // nothing selected) would describe behaviour that no longer happens.
+            val activePin = ui.pinnedFolderId?.takeIf { pin -> ui.draftFolders.any { it.id == pin } }
+            val currentLabel = when (val pin = activePin) {
+                null -> followLabel
+                else -> ui.draftFolders.firstOrNull { it.id == pin }?.name ?: followLabel
+            }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.general_default_folder_title)) },
+                supportingContent = { Text(currentLabel) },
+                trailingContent = {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                // No server loaded (or its load failed): the list is empty and every
+                // option would be a no-op — don't open a dead dialog.
+                modifier = Modifier.clickable { if (ui.serverId != null) showFolderPicker = true },
+            )
+            ui.error?.let { message ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.danger,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { viewModel.load() }) {
+                        Text(stringResource(R.string.common_retry), color = colors.accent)
+                    }
+                }
+            }
+            if (showFolderPicker) {
+                AlertDialog(
+                    onDismissRequest = { showFolderPicker = false },
+                    title = { Text(stringResource(R.string.general_default_folder_title)) },
+                    text = {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            PickerRow(
+                                label = followLabel,
+                                selected = activePin == null,
+                                onClick = {
+                                    viewModel.setPinnedFolder(null)
+                                    showFolderPicker = false
+                                },
+                            )
+                            ui.draftFolders.forEach { f ->
+                                PickerRow(
+                                    label = f.name.ifBlank { f.path },
+                                    selected = activePin == f.id,
+                                    onClick = {
+                                        viewModel.setPinnedFolder(f.id)
+                                        showFolderPicker = false
+                                    },
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showFolderPicker = false }) {
+                            Text(stringResource(R.string.common_ok), color = colors.accent)
+                        }
+                    },
+                )
+            }
+        }
         Section(stringResource(R.string.general_conversation_tools)) {
             ToggleRow(stringResource(R.string.general_live_feedback_title), stringResource(R.string.general_live_feedback_subtitle), ui.feedbackEnabled, viewModel::setFeedback)
             ToggleRow(stringResource(R.string.general_ask_questions_title), stringResource(R.string.general_ask_questions_subtitle), ui.questionEnabled, viewModel::setQuestion)
@@ -192,6 +283,22 @@ fun GeneralContent(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun PickerRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = CodegTheme.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Text(label, fontSize = 15.sp, color = colors.textPrimary, modifier = Modifier.padding(start = 8.dp))
     }
 }
 

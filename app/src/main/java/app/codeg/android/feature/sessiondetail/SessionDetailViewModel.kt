@@ -11,6 +11,7 @@ import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.ConversationSelectorStore
 import app.codeg.android.core.datastore.DeviceAgentPrefsStore
+import app.codeg.android.core.datastore.DraftFolderPrefsStore
 import app.codeg.android.core.datastore.DraftStore
 import app.codeg.android.core.datastore.SelectorPrefs
 import app.codeg.android.core.datastore.SelectorPrefsStore
@@ -76,6 +77,8 @@ import kotlinx.serialization.json.putJsonArray
 import java.io.File
 import java.time.Instant
 import java.util.UUID
+import android.os.SystemClock
+import app.codeg.android.core.data.AgentCatalogStore
 import javax.inject.Inject
 
 /** WS `detached` reason meaning the ACP connection itself is gone (terminal — a
@@ -89,6 +92,9 @@ private const val MAX_STREAM_RECONNECTS = 6
 
 /** The selector key used for the session mode (config options key by their own id). */
 private const val MODE_KEY = "mode"
+
+/** RPC session snapshot freshness window (see snapshotFor in the VM). */
+private const val SNAPSHOT_TTL_MS = 30_000L
 
 /** Server-side folder (inside the working directory) that receives session handoff JSON. */
 private const val HANDOFF_DIR = ".codeg-handoff"
@@ -130,6 +136,8 @@ class SessionDetailViewModel @Inject constructor(
     private val conversationPrefs: ConversationSelectorStore,
     private val draftStore: DraftStore,
     private val deviceAgentPrefs: DeviceAgentPrefsStore,
+    private val catalogStore: AgentCatalogStore,
+    private val draftFolderPrefs: DraftFolderPrefsStore,
     private val projectRepo: app.codeg.android.core.data.SessionProjectRepository,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
@@ -236,9 +244,11 @@ class SessionDetailViewModel @Inject constructor(
 
     // endregion
 
-    fun load() {
+    /** Returns the reload's [Job] so callers that must observe completion (the Fork
+     *  latch) can hook it; ordinary callers ignore it. */
+    fun load(): Job {
         _ui.update { it.copy(loading = true, error = null) }
-        viewModelScope.launch {
+        return viewModelScope.launch {
             try {
                 val p = repository.selectedProfile.first() ?: throw IllegalStateException("No server selected")
                 profile = p
@@ -246,6 +256,9 @@ class SessionDetailViewModel @Inject constructor(
                 client = c
 
                 allFolders = runCatching { c.listFolders() }.getOrDefault(emptyList())
+                // The Fork gate's forkSupported for an idle conversation is seeded by
+                // loadSlashCommands() below (its snapshotFor call). No separate prewarm:
+                // it fired the very same RPC twice on every open.
 
                 val id = conversationId
                 if (id != null) {
@@ -291,11 +304,19 @@ class SessionDetailViewModel @Inject constructor(
                         // inside the chain the fallback would re-admit hidden agents when a
                         // server reports no enabled ones. May legitimately yield empty.
                         .let { filterHiddenAgents(it, deviceAgentPrefs.hiddenNow(profileId = p.id)) }
-                    folder = allFolders.firstOrNull { it.id == folderIdArg }
-                        ?: topLevel.firstOrNull()
-                        ?: allFolders.maxByOrNull { it.lastOpenedAt ?: Instant.MIN }
-                        ?: allFolders.firstOrNull()
-                    agent = folder?.defaultAgentType?.takeIf { it in agents } ?: agents.first()
+                    // v134 folder memory: arg → pin → last used → most recent, each
+                    // remembered id validated against the picker-visible top-level set.
+                    val folderPrefs = runCatching { draftFolderPrefs.foldersNow(profileId = p.id) }.getOrNull()
+                    folder = resolveDraftFolder(
+                        allFolders = allFolders,
+                        topLevel = topLevel,
+                        folderIdArg = folderIdArg,
+                        pinnedFolderId = folderPrefs?.pinnedFolderId,
+                        lastUsedFolderId = folderPrefs?.lastUsedFolderId,
+                    )
+                    agent = folder?.defaultAgentType?.takeIf { it in agents }
+                        ?: agents.firstOrNull()
+                        ?: AgentType.CLAUDE_CODE
                     currentBranch = folder?.gitBranch
                     _ui.update {
                         it.copy(
@@ -339,6 +360,9 @@ class SessionDetailViewModel @Inject constructor(
         val trimmed = text.trim()
         val attachments = if (withAttachments) _ui.value.attachments else emptyList()
         if ((trimmed.isEmpty() && attachments.isEmpty()) || _ui.value.isInFlight) return
+        // A fork is mid-flight: the session row is about to be re-pointed, so a send
+        // now would land on the wrong session (or race the re-point entirely).
+        if (_ui.value.forking) return
 
         // Supersede any post-turn reconcile still running for the previous turn so it can't
         // wipe the turn we're about to start (its identity guard is the backstop).
@@ -508,6 +532,9 @@ class SessionDetailViewModel @Inject constructor(
         val f = folder ?: throw IllegalStateException("No folder available to start a task")
         val id = c.createConversation(f.id, agent, title = firstPrompt.take(60))
         conversationId = id
+        // v134 folder memory: the accepted default is still a choice — record it so
+        // the next new task keeps defaulting here even if the user never opened the picker.
+        rememberFolderChoice(f)
         _ui.update { it.copy(isNew = false) }
     }
 
@@ -584,6 +611,12 @@ class SessionDetailViewModel @Inject constructor(
                                 it.copy(
                                     steeringAvailable = frame.snapshot.nativeSteeringAvailable ||
                                         frame.snapshot.feedbackToolAvailable,
+                                    // Fork support rides every snapshot too (server-computed
+                                    // for the attached CLI). The one-shot `fork_supported`
+                                    // event can fire before this client's stream attaches,
+                                    // which is exactly the NEW-session first-turn case —
+                                    // without this the button never appears there.
+                                    forkSupported = frame.snapshot.forkSupported,
                                 )
                             }
                             if (seedOnAttach && !seedLiveFromSnapshot(frame.snapshot)) {
@@ -818,7 +851,11 @@ class SessionDetailViewModel @Inject constructor(
                 // session-info card and the handoff JSON both read it.
                 externalId = event.sessionId
                 _ui.update { it.copy(externalId = event.sessionId) }
+                // The CLI (re)started: the cached snapshot's connection id and
+                // config options belong to the previous process.
+                evictSnapshotCache()
             }
+            is AcpEvent.ForkSupported -> _ui.update { it.copy(forkSupported = event.supported) }
             // Same expert filter as [loadSlashCommands]: an expert-backed name must not
             // surface as a slash command regardless of which channel advertised it.
             is AcpEvent.AvailableCommands -> _ui.update {
@@ -1061,6 +1098,9 @@ class SessionDetailViewModel @Inject constructor(
             _ui.update { it.copy(notice = appContext.getString(R.string.plan_approval_notes_dropped)) }
         }
         closeStream()
+        // Turn boundaries invalidate the cached snapshot (the CLI may have switched
+        // modes mid-turn); the next sheet open re-reads it.
+        evictSnapshotCache()
         reconcileAfterTurn()
         // The keep-planning turn just ended — deliver the revision notes as the follow-up
         // prompt Grok expects (it discards them on the reply itself). `send` supersedes
@@ -1362,6 +1402,9 @@ class SessionDetailViewModel @Inject constructor(
             var attempt = 0
             while (true) {
                 if (_ui.value.isInFlight) return@launch
+                // A fork in flight re-points the session row; hold the queue until
+                // it lands (the reload flushes again on the new session).
+                if (_ui.value.forking) return@launch
                 val head = _ui.value.queue.firstOrNull() ?: return@launch
                 when (sendQueued(c, id, head.text)) {
                     SendOutcome.SENT -> {
@@ -1480,6 +1523,95 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
+    /** Fork this conversation's session at [turnId] (batch v134). The gate is
+     *  `ui.forkSupported` — the server's own verdict for the attached CLI, fed by the
+     *  RPC snapshot, the WS snapshot and the `fork_supported` event. Agents the server
+     *  does not advertise (ZCode today) never see the button.
+     *
+     *  Semantics: the server re-points the CURRENT conversation row at the new
+     *  session (history truncated to the branch point, title gets a `[Fork] ` prefix)
+     *  and adds a sibling row keeping the original history — so on success we STAY on
+     *  this screen: [load] re-pulls the now-forked detail, and the lists notification
+     *  surfaces the sibling. No navigation. */
+    fun forkFromTurn(turnId: String) {
+        val c = client ?: return
+        if (!_ui.value.forkSupported || _ui.value.isInFlight || _ui.value.forking) return
+        val convId = conversationId ?: return
+        // One-shot: a double tap must not post two acp_fork calls (the second would
+        // race the first's row re-point).
+        _ui.update { it.copy(forking = true) }
+        viewModelScope.launch {
+            var heldByReload = false
+            try {
+                // Fork rides the conversation's attached CLI connection. Prefer the live
+                // stream's connection, then a FRESH directory lookup, then the RPC
+                // snapshot's report — last, because a cached id can predate a reconnect.
+                val conn = connectionId
+                    ?: runCatching { c.findConnection(convId, externalId, agent)?.connectionId }.getOrNull()
+                    ?: snapshotConnectionId
+                if (conn == null) {
+                    _ui.update { it.copy(notice = appContext.getString(R.string.fork_unavailable)) }
+                    return@launch
+                }
+                val result = try {
+                    c.forkSession(conn, convId, folder?.id, turnId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A dead connection id must not poison the next attempt: the cached
+                    // snapshot goes, and unless the server said "busy" (which proves the
+                    // connection is alive) the live id does too, so the retry resolves
+                    // a fresh one.
+                    evictSnapshotCache()
+                    if (e !is ApiError.TurnInProgress) connectionId = null
+                    val msg = if (e is ApiError.TurnInProgress) {
+                        appContext.getString(R.string.fork_turn_in_progress)
+                    } else e.displayMessage()
+                    _ui.update { it.copy(notice = msg) }
+                    return@launch
+                }
+                // The server re-pointed THIS row at the forked session; keep the
+                // screen's external id in step before the reload replaces it.
+                externalId = result.forkedSessionId
+                evictSnapshotCache()
+                // The pre-fork turn is truncated server-side now. Drop the live builder
+                // and any running reconcile BEFORE the reload, or that reconcile's tail
+                // fetch would fold the truncated replies back into the new timeline.
+                reconcileJob?.cancel()
+                reconcileJob = null
+                // A queued flush waiting out its 2s lead would otherwise prompt the
+                // just-forked session (or collide with the re-point) with text the
+                // user queued against the OLD history.
+                flushJob?.cancel()
+                flushJob = null
+                liveBuilder = null
+                _ui.update {
+                    it.copy(
+                        notice = appContext.getString(R.string.fork_succeeded),
+                        live = null,
+                        liveFromReattach = false,
+                        isInFlight = false,
+                        runStartedAt = null,
+                        sendStatus = null,
+                        // Prompts sent before the fork are either inside the truncated
+                        // history (they come back with the reload) or no longer exist.
+                        // Left in place they would render as a duplicate or a pending
+                        // bubble that never lands.
+                        pendingUserTurns = emptyList(),
+                    )
+                }
+                repository.notifyConversationsChanged()
+                // Hold the one-shot latch until the reload actually lands. Clearing it
+                // here would reopen the button while the pre-fork timeline is still on
+                // screen — a second tap would then fork the *new* session.
+                heldByReload = true
+                load().invokeOnCompletion { _ui.update { it.copy(forking = false) } }
+            } finally {
+                if (!heldByReload) _ui.update { it.copy(forking = false) }
+            }
+        }
+    }
+
     fun togglePin() {
         val c = client ?: return
         val id = conversationId ?: return
@@ -1551,7 +1683,7 @@ class SessionDetailViewModel @Inject constructor(
         var commands = _ui.value.availableCommands
         if (commands.isEmpty()) {
             val id = conversationId
-            val snap = id?.let { runCatching { c.sessionSnapshotByConversation(it) }.getOrNull() }
+            val snap = id?.let { snapshotFor(c, it) }
             // Seed the config options from whichever probe produced state (event filter:
             // an existing conversation gets its own; a draft gets the agent catalog's).
             snap?.configOptions?.takeIf { it.isNotEmpty() }?.let { seeded ->
@@ -1633,6 +1765,15 @@ class SessionDetailViewModel @Inject constructor(
         refreshWorkspaceCatalog()
     }
 
+    /** Persist the accepted draft folder as the next default. A worktree/subfolder is
+     *  recorded as its PARENT: the picker only lists top-level folders, so a child id
+     *  would never resolve again (a branch-switch worktree would silently kill the
+     *  remembered default). */
+    private fun rememberFolderChoice(f: FolderDetail) {
+        val id = f.parentId ?: f.id
+        appScope.launch { runCatching { draftFolderPrefs.setLastUsed(profile?.id, id) } }
+    }
+
     /** Change the draft's folder before the first send (the agent's working dir),
      *  refreshing the branch label, dropping any resolved connection, and refreshing
      *  the command/config lists for the new context. */
@@ -1642,6 +1783,9 @@ class SessionDetailViewModel @Inject constructor(
         currentBranch = newFolder.gitBranch
         connectionId = null
         workspaceGeneration += 1
+        // v134 folder memory: remember the pick for the next new task. Fire-and-forget
+        // on the app scope — persistence must not gate or delay the picker.
+        rememberFolderChoice(newFolder)
         _ui.update {
             it.copy(
                 folderName = FolderVisibility.displayName(newFolder, allFolders),
@@ -1806,31 +1950,85 @@ class SessionDetailViewModel @Inject constructor(
      * [CachedOptions] is only the raw catalog; the remembered-pick resolution below
      * still runs per open so a changed preference is honored without re-probing.
      */
-    private data class CachedCatalog(val snapshot: AgentOptionsSnapshot)
-    private val catalogCache = mutableMapOf<Pair<AgentType, String?>, CachedCatalog>()
-    /** In-flight probe per cache key: a rapid open-close-open (or agent switch) reuses
-     *  one probe instead of queueing a second behind the server's per-agent mutex. */
-    private val catalogInFlight = mutableMapOf<Pair<AgentType, String?>, Deferred<AgentOptionsSnapshot?>>()
+    /** RPC session snapshot with a 30s per-conversation TTL, shared by three consumers
+     *  (slash-command load, the options sheet, and the load() prewarm) — and the Fork
+     *  gate's data source (v134): the wire carries `fork_supported` + `connection_id`
+     *  for whatever CLI is attached to the conversation, INCLUDING an idle one, which
+     *  never opens a WS stream and would otherwise never surface fork support. Only a
+     *  snapshot that actually carries selection state is cached — an empty one means
+     *  "no live connection", and caching it would freeze an idle→live transition for
+     *  the TTL. applyMode/applyConfig evict on success so a confirmed pick isn't
+     *  visually rolled back by a pre-apply snapshot on the next sheet open. */
+    private data class CachedSnapshot(val snapshot: SessionSnapshot, val at: Long)
+    private var snapshotCache: CachedSnapshot? = null
+    private var snapshotCacheConvId: Int? = null
+
+    /** Connection id the server reports for this conversation's attached CLI — the
+     *  Fork call's LAST fallback, after the live stream and a fresh findConnection
+     *  (a cached id can predate a reconnect). */
+    var snapshotConnectionId: String? = null
+        private set
+
+    private suspend fun snapshotFor(c: CodegClient, convId: Int): SessionSnapshot? {
+        snapshotCache?.let { cached ->
+            if (snapshotCacheConvId == convId &&
+                SystemClock.elapsedRealtime() - cached.at < SNAPSHOT_TTL_MS
+            ) {
+                // Restore the connection fallback only. Deliberately NOT the Fork
+                // gate: the non-cached path already seeded it when it populated this
+                // entry, and a WS snapshot or `fork_supported` event may have raised it
+                // since — replaying the cached value would hide the button for the rest
+                // of the TTL.
+                cached.snapshot.connectionId?.takeIf { it.isNotBlank() }
+                    ?.let { snapshotConnectionId = it }
+                return cached.snapshot
+            }
+        }
+        val snap = runCatching { c.sessionSnapshotByConversation(convId) }.getOrNull()
+        if (snap == null) {
+            // RPC failed / conversation gone: drop the positive cache rather than let
+            // it outlive its truth for the rest of the TTL.
+            evictSnapshotCache()
+            return null
+        }
+        if (snap.modes != null || snap.configOptions.isNotEmpty()) {
+            snapshotCache = CachedSnapshot(snap, SystemClock.elapsedRealtime())
+            snapshotCacheConvId = convId
+        } else {
+            // An empty snapshot means "no live connection". Keeping the previous
+            // positive entry would freeze a live→idle transition for the TTL.
+            evictSnapshotCache()
+        }
+        snap.connectionId?.takeIf { it.isNotBlank() }?.let { snapshotConnectionId = it }
+        _ui.update { it.copy(forkSupported = snap.forkSupported) }
+        return snap
+    }
+
+    private fun evictSnapshotCache() {
+        snapshotCache = null
+        snapshotCacheConvId = null
+        snapshotConnectionId = null
+    }
 
     private fun catalogKey(): Pair<AgentType, String?> = agent to folder?.path
 
-    private suspend fun describeCatalog(c: CodegClient): AgentOptionsSnapshot? {
+    /** Store key: the VM-level pair plus the serverId — workspace paths collide across
+     *  devices, and a probe result is only valid for the server that produced it. */
+    private fun catalogStoreKey(): String {
+        val (agentType, path) = catalogKey()
+        return "${profile?.id ?: "-"}|${agentType.wire}|${path.orEmpty()}"
+    }
+
+    /** [AgentCatalogStore]-backed catalog read. Default path is stale-first (instant);
+     *  `force = true` skips the cache read for the sheet's revalidate pass while still
+     *  sharing the store's single-flight probe — a failed probe never destroys the
+     *  stale entry, so "close and reopen the sheet" is always instant. */
+    private suspend fun describeCatalog(c: CodegClient, force: Boolean = false): AgentOptionsSnapshot? {
         val key = catalogKey()
-        catalogCache[key]?.let { return it.snapshot }
-        val existing = synchronized(catalogInFlight) { catalogInFlight[key] }
-        if (existing != null) return try { existing.await() } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
-        val deferred = viewModelScope.async {
+        if (!force) catalogStore.get(catalogStoreKey())?.let { return it }
+        return catalogStore.getOrProbe(catalogStoreKey()) {
             runCatching { c.describeAgentOptions(key.first, key.second) }.getOrNull()
-        }
-        synchronized(catalogInFlight) { catalogInFlight[key] = deferred }
-        deferred.invokeOnCompletion { synchronized(catalogInFlight) { catalogInFlight.remove(key, deferred) } }
-        return try {
-            deferred.await()?.also { snap -> catalogCache[key] = CachedCatalog(snap) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
+        }.await()
     }
 
     /** Load the session's modes + config plus the selection to highlight. When a live
@@ -1842,7 +2040,7 @@ class SessionDetailViewModel @Inject constructor(
     suspend fun loadAgentOptions(): AgentOptionsData {
         val c = client ?: return AgentOptionsData()
         val convId = conversationId
-        val snapshot = if (convId != null) runCatching { c.sessionSnapshotByConversation(convId) }.getOrNull() else null
+        val snapshot = if (convId != null) snapshotFor(c, convId) else null
         if (snapshot != null && (snapshot.modes != null || snapshot.configOptions.isNotEmpty())) {
             // Live session — its current mode/config is authoritative.
             return AgentOptionsData(
@@ -1890,8 +2088,7 @@ class SessionDetailViewModel @Inject constructor(
         val forConvId = conversationId
         return viewModelScope.launch {
             try {
-                catalogCache.remove(key)
-                val described = describeCatalog(c) ?: return@launch
+                val described = describeCatalog(c, force = true) ?: return@launch
                 // Context switched while the probe ran — the sheet already reloaded for
                 // the new context; this result is for a dead key.
                 if (agent != forAgent || folder?.path != forFolder?.path || conversationId != forConvId) return@launch
@@ -2016,6 +2213,7 @@ class SessionDetailViewModel @Inject constructor(
             // Live pick applied to the server: promote it to the agent-level default so
             // other conversations reconnect at the same mode (draft already wrote above).
             if (!draft) runCatching { selectorPrefs.saveMode(forAgent, applied) }
+            evictSnapshotCache()
             applied
         } catch (e: CancellationException) {
             throw e
@@ -2050,7 +2248,7 @@ class SessionDetailViewModel @Inject constructor(
             ?: return if (draft) valueId else null
         return try {
             c.acpSetConfigOption(conn, configId, valueId)
-            reconcileSelection(conn, key = configId, desired = valueId)
+            reconcileSelection(conn, key = configId, desired = valueId).also { evictSnapshotCache() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -2489,6 +2687,12 @@ data class SessionDetailUiState(
      *  server-injected `check_user_feedback` pull tool (codeg settings → Live Feedback
      *  on). Gates the queued bar's insert button. */
     val steeringAvailable: Boolean = false,
+    /** Server-reported fork support for the attached CLI (v134). Fed by the RPC
+     *  snapshot, the WS snapshot and the `fork_supported` event; false for agents or
+     *  servers without the capability (Codex is the only one advertising it today). */
+    val forkSupported: Boolean = false,
+    /** A fork request is in flight — the footer entry is one-shot until it settles. */
+    val forking: Boolean = false,
     val sendStatus: String? = null,
     val notice: String? = null,
     /** Set when a failed send returns the user's typed text to the composer (consumed once). */
