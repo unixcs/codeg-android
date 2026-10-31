@@ -37,6 +37,9 @@ class ServerEditorViewModel @Inject constructor(
     // Editing must not resurrect a hidden device: remember the saved visibility and
     // write it back verbatim (the visibility toggle lives on the Servers screen).
     private var savedVisible: Boolean = true
+    // Same rule for the v137 "Skip in All" flag: a rename or URL edit must not
+    // silently put a deliberately skipped device back into every aggregate fetch.
+    private var savedIncludeInAll: Boolean = true
 
     init {
         if (editingId != null) loadExisting(editingId)
@@ -56,6 +59,7 @@ class ServerEditorViewModel @Inject constructor(
             url = profile.baseUrl
             token = repository.token(id).orEmpty()
             savedVisible = profile.visible
+            savedIncludeInAll = profile.includeInAll
         }
     }
 
@@ -79,6 +83,7 @@ class ServerEditorViewModel @Inject constructor(
                 name = name.trim(),
                 baseUrl = CodegClient.normalizeBaseUrl(url),
                 visible = savedVisible,
+                includeInAll = savedIncludeInAll,
             )
             repository.save(profile, token.trim())
             if (editingId == null) repository.select(id)

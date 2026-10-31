@@ -758,6 +758,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         }
                     },
                     onManageServers = { nav.navigate(ROUTE_SERVERS) },
+                    onSetIncludeInAll = appViewModel::setServerIncludeInAll,
                 )
             }
             androidx.compose.foundation.layout.Row {
@@ -943,6 +944,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     onSelect = appViewModel::selectServer,
                     onDelete = appViewModel::deleteServer,
                     onToggleVisible = appViewModel::setServerVisible,
+                    onToggleIncludeInAll = appViewModel::setServerIncludeInAll,
                     onAdd = { nav.navigate(ROUTE_EDITOR) },
                     onEdit = { id -> nav.navigate("$ROUTE_EDITOR?serverId=$id") },
                     onBack = { nav.popBackStack() },

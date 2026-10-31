@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -57,6 +58,7 @@ fun ServerListScreen(
     onSelect: (String) -> Unit,
     onDelete: (String) -> Unit,
     onToggleVisible: (String, Boolean) -> Unit,
+    onToggleIncludeInAll: (String, Boolean) -> Unit,
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
     onBack: () -> Unit,
@@ -118,6 +120,7 @@ fun ServerListScreen(
                         onEdit = { onEdit(profile.id) },
                         onDelete = { pendingDelete = profile },
                         onToggleVisible = { onToggleVisible(profile.id, !profile.visible) },
+                        onToggleIncludeInAll = { onToggleIncludeInAll(profile.id, !profile.includeInAll) },
                     )
                 }
             }
@@ -152,6 +155,7 @@ private fun ServerRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onToggleVisible: () -> Unit,
+    onToggleIncludeInAll: () -> Unit,
 ) {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
@@ -183,6 +187,14 @@ private fun ServerRow(
                         color = colors.textTertiary,
                     )
                 }
+                // Batch v137: a device can stay visible yet sit out the All feed.
+                if (!profile.includeInAll) {
+                    Text(
+                        stringResource(R.string.device_skipped_in_all_label),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textTertiary,
+                    )
+                }
             }
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = null, tint = colors.textTertiary)
@@ -199,6 +211,18 @@ private fun ServerRow(
                         )
                     },
                     onClick = { menuOpen = false; onToggleVisible() },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (profile.includeInAll) R.string.device_skip_in_all
+                                else R.string.device_include_in_all,
+                            ),
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Rounded.FilterAlt, contentDescription = null) },
+                    onClick = { menuOpen = false; onToggleIncludeInAll() },
                 )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.server_edit)) },

@@ -70,7 +70,6 @@
     <string name="sessions_empty_title">还没有会话</string>
     <string name="sessions_empty_message">新建一个任务，它就会显示在这里。</string>
     <!-- 批v132：跨设备聚合 + 会话项目 -->
-    <string name="sessions_all_unreachable">所有设备都无法连接</string>
     <string name="sessions_agg_empty_title">全部设备暂无会话</string>
     <string name="sessions_agg_empty_message">各设备的最近会话会显示在这里。</string>
     <string name="sessions_project_empty_title">该项目暂无会话</string>
@@ -135,7 +134,16 @@
     <string name="activity_updated">更新于 %1$s</string>
     <string name="activity_load_failed">动态加载失败</string>
     <string name="activity_all">全部</string>
-    <string name="activity_partial_failed">%1$d 台设备无法连接</string>
+    <string name="device_unreachable_named">%1$s 未响应</string>
+    <string name="activity_devices_unreachable">%1$s 未响应</string>
+    <string name="device_connecting">正在连接 %1$s…</string>
+    <string name="device_skip_in_all">在「全部」中跳过</string>
+    <string name="device_skip_in_all_hint">设备仍留在顶栏，只是不参与「全部」汇总。</string>
+    <string name="device_include_in_all">恢复到「全部」</string>
+    <string name="device_skipped_badge">已跳过</string>
+    <string name="device_skipped_in_all_label">已在「全部」中跳过</string>
+    <string name="all_devices_skipped_title">已跳过全部设备</string>
+    <string name="all_devices_skipped_message">长按顶栏设备卡片，关闭「在全部中跳过」即可恢复。</string>
     <string name="devicebar_manage">管理服务器</string>
 
     <!-- Search -->

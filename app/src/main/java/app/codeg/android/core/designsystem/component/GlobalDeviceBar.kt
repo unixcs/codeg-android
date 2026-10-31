@@ -1,37 +1,52 @@
 package app.codeg.android.core.designsystem.component
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +80,7 @@ fun deviceBadgeColor(name: String): Color {
     return palette[kotlin.math.abs(name.hashCode()) % palette.size]
 }
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun GlobalDeviceBar(
     servers: List<ServerProfile>,
@@ -77,8 +93,15 @@ fun GlobalDeviceBar(
     onSelectServer: (String) -> Unit,
     onSelectAll: () -> Unit,
     onManageServers: () -> Unit,
+    /** Long-press a device chip → "skip in All" (batch v137). The device keeps its
+     *  chip and stays individually openable; it just stops joining the aggregate. */
+    onSetIncludeInAll: (String, Boolean) -> Unit = { _, _ -> },
 ) {
     val colors = CodegTheme.colors
+    // Keep the ID, not the profile snapshot: the switch must track the live list so
+    // the toggle it performs is visible immediately, and deleting/hiding the device
+    // while the sheet is open simply closes it (batch v137).
+    var skipTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -119,6 +142,7 @@ fun GlobalDeviceBar(
                 val selected = !allSelected && server.id == selectedId
                 DeviceChip(
                     selected = selected,
+                    dimmed = !server.includeInAll,
                     leading = { iconTint ->
                         Box(
                             Modifier
@@ -128,15 +152,24 @@ fun GlobalDeviceBar(
                         )
                     },
                     onClick = { onSelectServer(server.id) },
+                    onLongClick = { skipTargetId = server.id },
                 ) {
                     Text(
                         text = server.name,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (selected) colors.accent else colors.textSecondary,
+                        color = if (selected) colors.accent else if (server.includeInAll) colors.textSecondary else colors.textTertiary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (!server.includeInAll) {
+                        Text(
+                            text = "· " + stringResource(R.string.device_skipped_badge),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textTertiary,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
             item(key = "chip-manage") {
@@ -152,19 +185,79 @@ fun GlobalDeviceBar(
         }
         HorizontalHairline()
     }
+
+    // Long-press target: one switch + the manage entry (batch v137). Kept as a
+    // sheet (not a dialog) so the device bar's context stays visible behind it.
+    val skipTarget = servers.firstOrNull { it.id == skipTargetId }
+    skipTarget?.let { target ->
+        ModalBottomSheet(onDismissRequest = { skipTargetId = null }) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+                Text(
+                    text = target.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.textPrimary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = !target.includeInAll,
+                            role = Role.Switch,
+                            onValueChange = { skip -> onSetIncludeInAll(target.id, !skip) },
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.device_skip_in_all),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = colors.textPrimary,
+                        )
+                        Text(
+                            text = stringResource(R.string.device_skip_in_all_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textSecondary,
+                        )
+                    }
+                    // The row owns the toggle action (merged semantics: "Skip in All,
+                    // switch, off"), so the switch itself is display-only.
+                    Switch(
+                        checked = !target.includeInAll,
+                        onCheckedChange = null,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                TextButton(
+                    onClick = {
+                        skipTargetId = null
+                        onManageServers()
+                    },
+                ) {
+                    Text(stringResource(R.string.devicebar_manage))
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DeviceChip(
     selected: Boolean,
     leading: @Composable (Color) -> Unit,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    dimmed: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val colors = CodegTheme.colors
     val shape = RoundedCornerShape(50)
+    val longClickLabel = stringResource(R.string.device_skip_in_all)
     Row(
         modifier = Modifier
+            .alpha(if (dimmed) 0.65f else 1f)
             .clip(shape)
             .background(if (selected) colors.accentDim else Color.Transparent)
             .border(
@@ -172,7 +265,11 @@ private fun DeviceChip(
                 color = if (selected) colors.accent.copy(alpha = 0.5f) else colors.surfaceStroke,
                 shape = shape,
             )
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onLongClickLabel = if (onLongClick != null) longClickLabel else null,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            )
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),

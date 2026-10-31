@@ -130,6 +130,12 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    /** Opt a device in/out of the aggregate ("全部") feeds. Unlike hiding, the
+     *  device keeps its chip in the bar and stays individually openable. */
+    fun setServerIncludeInAll(id: String, include: Boolean) {
+        viewModelScope.launch { serverRepository.setIncludeInAll(id, include) }
+    }
+
     fun setHomeTabOrder(routes: List<String>) {
         viewModelScope.launch { appSettingsStore.setHomeTabOrder(routes) }
     }

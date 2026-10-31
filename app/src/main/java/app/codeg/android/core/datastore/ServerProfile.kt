@@ -18,4 +18,12 @@ data class ServerProfile(
      * re-selectable from the Servers management screen, which lists everything.
      */
     val visible: Boolean = true,
+    /**
+     * Whether the device joins the "All devices" aggregate feeds (Activity 全部 /
+     * Chats 全部). Unlike [visible] it does NOT remove the device from the device
+     * bar or the swipe ring — a skipped device is still one tap away, it just stops
+     * making every aggregate wait for it. Defaults true so existing saved profiles
+     * decode unchanged (batch v137).
+     */
+    val includeInAll: Boolean = true,
 )

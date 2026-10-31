@@ -44,8 +44,13 @@ class ServerRepository @Inject constructor(
 
     /** Flip a device's visibility without touching its token or selection. */
     suspend fun setVisible(id: String, visible: Boolean) {
-        val profile = serverStore.profiles.first().firstOrNull { it.id == id } ?: return
-        serverStore.upsert(profile.copy(visible = visible))
+        serverStore.update(id) { it.copy(visible = visible) }
+    }
+
+    /** Opt a device out of (or back into) the "All devices" aggregate feeds. The
+     *  device stays in the bar and can still be opened on its own (batch v137). */
+    suspend fun setIncludeInAll(id: String, include: Boolean) {
+        serverStore.update(id) { it.copy(includeInAll = include) }
     }
 
     val selectedId: Flow<String?> = serverStore.selectedId

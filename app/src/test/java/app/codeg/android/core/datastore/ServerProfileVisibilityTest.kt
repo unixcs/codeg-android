@@ -53,4 +53,33 @@ class ServerProfileVisibilityTest {
         assertEquals(profile.baseUrl, hidden.baseUrl)
         assertFalse(hidden.visible)
     }
+
+    // ---- includeInAll: "skip in All" (batch v137) ----
+
+    @Test
+    fun `new profile participates in All by default`() {
+        assertTrue(ServerProfile("id", "name", "http://x:3080").includeInAll)
+    }
+
+    @Test
+    fun `old saved json without includeInAll decodes as participating`() {
+        // Profiles saved before v137 have neither flag's key; both must default true
+        // so an upgrade never silently drops a device from the aggregate.
+        val legacy = """[{"id":"a","name":"tx","baseUrl":"http://x:3080"}]"""
+        val decoded = json.decodeFromString(serializer, legacy)[0]
+        assertTrue(decoded.includeInAll)
+        assertTrue(decoded.visible)
+    }
+
+    @Test
+    fun `skip flag round-trips independently of visibility`() {
+        val skipped = ServerProfile("a", "tx", "http://x:3080", visible = true, includeInAll = false)
+        val encoded = json.encodeToString(listOf(skipped))
+
+        assertTrue(encoded.contains("\"includeInAll\":false"))
+        val decoded = json.decodeFromString(serializer, encoded)[0]
+        // Skipping keeps the device in the bar: visible stays untouched.
+        assertTrue(decoded.visible)
+        assertFalse(decoded.includeInAll)
+    }
 }

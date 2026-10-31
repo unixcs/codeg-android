@@ -1,8 +1,10 @@
 package app.codeg.android.feature.activity
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,12 +15,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -99,9 +103,16 @@ fun ActivityScreen(
     // is a perfectly good ring, and leaving it out made the ball gesture dead there.
     data class ActItem(val key: String, val section: ActivitySection?, val row: ActivityRow?)
 
-    val items = remember(sections, collapsed, allMode, ui.failedDevices, ui.reachableDevices, ui.lastRefreshed) {
+    val items = remember(sections, collapsed, allMode, ui.deviceStates, ui.error, ui.lastRefreshed, ui.conversations) {
         buildList {
-            if (allMode && ui.failedDevices > 0 && ui.reachableDevices > 0) add(ActItem("partial-failure", null, null))
+            // A device going dark while we still show its last rows must stay
+            // visible — the banner is the only cue those rows are stale (v137).
+            if (allMode && ui.failedDevices > 0) add(ActItem("partial-failure", null, null))
+            // Single-device 4s timeout with an older list on screen: keep the rows,
+            // surface the failure above them instead of replacing the feed.
+            if (!allMode && ui.error != null && ui.conversations.isNotEmpty()) {
+                add(ActItem("refresh-error", null, null))
+            }
             sections.forEach { section ->
                 add(ActItem("h-${section.id}", section, null))
                 if (section.id !in collapsed) {
@@ -118,7 +129,8 @@ fun ActivityScreen(
     // would wipe a highlight the user is about to open; a rename re-registers
     // so the preview card stays honest.
     val focusRowKeys = remember(items) {
-        items.mapNotNull { it.row }.map { "${it.serverId}:${it.conversation.id}|${it.conversation.trimmedTitle.orEmpty()}" }
+        items.mapNotNull { it.row }
+            .map { "${it.serverId}:${it.conversation.id}|${it.conversation.trimmedTitle.orEmpty()}|${it.serverName}" }
     }
     DisposableEffect(focusRowKeys) {
         viewModel.focusHub.register(
@@ -167,17 +179,66 @@ fun ActivityScreen(
                 ui.loading && !ui.hasLoaded ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
 
-                // Initial fetch failed — surface it with retry instead of an ambiguous
-                // empty feed (matches the Chats tab's full-screen error state).
-                ui.hasLoaded.not() && ui.error != null ->
+                // Any terminal failure with nothing to show: the initial fetch (hasLoaded
+                // still false), the single-device 4s timeout, and the all-devices-failed
+                // aggregate all land here. `!loading` keeps a fresh round from flashing
+                // the previous error while it is being retried.
+                !ui.loading && ui.error != null && ui.conversations.isEmpty() ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         InlineError(
                             icon = Icons.Rounded.GraphicEq,
                             title = stringResource(R.string.activity_load_failed),
                             message = ui.error!!,
-                            onRetry = viewModel::refresh,
+                            onRetry = { if (allMode) viewModel.retryFailedDevices() else viewModel.refresh() },
                             retryLabel = stringResource(R.string.common_retry),
                         )
+                    }
+
+                // Aggregate returned rows but every device that could answer is empty
+                // and at least one is dark: the truth is connectivity, not "no
+                // activity" (batch v137). Wait for stragglers first — another device
+                // may still be inside its 3s window.
+                allMode && ui.hasLoaded && ui.conversations.isEmpty() &&
+                    ui.failedDevices > 0 && ui.pendingDeviceNames.isEmpty() ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        InlineError(
+                            icon = Icons.Rounded.GraphicEq,
+                            title = stringResource(R.string.activity_load_failed),
+                            message = stringResource(
+                                R.string.activity_devices_unreachable,
+                                ui.failedDeviceNames.joinToString(", "),
+                            ),
+                            onRetry = viewModel::retryFailedDevices,
+                            retryLabel = stringResource(R.string.common_retry),
+                        )
+                    }
+
+                // Skeleton phase: one device is still connecting, so an empty (or
+                // project-filtered-to-empty) feed would be a lie (batch v137).
+                allMode && ui.hasLoaded && sections.isEmpty() && ui.pendingDeviceNames.isNotEmpty() ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        LoadingView(
+                            stringResource(
+                                R.string.device_connecting,
+                                ui.pendingDeviceNames.joinToString(", "),
+                            ),
+                        )
+                    }
+
+                // Every visible device opted out of the aggregate — say so instead of
+                // claiming there is no activity anywhere (batch v137).
+                allMode && ui.hasLoaded && sections.isEmpty() &&
+                    servers.isNotEmpty() && servers.none { it.includeInAll } ->
+                    EmptyState(
+                        Icons.Rounded.Dns,
+                        stringResource(R.string.all_devices_skipped_title),
+                        stringResource(R.string.all_devices_skipped_message),
+                    )
+
+                // A retry/refresh with nothing on screen yet: spinner, not "no activity".
+                ui.refreshing && ui.conversations.isEmpty() ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        LoadingView(stringResource(R.string.common_loading))
                     }
 
                 // Empty FEED is judged on ui.conversations — atomic with the data, so
@@ -189,7 +250,10 @@ fun ActivityScreen(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (ui.failedDevices > 0) {
                             Text(
-                                text = stringResource(R.string.activity_partial_failed, ui.failedDevices),
+                                text = stringResource(
+                                    R.string.activity_devices_unreachable,
+                                    ui.failedDeviceNames.joinToString(", "),
+                                ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = colors.danger,
                             )
@@ -219,12 +283,40 @@ fun ActivityScreen(
                             contentType = { if (it.row != null) "row" else if (it.section != null) "header" else "banner" },
                         ) { item ->
                             when {
-                                item.key == "partial-failure" -> Text(
-                                    text = stringResource(R.string.activity_partial_failed, ui.failedDevices),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = CodegTheme.colors.danger,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
-                                )
+                                item.key == "partial-failure" -> Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = stringResource(
+                                            R.string.activity_devices_unreachable,
+                                            ui.failedDeviceNames.joinToString(", "),
+                                        ),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = CodegTheme.colors.danger,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(onClick = viewModel::retryFailedDevices) {
+                                        Text(stringResource(R.string.common_retry), style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+
+                                item.key == "refresh-error" -> Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = ui.error.orEmpty(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = CodegTheme.colors.danger,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(onClick = viewModel::refresh) {
+                                        Text(stringResource(R.string.common_retry), style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
 
                                 item.section != null -> {
                                     val style = activitySectionStyle(item.section.kind)

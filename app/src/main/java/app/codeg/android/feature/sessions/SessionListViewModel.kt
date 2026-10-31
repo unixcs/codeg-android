@@ -5,6 +5,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.data.SessionProjectRepository
+import app.codeg.android.core.data.DeviceLoad
+import app.codeg.android.core.data.DeviceLoadStatus
+import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
+import app.codeg.android.core.data.AGG_SKELETON_DELAY_MS
+import app.codeg.android.core.data.SINGLE_DEVICE_TIMEOUT_MS
+import app.codeg.android.core.data.aggregateDeviceSignature
+import app.codeg.android.core.data.failedNames
+import app.codeg.android.core.data.loadingNames
+import app.codeg.android.core.data.okCount
+import app.codeg.android.core.data.participating
+import app.codeg.android.core.data.retrying
+import app.codeg.android.core.data.retryableIds
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ChatListDisplayStore
@@ -17,9 +29,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -132,9 +145,9 @@ class SessionListViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collectLatest { input ->
                     val (profile, all, tick) = input
-                    val deviceSig = input.profiles
-                        .filter { it.visible }
-                        .joinToString("|") { "${it.id}:${it.name}:${it.baseUrl}" }
+                    // The device SET/signature includes includeInAll (batch v137):
+                    // skipping or restoring a device must re-fan-out immediately.
+                    val deviceSig = input.profiles.aggregateDeviceSignature()
                     val modeChanged = lastAllMode != all
                     val tickChanged = tick != lastAggTick
                     val devicesChanged = deviceSig != lastDeviceSig
@@ -146,16 +159,11 @@ class SessionListViewModel @Inject constructor(
                         // fan-out identical — refresh only on mode entry, an
                         // invalidation tick, a device-set change, or the first load.
                         if (modeChanged || tickChanged || devicesChanged || !_agg.value.hasLoaded) {
-                            fetchAggregate()
-                        } else {
-                            // collectLatest just cancelled whatever was in flight, so
-                            // nothing is busy any more. Clear the flags: a cancelled
-                            // refresh otherwise leaves isRefreshing=true forever and
-                            // pull-to-refresh (and the error banner's retry) refuse to
-                            // start again.
-                            _agg.update { it.copy(isLoading = false, isRefreshing = false) }
+                            launchAggregate()
                         }
                     } else {
+                        // Leaving the aggregate invalidates its in-flight round.
+                        aggregateJob?.cancel()
                         // R2-6: aggregate→device flip with an UNCHANGED profile is a
                         // mode transition, not new data — skip the full refetch (the
                         // list is already on screen and hasLoaded). The skip holds
@@ -231,6 +239,29 @@ class SessionListViewModel @Inject constructor(
     private var aggGeneration = 0
 
     /**
+     * The in-flight aggregate round. Deliberately NOT a child of the input
+     * collector: `collectLatest` must not cancel a healthy round just because the
+     * selection changed (tapping a 全部 row selects its owning device while staying
+     * in All mode). Only a newer round, or leaving the aggregate, cancels it.
+     */
+    private var aggregateJob: Job? = null
+
+    private fun launchAggregate(retryOnly: Boolean = false) {
+        aggregateJob?.cancel()
+        aggregateJob = viewModelScope.launch {
+            try {
+                fetchAggregate(retryOnly)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // A DataStore read failure must not take the app down with the
+                // retry/refresh coroutine (batch v137 review #3).
+                _agg.update { it.copy(isLoading = false, isRefreshing = false) }
+            }
+        }
+    }
+
+    /**
      * Grouped aggregate display. The project filter is applied HERE (not in the
      * fetch) so switching projects never refetches — [projectRepo.activeMemberKeys]
      * is gated on [ServerRepository.chatsAll] so a stale filter can never leak
@@ -249,66 +280,168 @@ class SessionListViewModel @Inject constructor(
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** One fan-out over every visible device (10s per-device deadline, failures
-     *  counted — the Activity feed's reviewed pattern). Not polled: event-driven
-     *  via [ServerRepository.chatsRefreshTick] like the single-device branch. */
-    private suspend fun fetchAggregate() {
+    /** One progressive fan-out over every participating device (batch v137: 3s
+     *  per-device deadline, results committed the moment they settle instead of
+     *  `awaitAll`). Event-driven via [ServerRepository.chatsRefreshTick] like the
+     *  single-device branch, not polled.
+     *
+     *  [retryOnly] re-asks just the failed devices — the banner's retry keeps the
+     *  good rows on screen. */
+    private suspend fun fetchAggregate(retryOnly: Boolean = false) {
         aggGeneration += 1
         val token = aggGeneration
-        _agg.update { it.copy(isLoading = !it.hasLoaded, isRefreshing = it.hasLoaded, error = null) }
-        val servers = repository.profiles.first().orEmpty().filter { it.visible }
-        var failed = 0
-        var succeeded = 0
-        val fetched = coroutineScope {
-            servers.map { server ->
-                async {
-                    val c = repository.client(server)
-                        ?: run { failed += 1; return@async server to emptyList<ConversationSummary>() }
-                    try {
-                        val convs = withTimeoutOrNull(10_000) {
-                            c.listConversations(sortBy = "updated").take(AGG_FETCH_LIMIT)
-                        }
-                        if (convs == null) {
-                            failed += 1
-                            server to emptyList()
-                        } else {
-                            // Only a complete list may prune — take(200) output must
-                            // never read as "deleted" for rows past the cutoff (review #5).
-                            projectRepo.pruneServerIfComplete(
-                                server.id,
-                                convs.map { it.id.toString() }.toSet(),
-                                truncated = convs.size >= AGG_FETCH_LIMIT,
-                            )
-                            succeeded += 1
-                            server to convs
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {
-                        failed += 1
-                        server to emptyList()
+        val allProfiles = repository.profiles.first().orEmpty()
+        val allServers = allProfiles.filter { it.visible && it.includeInAll }
+        // `profiles.first()` suspends; a newer round may have started and finished
+        // meanwhile. Seeding after that would resurrect the older round's flags.
+        if (token != aggGeneration) return
+        val retryIds = if (retryOnly) {
+            // Everything that did not settle OK — a device still LOADING when the
+            // user hits retry would otherwise be cancelled with the old round and
+            // never re-asked (Chats has no poll to recover it).
+            _agg.value.deviceStates.retryableIds()
+        } else {
+            emptySet()
+        }
+        val servers = if (retryOnly) allServers.filter { it.id in retryIds } else allServers
+
+        _agg.update { state ->
+            // Devices that left the aggregate (skipped/hidden/deleted) drop their
+            // rows; a failed one keeps its last known rows (see the commit below).
+            val allowed = allServers.map { it.id }.toSet()
+            val seeded = if (retryOnly) {
+                state.deviceStates.participating(allowed).retrying(retryIds)
+            } else {
+                servers.map { DeviceLoad(it.id, it.name, DeviceLoadStatus.LOADING) }
+            }
+            state.copy(
+                deviceStates = seeded,
+                servers = state.servers.filter { (p, _) -> p.id in allowed },
+                allSkipped = allProfiles.any { it.visible } && allServers.isEmpty(),
+                isLoading = !state.hasLoaded,
+                isRefreshing = state.hasLoaded,
+                error = null,
+            )
+        }
+
+        // Skeleton fallback: no device answered within the delay → stop the
+        // full-screen spinner and let the list frame (with placeholders) show.
+        val skeleton = viewModelScope.launch {
+            delay(AGG_SKELETON_DELAY_MS)
+            if (token == aggGeneration) {
+                _agg.update {
+                    if (!it.hasLoaded) {
+                        // The round is still running: keep the busy flag set so
+                        // pull-to-refresh/retry cannot start a competing round and
+                        // abandon devices still inside their 3s window.
+                        it.copy(isLoading = false, hasLoaded = true, isRefreshing = true)
+                    } else {
+                        it
                     }
                 }
-            }.awaitAll()
+            }
+        }
+
+        try {
+            coroutineScope {
+                servers.forEach { server ->
+                    launch {
+                        val convs: List<ConversationSummary>? = try {
+                            repository.client(server)?.let { c ->
+                                withTimeoutOrNull(AGG_DEVICE_TIMEOUT_MS) {
+                                    c.listConversations(sortBy = "updated").take(AGG_FETCH_LIMIT)
+                                }
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {
+                            null
+                        }
+                        if (token != aggGeneration) return@launch
+                        if (convs != null) {
+                            // Only a complete list may prune — take(200) output must
+                            // never read as "deleted" for rows past the cutoff (review #5).
+                            // Best-effort cleanup: a bad members blob must not cancel
+                            // this device's sibling fetches (batch v137 review #3).
+                            try {
+                                projectRepo.pruneServerIfComplete(
+                                    server.id,
+                                    convs.map { it.id.toString() }.toSet(),
+                                    truncated = convs.size >= AGG_FETCH_LIMIT,
+                                )
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (@Suppress("TooGenericExceptionCaught") _: Exception) {
+                                // ignore — the feed itself is still valid
+                            }
+                        }
+                        _agg.update { state ->
+                            val byId = state.servers.associateBy { it.first.id }.toMutableMap()
+                            if (convs != null) byId[server.id] = server to convs
+                            state.copy(
+                                // Re-pair with the CURRENT profile so a rename lands
+                                // in the group header without waiting for that device
+                                // to answer again (batch v137 review #3).
+                                servers = allServers.mapNotNull { p ->
+                                    byId[p.id]?.second?.let { p to it }
+                                },
+                                deviceStates = state.deviceStates.map { load ->
+                                    if (load.serverId != server.id) {
+                                        load
+                                    } else if (convs == null) {
+                                        load.copy(
+                                            status = DeviceLoadStatus.FAILED,
+                                            error = appContext.getString(R.string.device_unreachable_named, server.name),
+                                        )
+                                    } else {
+                                        load.copy(status = DeviceLoadStatus.OK, error = null)
+                                    }
+                                },
+                                hasLoaded = true,
+                                isLoading = false,
+                            )
+                        }
+                    }
+                }
+            }
+        } finally {
+            // A cancelled round (newer round / leaving the aggregate) never reaches
+            // the line after coroutineScope — the skeleton must not outlive it.
+            skeleton.cancel()
         }
         if (token != aggGeneration) return
-        _agg.update {
-            it.copy(
-                servers = fetched,
-                failedDevices = failed,
-                // "Reachable" means the fetch RETURNED — a token-holding but offline
-                // device is a failure, not a silently-empty device (R2-2).
-                reachableDevices = succeeded,
-                hasLoaded = true,
+        _agg.update { state ->
+            val ok = state.deviceStates.okCount()
+            val failedNames = state.deviceStates.failedNames()
+            state.copy(
                 isLoading = false,
                 isRefreshing = false,
-                error = if (succeeded == 0 && failed > 0) {
-                    appContext.getString(R.string.sessions_all_unreachable)
+                hasLoaded = true,
+                error = if (ok == 0 && failedNames.isNotEmpty()) {
+                    appContext.getString(
+                        R.string.activity_devices_unreachable,
+                        failedNames.joinToString(", "),
+                    )
                 } else {
                     null
                 },
             )
         }
+    }
+
+    /** Banner retry: refetch only the failed devices, keeping good rows visible. */
+    fun retryFailedDevices() {
+        if (!repository.chatsAll.value) {
+            refresh()
+            return
+        }
+        if (_agg.value.deviceStates.none { it.status != DeviceLoadStatus.OK }) {
+            refresh()
+            return
+        }
+        // No "already busy" gate: a retry must be able to rescue devices still
+        // inside their window, and launchAggregate supersedes the old round.
+        launchAggregate(retryOnly = true)
     }
 
     /** Optimistic pin on an aggregate row, persisted to the OWNING device —
@@ -428,12 +561,29 @@ class SessionListViewModel @Inject constructor(
             else it.copy(isRefreshing = true, error = null)
         }
         try {
-            val result = coroutineScope {
-                val folders = async { active.listFolders() }
-                val conversations = async { active.listConversations() }
-                folders.await() to conversations.await()
+            // Single-device deadline (batch v137): a powered-off device used to spin
+            // for the full 30s OkHttp timeout with no way out. 4s, then a retryable
+            // error — the previous list (if any) stays on screen.
+            val result = withTimeoutOrNull(SINGLE_DEVICE_TIMEOUT_MS) {
+                coroutineScope {
+                    val folders = async { active.listFolders() }
+                    val conversations = async { active.listConversations() }
+                    folders.await() to conversations.await()
+                }
             }
             if (token != fetchGeneration) return
+            if (result == null) {
+                val name = repository.profiles.first().firstOrNull { it.id == loadedProfileId }?.name.orEmpty()
+                _ui.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        hasLoaded = true,
+                        error = appContext.getString(R.string.device_unreachable_named, name),
+                    )
+                }
+                return
+            }
             _ui.update {
                 it.copy(
                     folders = result.first,
@@ -441,6 +591,7 @@ class SessionListViewModel @Inject constructor(
                     hasLoaded = true,
                     isLoading = false,
                     isRefreshing = false,
+                    error = null,
                 )
             }
         } catch (e: CancellationException) {
@@ -554,14 +705,27 @@ data class SessionListUiState(
 /** Aggregate ("全部") list state; the grouped display derives via [aggregateSections]. */
 data class AggregateUiState(
     val servers: List<Pair<ServerProfile, List<ConversationSummary>>> = emptyList(),
+    /** Per-device progress for this round (batch v137) — drives names + retry. */
+    val deviceStates: List<DeviceLoad> = emptyList(),
+    /** Every visible device is opted out of All ("skip in All") — the empty
+     *  aggregate must say so instead of claiming there are no sessions. */
+    val allSkipped: Boolean = false,
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val hasLoaded: Boolean = false,
     val error: String? = null,
-    val failedDevices: Int = 0,
-    val reachableDevices: Int = 0,
 ) {
     val isBusy: Boolean get() = isLoading || isRefreshing
+
+    /** Devices that could not be fetched this round. */
+    val failedDevices: Int get() = deviceStates.count { it.status == DeviceLoadStatus.FAILED }
+
+    /** Names for the failure banner ("win 未响应"), in feed order. */
+    val failedDeviceNames: List<String> get() = deviceStates.failedNames()
+
+    /** Devices still connecting — the empty state must wait for these, otherwise
+     *  the 600ms skeleton phase reads as "no sessions anywhere" (batch v137). */
+    val pendingDeviceNames: List<String> get() = deviceStates.loadingNames()
 
     /** Unfiltered row total — separates "no sessions anywhere" from "project has
      *  no matching sessions" for the empty states (review #10). */

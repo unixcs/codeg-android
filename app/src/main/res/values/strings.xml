@@ -70,7 +70,6 @@
     <string name="sessions_empty_title">No sessions yet</string>
     <string name="sessions_empty_message">Start a new task and it\'ll show up here.</string>
     <!-- Batch v132: cross-device aggregate + session projects -->
-    <string name="sessions_all_unreachable">No device is reachable right now</string>
     <string name="sessions_agg_empty_title">No sessions across devices</string>
     <string name="sessions_agg_empty_message">Recent sessions from every device will appear here.</string>
     <string name="sessions_project_empty_title">No sessions in this project</string>
@@ -135,7 +134,16 @@
     <string name="activity_updated">Updated %1$s</string>
     <string name="activity_load_failed">Couldn\'t load activity</string>
     <string name="activity_all">All</string>
-    <string name="activity_partial_failed">%1$d device(s) unreachable</string>
+    <string name="device_unreachable_named">No response from %1$s</string>
+    <string name="activity_devices_unreachable">%1$s unreachable</string>
+    <string name="device_connecting">Connecting to %1$s…</string>
+    <string name="device_skip_in_all">Skip in All</string>
+    <string name="device_skip_in_all_hint">Keeps the device in the bar; only excludes it from the All feed.</string>
+    <string name="device_include_in_all">Include in All</string>
+    <string name="device_skipped_badge">skipped</string>
+    <string name="device_skipped_in_all_label">Skipped in All</string>
+    <string name="all_devices_skipped_title">All devices skipped</string>
+    <string name="all_devices_skipped_message">Long-press a device chip and turn off \"Skip in All\" to bring it back.</string>
     <string name="devicebar_manage">Manage servers</string>
 
     <!-- Search -->

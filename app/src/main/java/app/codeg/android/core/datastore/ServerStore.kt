@@ -46,6 +46,24 @@ class ServerStore @Inject constructor(
         }
     }
 
+    /** Atomic transform of one profile, evaluated inside the DataStore transaction.
+     *  Read-modify-write across two `edit` calls (read `profiles.first()`, then
+     *  `upsert(copy)`) can lose a concurrent flag flip — e.g. the Servers screen's
+     *  visibility toggle racing the device bar's "Skip in All" sheet. */
+    suspend fun update(id: String, transform: (ServerProfile) -> ServerProfile) {
+        dataStore.edit { prefs ->
+            val list = decode(prefs[PROFILES])
+            val idx = list.indexOfFirst { it.id == id }
+            if (idx < 0) return@edit
+            val updated = list.toMutableList()
+            updated[idx] = transform(list[idx])
+            prefs[PROFILES] = json.encodeToString(updated)
+            // Parity with [upsert]: a store with no selection (e.g. every device was
+            // hidden, which clears it) recovers as soon as one is touched again.
+            if (prefs[SELECTED] == null) prefs[SELECTED] = id
+        }
+    }
+
     /** Remove a profile; if it was selected, fall back to the first remaining
      *  VISIBLE one (a hidden device must not become the app's focused device just
      *  because the previous one was deleted — the day-to-day surfaces don't list it). */

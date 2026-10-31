@@ -241,6 +241,29 @@ fun SessionListScreen(
                     }
                 }
 
+                // v137: the single-device 4s timeout sets hasLoaded=true + error so
+                // the old infinite spinner becomes a retryable error page.
+                ui.hasLoaded && ui.error != null && ui.isEmpty -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        InlineError(
+                            icon = Icons.Rounded.Forum,
+                            title = stringResource(R.string.sessions_load_failed),
+                            message = ui.error!!,
+                            onRetry = viewModel::refresh,
+                            retryLabel = stringResource(R.string.common_retry),
+                        )
+                    }
+                }
+
+                // v137: a retry from the 4s-timeout page clears `error` and leaves the
+                // list empty while it re-asks the device — "No sessions yet" would be a
+                // lie (and the branch below is not pull-to-refreshable).
+                ui.hasLoaded && ui.isEmpty && ui.isBusy -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        LoadingView(message = stringResource(R.string.common_loading))
+                    }
+                }
+
                 ui.hasLoaded && ui.isEmpty -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         EmptyState(
@@ -713,10 +736,12 @@ private fun AggregateChatsList(
 
     // Failure counters are remember keys (R3-4): a device with no visible rows
     // going offline changes neither sections nor error — the banner must still appear.
-    val items = remember(sections, collapsed, ui.error, ui.failedDevices, ui.reachableDevices) {
+    val items = remember(sections, collapsed, ui.error, ui.deviceStates) {
         buildList {
             if (ui.error != null) add(AggListItem.Banner)
-            if (ui.failedDevices > 0 && ui.reachableDevices > 0) add(AggListItem.PartialBanner)
+            // Naming the dark devices must survive the all-failed case too: a stale
+            // list can be on screen while every current fetch failed (v137).
+            if (ui.failedDevices > 0 && ui.error == null) add(AggListItem.PartialBanner)
             sections.forEach { section ->
                 add(AggListItem.Header(section))
                 if (section.id !in collapsed) {
@@ -733,7 +758,7 @@ private fun AggregateChatsList(
     // wipe a highlight), while a rename must re-register to keep the preview card
     // honest.
     val focusRowKeys = items.filterIsInstance<AggListItem.RowItem>()
-        .map { "${it.row.refKey}|${it.row.conversation.trimmedTitle.orEmpty()}" }
+        .map { "${it.row.refKey}|${it.row.conversation.trimmedTitle.orEmpty()}|${it.row.serverName}" }
     DisposableEffect(focusRowKeys) {
         viewModel.focusHub.register(
             CHATS_FOCUS_OWNER,
@@ -834,12 +859,35 @@ private fun AggregateChatsList(
                                     onRetry = viewModel::refresh,
                                     retryLabel = stringResource(R.string.common_retry),
                                 )
+                                // Skeleton phase (v137): at least one device is still
+                                // inside its 3s window, so an empty state would be a
+                                // lie — name the devices instead.
+                                ui.pendingDeviceNames.isNotEmpty() -> LoadingView(
+                                    message = stringResource(
+                                        R.string.device_connecting,
+                                        ui.pendingDeviceNames.joinToString(", "),
+                                    ),
+                                )
                                 // Some devices failed (and none "all"): the truth is a
                                 // connectivity problem, not an empty project (R2-3).
-                                ui.failedDevices > 0 -> Text(
-                                    text = stringResource(R.string.activity_partial_failed, ui.failedDevices),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = colors.danger,
+                                // v137: name them and offer a retry that only re-asks
+                                // the dark devices.
+                                ui.failedDevices > 0 -> InlineError(
+                                    icon = Icons.Rounded.Forum,
+                                    title = stringResource(R.string.sessions_load_failed),
+                                    message = stringResource(
+                                        R.string.activity_devices_unreachable,
+                                        ui.failedDeviceNames.joinToString(", "),
+                                    ),
+                                    onRetry = viewModel::retryFailedDevices,
+                                    retryLabel = stringResource(R.string.common_retry),
+                                )
+                                // Every visible device opted out of the aggregate — say
+                                // so instead of claiming there are no sessions (v137).
+                                ui.allSkipped -> EmptyState(
+                                    icon = Icons.Rounded.Dns,
+                                    title = stringResource(R.string.all_devices_skipped_title),
+                                    message = stringResource(R.string.all_devices_skipped_message),
                                 )
                                 ui.totalRows == 0 -> EmptyState(
                                     icon = Icons.Rounded.Forum,
@@ -884,13 +932,26 @@ private fun AggregateChatsList(
                                     )
 
                                     // One offline device must not silently swallow its
-                                    // sessions (R1-11) — same signal as Activity's banner.
-                                    AggListItem.PartialBanner -> Text(
-                                        text = stringResource(R.string.activity_partial_failed, ui.failedDevices),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = colors.danger,
-                                        modifier = Modifier.animateItem().padding(horizontal = 4.dp, vertical = 6.dp),
-                                    )
+                                    // sessions (R1-11) — same signal as Activity's banner,
+                                    // now named + retryable (batch v137).
+                                    AggListItem.PartialBanner -> Row(
+                                        modifier = Modifier.animateItem().fillMaxWidth()
+                                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = stringResource(
+                                                R.string.activity_devices_unreachable,
+                                                ui.failedDeviceNames.joinToString(", "),
+                                            ),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = colors.danger,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        TextButton(onClick = viewModel::retryFailedDevices) {
+                                            Text(stringResource(R.string.common_retry), style = MaterialTheme.typography.labelMedium)
+                                        }
+                                    }
 
                                     is AggListItem.Header -> AggregateHeader(
                                         section = item.section,
