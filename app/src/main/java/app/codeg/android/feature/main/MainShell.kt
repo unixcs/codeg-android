@@ -67,6 +67,7 @@ import kotlin.math.roundToInt
 import app.codeg.android.R
 import app.codeg.android.app.AppViewModel
 import app.codeg.android.core.data.FocusPreview
+import app.codeg.android.core.data.resolveCycleTarget
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.designsystem.component.GlobalDeviceBar
 import app.codeg.android.core.designsystem.theme.CodegTheme
@@ -263,35 +264,46 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // Search) routes through this so the Activity unread dot always clears on open.
     // serverId scopes the mark (conversation ids are server-local); the device-local
     // write is fire-and-forget and never gates the navigation.
-    val openConversationAndMark: (serverId: String?, conversationId: Int) -> Unit =
-        { serverId, conversationId ->
-            // Deep links carry no device — resolve against the current selection so
-            // the unread dot still clears (the mark is device-scoped).
-            val ownerId = serverId ?: selectedProfile?.id
-            // v134: repeated triggers of the SAME conversation (ball gestures re-fire
-            // in the window before the NavHost recomposes; recent-session ranks fire
-            // on the detail itself) must not stack duplicate detail entries — Back
-            // then needs one press per duplicate. Read the back queue DIRECTLY (it is
-            // in sync right after navigate(); the AsState flow is a frame late).
-            // Cross-device ids collide (server-local), so compare against the device
-            // the top detail was actually opened for (detailServerId), never the
-            // live selection the ball may have changed underneath.
-            val top = nav.currentBackStackEntry
-            val topId = top?.arguments?.getInt("id")
-            // The owning device rides the route, so it belongs to THIS entry: pushing
-            // another detail over it and coming back restores the right stamp, which a
-            // single shell-level field could not.
-            val topDevice = top?.arguments?.getString("serverId")
-            if (!isDuplicateDetailPush(top?.destination?.route, topId, conversationId, ownerId, topDevice)) {
-                // Marked only for a REAL open: re-triggering the conversation already
-                // on screen must not bump its "recent" timestamp again.
-                if (ownerId != null) appViewModel.markSessionRead("$ownerId:$conversationId")
-                nav.navigate(
-                    if (ownerId != null) "conversation/$conversationId?serverId=$ownerId"
-                    else "conversation/$conversationId",
-                )
-            }
+    //
+    // [replaceTop] is for ball-driven SWITCHING (quick switch / cycle / openHighlighted):
+    // when a conversation detail is already on top, the new one replaces it instead of
+    // stacking, so Back lands on whatever screen the switching started from rather than
+    // walking back through every session the ring visited (v136).
+    // Returns true when the detail was actually pushed (false for the v134 dedupe), so
+    // ball-driven callers advance their ring/cursor only when something was opened.
+    fun openConversationAndMark(serverId: String?, conversationId: Int, replaceTop: Boolean = false): Boolean {
+        // Deep links carry no device — resolve against the current selection so
+        // the unread dot still clears (the mark is device-scoped).
+        val ownerId = serverId ?: selectedProfile?.id
+        // v134: repeated triggers of the SAME conversation (ball gestures re-fire
+        // in the window before the NavHost recomposes; recent-session ranks fire
+        // on the detail itself) must not stack duplicate detail entries — Back
+        // then needs one press per duplicate. Read the back queue DIRECTLY (it is
+        // in sync right after navigate(); the AsState flow is a frame late).
+        // Cross-device ids collide (server-local), so compare against the device
+        // the top detail was actually opened for (detailServerId), never the
+        // live selection the ball may have changed underneath.
+        val top = nav.currentBackStackEntry
+        val topId = top?.arguments?.getInt("id")
+        // The owning device rides the route, so it belongs to THIS entry: pushing
+        // another detail over it and coming back restores the right stamp, which a
+        // single shell-level field could not.
+        val topDevice = top?.arguments?.getString("serverId")
+        if (isDuplicateDetailPush(top?.destination?.route, topId, conversationId, ownerId, topDevice)) return false
+        // Marked only for a REAL open: re-triggering the conversation already
+        // on screen must not bump its "recent" timestamp again.
+        if (ownerId != null) appViewModel.markSessionRead("$ownerId:$conversationId")
+        val route = if (ownerId != null) "conversation/$conversationId?serverId=$ownerId"
+        else "conversation/$conversationId"
+        if (replaceTop && isConversationDetailRoute(top?.destination?.route) && top != null) {
+            // popUpTo by destination id: every detail entry shares the destination, so
+            // the first match from the top is exactly the entry being replaced.
+            nav.navigate(route) { popUpTo(top.destination.id) { inclusive = true } }
+        } else {
+            nav.navigate(route)
         }
+        return true
+    }
     // Open a conversation from an aggregate ("全部") row (v134 rework). The
     // owning-device selection still lands BEFORE the push (session detail reads
     // selectedProfile exactly once on entry), but the aggregate mode itself now
@@ -299,8 +311,9 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // pre-push clear of chatsAll/activityAll only served to strand Back on the
     // single-device view instead of the 全部 surface the user came from. Each tab's
     // All flag is independent and untouched (the old per-tab exit note is moot).
+    // v136: a ball-driven switch REPLACES a detail already on top (see above).
     fun openAggregateRow(serverId: String, conversationId: Int) {
-        handoffTo(serverId) { openConversationAndMark(serverId, conversationId) }
+        handoffTo(serverId) { openConversationAndMark(serverId, conversationId, replaceTop = true) }
     }
     // Wide screens (tablets / landscape) use a side NavigationRail instead of the bottom bar.
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
@@ -478,23 +491,90 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     val ballPos by appViewModel.floatBallPos.collectAsStateWithLifecycle()
     val ballContext = androidx.compose.ui.platform.LocalContext.current
 
-    // Jump to the rank-th most-recent conversation across devices, resolved from
-    // the device-local read marks ("<serverId>:<conversationId>" → openedAt).
-    // Selection must land before the push (session detail reads it once on entry).
-    fun openRecentConversation(rank: Int) {
-        val validServers = servers.map { it.id }.toSet()
-        val entry = appViewModel.sessionReadMarks.value.entries
-            .filter { it.key.substringBeforeLast(':') in validServers }
-            .sortedByDescending { it.value }
-            .getOrNull(rank) ?: return
-        val serverId = entry.key.substringBeforeLast(':')
-        val conversationId = entry.key.substringAfterLast(':').toIntOrNull() ?: return
+    // The conversation the DETAIL on top is showing (null on tabs / composer / elsewhere).
+    // The quick-switch rings and the list cycler need "where am I now" — the list
+    // registrations can't answer it once the detail replaced the list (v136).
+    fun currentConversationRef(): app.codeg.android.core.datastore.SessionRef? {
+        val top = nav.currentBackStackEntry ?: return null
+        if (!isConversationDetailRoute(top.destination.route)) return null
+        val id = top.arguments?.getInt("id") ?: return null
+        // A detail restored from a deep link / process death may have no serverId arg;
+        // fall back to the live selection the same way openConversationAndMark does, or
+        // a quick switch could hand out the conversation already on screen.
+        val device = top.arguments?.getString("serverId") ?: selectedProfile?.id ?: return null
+        return app.codeg.android.core.datastore.SessionRef(device, id)
+    }
+
+    // Quick switch · depth N: walk the N most recently opened conversations as a stable
+    // ring (v136 — the old fixed ranks always jumped to the same session). The ring is
+    // snapshotted so opening a member (which bumps its read mark) can't make the next
+    // fire bounce between two sessions; see nextQuickSwitchStep. The ring only advances
+    // once the handoff really lands, so a gesture dropped by the single-flight can't
+    // skip a member.
+    fun quickSwitchTo(depth: Int) {
+        val step = appViewModel.peekQuickSwitchTarget(
+            depth = depth,
+            validServers = servers.map { it.id }.toSet(),
+            current = currentConversationRef(),
+        ) ?: return
+        val target = step.ref
         // Same single-flight as the aggregate row taps: two selection dances racing
         // each other would push details resolved against whichever landed last.
-        handoffTo(serverId) {
-            // Same entry point as every other list open: the mark (same key) rides
-            // along and the v134 same-conversation dedupe applies.
-            openConversationAndMark(serverId, conversationId)
+        handoffTo(target.serverId) {
+            // Same entry point as every other list open: the mark rides along, the v134
+            // same-conversation dedupe applies, and a detail on top is replaced (v136).
+            // Commit the cursor only when something was really opened — the dedupe must
+            // not burn a ring slot.
+            if (openConversationAndMark(target.serverId, target.conversationId, replaceTop = true)) {
+                appViewModel.commitQuickSwitchStep(depth, step.ring)
+            }
+        }
+    }
+
+    // Cycle the visible session list (v132) and ENTER the highlighted session (v136).
+    // v132 only highlighted it — the reported "selects but never opens" bug. The owner
+    // is the tab whose list is on screen; from a detail/composer (list disposed), or a
+    // tab whose list hasn't registered yet (still loading), it is the last list that
+    // did — a bound gesture always lands on a conversation.
+    fun cycleFocusAndOpen() {
+        val hub = appViewModel.focusHub
+        val current = currentConversationRef()
+        val onListTab = currentRoute != null && currentRoute in tabRoutes
+        // The owner is the list actually on screen (its registration is what the user
+        // sees); otherwise the last list that registered, even if it has since been
+        // disposed (the detail replaced it). A list that hasn't registered yet (still
+        // loading) must NOT win over lastOwner, or the gesture would resolve an empty
+        // ring and do nothing. Single-device Chats/Activity DO register (v136), so
+        // "shows a list" and "owns a ring" now coincide once loaded.
+        val target = resolveCycleTarget(
+            currentRoute = currentRoute,
+            isTabRoute = onListTab,
+            hasLiveList = hub::hasLiveList,
+            lastOwner = hub.lastOwner,
+        )
+        if (target == null) {
+            // No list has ever registered (cold start): the bound gesture still has to
+            // land on a conversation, so fall back to the most recent one.
+            quickSwitchTo(1)
+            return
+        }
+        // Peek only; commit after the handoff lands. A fire dropped by the selection
+        // single-flight must not move the highlight and skip a session.
+        val step = hub.peekCycle(
+            owner = target.owner,
+            current = current,
+            stale = target.stale,
+            validServers = servers.map { it.id }.toSet(),
+        ) ?: run {
+            // Owner's ring fell empty (list left / filtered to nothing): still land on
+            // a conversation rather than swallowing the gesture.
+            quickSwitchTo(1)
+            return
+        }
+        handoffTo(step.item.ref.serverId) {
+            if (openConversationAndMark(step.item.ref.serverId, step.item.ref.conversationId, replaceTop = true)) {
+                hub.commitCycle(step)
+            }
         }
     }
 
@@ -553,9 +633,9 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
-            "recentSession1" -> openRecentConversation(0)
-            "recentSession2" -> openRecentConversation(1)
-            "recentSession3" -> openRecentConversation(2)
+            "recentSession1" -> quickSwitchTo(1)
+            "recentSession2" -> quickSwitchTo(2)
+            "recentSession3" -> quickSwitchTo(3)
             "switchServerNext" -> switchServerBy(+1)
             "switchServerPrev" -> switchServerBy(-1)
             // Batch v132 two-segment gestures: cycle the project filter, then walk
@@ -579,8 +659,20 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 }
                 else -> {}
             }
-            "cycleSession" -> appViewModel.focusHub.cycle(currentRoute ?: "")
-            "openHighlighted" -> appViewModel.focusHub.highlightedRef(currentRoute ?: "")?.let { openRef(it) }
+            "cycleSession" -> cycleFocusAndOpen()
+            "openHighlighted" -> {
+                // The visible tab's own highlight wins; otherwise open whatever owner
+                // currently holds it. Passing the tab route as a FILTER (old behaviour)
+                // returned null whenever the ring belonged to another list — e.g. a
+                // cycle fired from a detail page — so the gesture silently did nothing.
+                // Invalid devices are filtered out so a stale last-known list can't
+                // select a deleted profile.
+                val hub = appViewModel.focusHub
+                val valid = servers.map { it.id }.toSet()
+                val ref = currentRoute?.takeIf { it in tabRoutes }?.let { hub.highlightedRef(it, valid) }
+                    ?: hub.resolveHighlightedRef(owner = null, validServers = valid)
+                ref?.let { openRef(it) }
+            }
             "ballSettings" -> {
                 onTab(HomeTab.SETTINGS)
                 FloatingBallSettingsBus.open()

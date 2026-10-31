@@ -133,6 +133,16 @@ fun SearchScreen(
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             EmptyState(Icons.Rounded.Search, stringResource(R.string.search_title), stringResource(R.string.search_hint))
                         }
+                    ui.noDevice ->
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            EmptyState(
+                                icon = Icons.Rounded.Search,
+                                title = stringResource(R.string.server_none_selected),
+                                message = stringResource(R.string.search_no_device_hint),
+                                actionLabel = stringResource(R.string.common_retry),
+                                onAction = viewModel::retry,
+                            )
+                        }
                     ui.error != null ->
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             InlineError(Icons.Rounded.ErrorOutline, stringResource(R.string.search_failed), ui.error!!, onRetry = viewModel::retry, retryLabel = stringResource(R.string.common_retry))

@@ -157,6 +157,31 @@ fun SessionListScreen(
     }
     val hiddenCount = hiddenSections.size
 
+    // Register the visible rows for the floating-ball cycle (v136). The single-device
+    // branch used to register nothing, so `cycle session` pressed on the app's default
+    // view had no ring to walk and silently fell back to the last aggregate list (or
+    // did nothing). Collapsed sections are excluded: the ring must only walk rows the
+    // user can actually see. Titles are part of the key so a rename refreshes the
+    // preview card; refs alone would keep a stale title.
+    val focusRows = remember(sections, collapsed, selectedId, selectedName) {
+        sections.asSequence()
+            .filter { it.id !in collapsed }
+            .flatMap { it.rows.asSequence() }
+            .mapNotNull { row ->
+                val serverId = selectedId ?: return@mapNotNull null
+                FocusItem(
+                    ref = SessionRef(serverId, row.conversation.id),
+                    title = row.conversation.trimmedTitle ?: "#${row.conversation.id}",
+                    serverName = selectedName,
+                )
+            }
+            .toList()
+    }
+    DisposableEffect(focusRows) {
+        viewModel.focusHub.register(CHATS_FOCUS_OWNER, focusRows)
+        onDispose { viewModel.focusHub.unregister(CHATS_FOCUS_OWNER) }
+    }
+
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -731,7 +756,11 @@ private fun AggregateChatsList(
     // Dedupe on the highlight STAMP (R2-1/R3-3): `items` is rebuilt by refetches
     // and optimistic updates, but only a NEW highlight may scroll — the same ref
     // after a wrap-around or filter change must re-scroll, which ref-dedupe ate.
-    var lastScrolledStamp by remember { mutableStateOf(0L) }
+    // Seeded from the CURRENT highlight: v136's ball gestures enter the detail right
+    // away, so a highlight surviving on the hub while this list was off-screen is
+    // where the user just was — returning must not yank the list to it. Only a
+    // highlight that arrives while the list is on screen scrolls.
+    var lastScrolledStamp by remember { mutableStateOf(highlight?.stamp ?: 0L) }
     LaunchedEffect(highlight, items) {
         val hl = highlight?.takeIf { it.owner == CHATS_FOCUS_OWNER } ?: return@LaunchedEffect
         if (hl.stamp == lastScrolledStamp) return@LaunchedEffect

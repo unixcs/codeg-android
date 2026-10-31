@@ -146,6 +146,7 @@
     <string name="search_clear">清除</string>
     <string name="search_no_results">没有结果</string>
     <string name="search_no_results_for">没有匹配 \"%1$s\" 的结果。</string>
+    <string name="search_no_device_hint">请先在设置里添加或选择一台服务器，再搜索。</string>
     <string name="search_failed">搜索失败</string>
 
     <!-- Common -->
@@ -661,6 +662,7 @@
     <string name="agentopts_title">智能体选项</string>
     <string name="agentopts_mode">模式</string>
     <string name="agentopts_apply_failed">更改未能应用，请检查网络后重试。</string>
+    <string name="agentopts_apply_busy">会话正在运行，本轮结束后再试。</string>
     <string name="agentopts_no_options">该智能体没有可调整的选项。</string>
     <string name="agentopts_new_session_title">新建会话</string>
     <string name="agentopts_agent_section">智能体</string>
@@ -1049,9 +1051,9 @@
     <string name="ball_action_font_up">字号调大</string>
     <string name="ball_action_font_down">字号调小</string>
     <string name="ball_action_font_reset">字号还原</string>
-    <string name="ball_action_recent_1">最近会话 1</string>
-    <string name="ball_action_recent_2">最近会话 2</string>
-    <string name="ball_action_recent_3">最近会话 3</string>
+    <string name="ball_action_recent_1">快切会话·深度1</string>
+    <string name="ball_action_recent_2">快切会话·深度2</string>
+    <string name="ball_action_recent_3">快切会话·深度3</string>
     <string name="ball_action_server_next">下一台设备</string>
     <string name="ball_action_server_prev">上一台设备</string>
     <string name="ball_action_ball_settings">球设置</string>

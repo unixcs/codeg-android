@@ -46,4 +46,24 @@ class ConversationNavTest {
         assertFalse(isDuplicateDetailPush("chats", null, 5, "a", "a"))
         assertFalse(isDuplicateDetailPush(null, null, 5, "a", "a"))
     }
+
+    // ---- isConversationDetailRoute (v136 ball replace-top) ----
+
+    @Test
+    fun `detail route template is a conversation detail`() {
+        assertTrue(isConversationDetailRoute("conversation/{id}"))
+        assertTrue(isConversationDetailRoute("conversation/{id}?serverId={serverId}"))
+    }
+
+    @Test
+    fun `new-task composer and tabs are not conversation details`() {
+        // "conversation_new..." must never be mistaken for "conversation/" — the
+        // replace-top rule would pop the composer instead of a real detail.
+        assertFalse(isConversationDetailRoute("conversation_new?folderId={folderId}"))
+        assertFalse(isConversationDetailRoute("conversation_new"))
+        assertFalse(isConversationDetailRoute("chats"))
+        assertFalse(isConversationDetailRoute("activity"))
+        assertFalse(isConversationDetailRoute("conversation"))
+        assertFalse(isConversationDetailRoute(null))
+    }
 }

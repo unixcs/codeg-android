@@ -95,8 +95,8 @@ fun ActivityScreen(
         ?: stringResource(R.string.app_name)
 
     // Flattened lazy items — one source of truth for rendering, focus registration
-    // and scroll indexing (aggregate mode only registers; single-device has no ball
-    // cycling per the v132 requirement scope).
+    // and scroll indexing. Both modes register (v136): a single-device activity list
+    // is a perfectly good ring, and leaving it out made the ball gesture dead there.
     data class ActItem(val key: String, val section: ActivitySection?, val row: ActivityRow?)
 
     val items = remember(sections, collapsed, allMode, ui.failedDevices, ui.reachableDevices, ui.lastRefreshed) {
@@ -120,28 +120,28 @@ fun ActivityScreen(
     val focusRowKeys = remember(items) {
         items.mapNotNull { it.row }.map { "${it.serverId}:${it.conversation.id}|${it.conversation.trimmedTitle.orEmpty()}" }
     }
-    DisposableEffect(allMode, focusRowKeys) {
-        if (allMode) {
-            viewModel.focusHub.register(
-                ACTIVITY_FOCUS_OWNER,
-                items.mapNotNull { it.row }.map { row ->
-                    FocusItem(
-                        ref = SessionRef(row.serverId, row.conversation.id),
-                        title = row.conversation.trimmedTitle ?: "#${row.conversation.id}",
-                        serverName = row.serverName,
-                    )
-                },
-            )
-        }
+    DisposableEffect(focusRowKeys) {
+        viewModel.focusHub.register(
+            ACTIVITY_FOCUS_OWNER,
+            items.mapNotNull { it.row }.map { row ->
+                FocusItem(
+                    ref = SessionRef(row.serverId, row.conversation.id),
+                    title = row.conversation.trimmedTitle ?: "#${row.conversation.id}",
+                    serverName = row.serverName,
+                )
+            },
+        )
         onDispose { viewModel.focusHub.unregister(ACTIVITY_FOCUS_OWNER) }
     }
 
     // Dedupe on the highlight STAMP (R2-1/R3-3): the poll rebuilds `items` every
     // 25s, but only a NEW highlight may scroll — the same ref after a wrap-around
     // or filter change must re-scroll, which ref-dedupe ate.
-    var lastScrolledStamp by remember { mutableStateOf(0L) }
+    // Seeded from the CURRENT highlight (v136) — a highlight that survived while this
+    // list was off-screen must not yank the list on return; only one that arrives later
+    // (a ball gesture fired with this list visible) scrolls.
+    var lastScrolledStamp by remember { mutableStateOf(highlight?.stamp ?: 0L) }
     LaunchedEffect(highlight, items) {
-        if (!allMode) return@LaunchedEffect
         val hl = highlight?.takeIf { it.owner == ACTIVITY_FOCUS_OWNER } ?: return@LaunchedEffect
         if (hl.stamp == lastScrolledStamp) return@LaunchedEffect
         val idx = items.indexOfFirst { it.row != null && it.row.refKey == hl.item.ref.key }

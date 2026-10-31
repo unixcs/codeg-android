@@ -57,10 +57,9 @@ import app.codeg.android.di.ApplicationScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -99,9 +98,10 @@ private const val SNAPSHOT_TTL_MS = 30_000L
 /** Server-side folder (inside the working directory) that receives session handoff JSON. */
 private const val HANDOFF_DIR = ".codeg-handoff"
 
-/** Bounded snapshot poll after an options apply (~2.3s total) — `set_*` only enqueues
- *  the change server-side, so we reconcile against the authoritative snapshot. */
-private const val RECONCILE_ATTEMPTS = 3
+/** Bounded snapshot poll after an options apply (~2.7s total) — `set_*` only enqueues
+ *  the change server-side (fire-and-forget), so only a settled snapshot can tell an
+ *  applied pick from a refused one. 150ms first step, 500ms after. */
+private const val RECONCILE_ATTEMPTS = 6
 
 /** Status-line copy shown while the agent is thinking (no tool running). Hardcoded to
  *  match the send-flow literal — the transient status micro-copy is intentionally not
@@ -174,11 +174,6 @@ class SessionDetailViewModel @Inject constructor(
      *  "request changes" (see [answerPlanApproval]), bound to the turn that produced
      *  the approval so no other turn can ever deliver them. */
     private var pendingPlanFollowUp: ParkedPlanNotes? = null
-    /** In-flight options-connection resolve plus the agent/folder it targets. Shared across
-     *  concurrent applies so a rapid mode+config change spawns ONE connection, but keyed by
-     *  agent/folder so a draft's agent/folder switch doesn't reuse a now-stale-context connect.
-     *  Mirrors the iOS `AgentOptionsModel.sharedConnection()`. Cleared when the connect settles. */
-    private var optionsConnect: OptionsConnect? = null
     /** Stable across reconnects so the server tracks one logical subscription. */
     private val subscriptionId = UUID.randomUUID().toString()
     /** Consecutive silent re-attaches for the current turn; reset on a confirmed attach. */
@@ -2114,146 +2109,341 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    /** A live connection to apply options to. Reuses a cached/live connection, and — for a
-     *  draft or idle session with none — establishes one on demand (carrying the remembered
-     *  mode/config), so the pickers apply instead of silently no-op'ing. Mirrors iOS
-     *  `resolveConnectionForOptions`. Concurrent applies share one in-flight resolve
-     *  (`optionsConnectDeferred`) so a rapid mode+config change can't spawn two orphaned
-     *  connections. Returns null only when there's no client or the connect fails. */
-    private suspend fun optionsConnection(forAgent: AgentType, forFolder: FolderDetail?): String? {
-        val forFolderId = forFolder?.id
-        // Reuse the shared connection only when it still matches THIS apply's pinned agent/folder.
-        // connectionId is nulled on every agent/folder switch, so a non-null value always belongs
-        // to the current context; if the current context no longer matches the pinned one, this
-        // apply raced a switch and must resolve a connection for its own (pinned) agent instead of
-        // returning the other agent's connection.
-        connectionId?.takeIf { agent == forAgent && folder?.id == forFolderId }?.let { return it }
-        val c = client ?: return null
-        // Reuse an in-flight connect only when it targets the SAME agent/folder the caller pinned —
-        // after a draft agent/folder switch, a reused stale-context connect would apply to the
-        // wrong agent.
-        val cached = optionsConnect
-        val deferred = if (cached != null && cached.agent == forAgent && cached.folderId == forFolderId) {
-            cached.deferred
-        } else {
-            // A connect for a now-abandoned agent/folder context is obsolete — cancel it so it
-            // can't complete and win adoption with a preference snapshot taken before a later
-            // setting was saved (a same-context connect started afterward carries the newer prefs;
-            // if the stale one were adopted, the next send would reuse it and drop that setting).
-            cached?.deferred?.cancel()
-            val d = viewModelScope.async {
-                val convId = conversationId
-                val found = if (convId != null) {
-                    runCatching { c.findConnection(convId, externalId, forAgent)?.connectionId }.getOrNull()
-                } else null
-                // Pin the connect to the captured agent/folder so a switch mid-connect can't
-                // retarget it to a different agent/workspace.
-                val conn = found ?: connectWithPreferences(c, forAgent, forFolder)
-                // Adopt as the shared connection only if nothing else has claimed it and the
-                // draft's agent/folder is still the captured one — never clobber a connection the
-                // send path already established (which Stop / stream reconnect target).
-                if (connectionId == null && agent == forAgent && folder?.id == forFolderId) connectionId = conn
-                conn
-            }
-            optionsConnect = OptionsConnect(forAgent, forFolderId, d)
-            // Clear the memo when the connect itself settles — not when a single awaiter is
-            // cancelled — so a dismissed sheet / cancelled apply can't drop the shared reference
-            // mid-flight and let the next apply spawn a second (orphaned) connection.
-            d.invokeOnCompletion { if (optionsConnect?.deferred === d) optionsConnect = null }
-            d
-        }
-        return try {
-            deferred.await()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    /** Apply a mode pick. Remembers it (draft: straight to the per-agent default; live:
-     *  the conversation's own record first, and the per-agent default ONLY after the
-     *  server confirms — a failed apply must not pollute the global default), resolves/
-     *  establishes a connection ([optionsConnection]), enqueues `set_mode`, and reconciles
-     *  against the authoritative snapshot. Returns the confirmed/normalized mode to
-     *  highlight, or null when the connect/apply failed (the sheet reverts the optimistic
-     *  pick). Mode is a sticky global preference (v133 owner spec): unless manually
-     *  switched, every conversation reconnects at the last-picked mode (e.g. YOLO). */
-    suspend fun applyMode(modeId: String): String? {
-        // Pin the agent/folder BEFORE the first suspension (saveMode), so a draft agent/folder
-        // switch mid-apply can't save the pref under the wrong agent or retarget the connect.
+    /** Apply a mode pick: enqueue `set_mode` on a resolvable connection and reconcile
+     *  against the authoritative snapshot. Mode is a sticky global preference (v133
+     *  owner spec): a pick that lands is remembered in the conversation's own record AND
+     *  promoted to the agent-level default, so every conversation reconnects at the
+     *  last-picked mode (e.g. YOLO).
+     *
+     *  Saved-first (v136): with no live connection the remembered pick IS the
+     *  application. Opening a conversation never connects (only a RUNNING turn is
+     *  reattached), so an idle session resolves no connection at all — reporting that
+     *  as a failure was the reported "changed but still warned" bug, because the pref is
+     *  exactly what the next connectWithPreferences ships as preferredModeId. Never
+     *  spawn a real agent CLI just to apply a setting (that connect was the multi-second
+     *  spin). A rejected/busy pick is never persisted, so it can't silently ship later. */
+    suspend fun applyMode(modeId: String): OptionApplyOutcome {
+        // Pin the agent/folder/server BEFORE the first suspension, so a draft agent,
+        // folder or device switch mid-apply can't save the pref under the wrong keys.
         val forAgent = agent
         val forFolder = folder
+        val serverId = profile?.id
         val convId = conversationId
+        val c = client
         // Config-model asymmetry: the MODEL stays a per-conversation lock ([applyConfig]),
-        // while a confirmed MODE pick becomes the agent's global default (written below).
-        if (convId != null) {
-            runCatching { conversationPrefs.saveMode(profile?.id, convId, forAgent, modeId) }
-        } else {
-            runCatching { selectorPrefs.saveMode(forAgent, modeId) }
-        }
-        val c = client
-        // Fast path (batch v130), DRAFT ONLY: a fresh draft's saved preference already
-        // carries to the server on the next acp_connect (preferredModeId) — do NOT spawn
-        // a real agent CLI just to apply a setting (that connect was the multi-second
-        // spin). A live conversation has no next-connect carrier, so if its connection
-        // can't be resolved we must revert (null) instead of reporting false success.
-        val draft = convId == null
-        if (c == null) return if (draft) modeId else null
-        val conn = connectionId?.takeIf { agent == forAgent && folder?.id == forFolder?.id }
-            ?: convId?.let { cid -> runCatching { c.findConnection(cid, externalId, forAgent)?.connectionId }.getOrNull() }
-            ?: return if (draft) modeId else null
-        return try {
-            c.acpSetMode(conn, modeId)
-            // reconcileSelection returns the optimistic value even if its budget ran out —
-            // "applied" (the set went through), NOT "server-verified". Promoting it is still
-            // safe: the server ignores an unknown preferredModeId on the next connect, so a
-            // silently-rejected mode self-heals instead of sticking.
-            val applied = reconcileSelection(conn, key = MODE_KEY, desired = modeId)
-            // Live pick applied to the server: promote it to the agent-level default so
-            // other conversations reconnect at the same mode (draft already wrote above).
-            if (!draft) runCatching { selectorPrefs.saveMode(forAgent, applied) }
+        // while a MODE pick becomes the agent's global default once it is in effect.
+        //
+        // Busy must be detected LOCALLY: acp_set_mode is fire-and-forget (HTTP 200 even
+        // when the agent rejects it), so the old `catch (ApiError.TurnInProgress)` could
+        // never fire — a pick during a running turn claimed success (v136).
+        if (_ui.value.isInFlight) return OptionApplyOutcome.Busy
+        if (c == null) return savedModeOutcome(serverId, forAgent, convId, modeId)
+        val resolved = resolveApplyConnection(c, forAgent, forFolder, convId)
+        if (resolved.isFailure) return OptionApplyOutcome.Failed
+        val conn = resolved.getOrNull()
+        if (conn == null) {
+            // No connection to diverge from: the saved pref carries the pick.
             evictSnapshotCache()
-            applied
+            return savedModeOutcome(serverId, forAgent, convId, modeId)
+        }
+        return try {
+            // The whole RPC + post-processing runs uncancellable: closing the sheet after
+            // the pick must not abort the write that is already accepted server-side.
+            withContext(NonCancellable) {
+                c.acpSetMode(conn, modeId)
+                when (reconcileSelection(c, conn, key = MODE_KEY, desired = modeId)) {
+                    ReconcileResult.Confirmed -> {
+                        // Only a set that went through is remembered: a Busy/Failed pick
+                        // must not be saved and then silently ship on the next connect.
+                        rememberMode(serverId, forAgent, convId, modeId)
+                        evictSnapshotCache()
+                        OptionApplyOutcome.Applied(modeId)
+                    }
+                    ReconcileResult.Rejected -> {
+                        // acp_set_mode is fire-and-forget: HTTP 200 only means the RPC was
+                        // queued. A snapshot that settles on a different mode means the
+                        // agent refused/normalized it — claiming success here both lied to
+                        // the picker and shipped the refused mode on the next connect.
+                        dropStaleOptionsConnection(conn)
+                        OptionApplyOutcome.Failed
+                    }
+                }
+            }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ApiError.TurnInProgress) {
+            OptionApplyOutcome.Busy
         } catch (e: Exception) {
-            dropStaleOptionsConnection(conn)
-            null
+            // The set may have landed even though its response didn't (timeout, dropped
+            // socket). Probe the authoritative snapshot and distinguish three states — a
+            // GC'd idle connection must NOT be reported as a failure (its saved pick is
+            // exactly what the next connect ships), and the server maps an unknown
+            // connection to a 500, so isStaleConnection cannot be the discriminator.
+            withContext(NonCancellable) {
+                when (val probe = probeSelection(c, conn, MODE_KEY)) {
+                    is SelectionProbe.Value -> when (probe.value) {
+                        modeId -> {
+                            rememberMode(serverId, forAgent, convId, modeId)
+                            evictSnapshotCache()
+                            OptionApplyOutcome.Applied(modeId)
+                        }
+                        // Readable snapshot with no current value: session still
+                        // initializing or no selector. Unknown, not a refusal — same
+                        // rule as the reconcile poll, so the two paths agree.
+                        null -> {
+                            dropStaleOptionsConnection(conn)
+                            evictSnapshotCache()
+                            savedModeOutcome(serverId, forAgent, convId, modeId)
+                        }
+                        else -> {
+                            dropStaleOptionsConnection(conn)
+                            OptionApplyOutcome.Failed
+                        }
+                    }
+                    SelectionProbe.NoSession -> {
+                        dropStaleOptionsConnection(conn)
+                        evictSnapshotCache()
+                        savedModeOutcome(serverId, forAgent, convId, modeId)
+                    }
+                    SelectionProbe.Unreadable -> {
+                        dropStaleOptionsConnection(conn)
+                        if (e is ApiError && e.isStaleConnection) {
+                            evictSnapshotCache()
+                            savedModeOutcome(serverId, forAgent, convId, modeId)
+                        } else {
+                            OptionApplyOutcome.Failed
+                        }
+                    }
+                }
+            }
         }
     }
 
-    /** Apply a config-option pick. Same contract as [applyMode] (remember, connect, apply,
-     *  reconcile); returns the confirmed/normalized value or null.
+    /** Apply a config-option pick: enqueue `set_config_option` and reconcile, with the
+     *  same saved-first contract as [applyMode].
      *  Model lock: an existing conversation saves the pick to ITS own layer
-     *  ([ConversationSelectorStore]) so it only ever applies back to this conversation;
-     *  a fresh draft (no conversation yet) saves to the global per-agent prefs, which the
-     *  conversation layer will then shadow from the first send on. */
-    suspend fun applyConfig(configId: String, valueId: String): String? {
+     *  ([ConversationSelectorStore]) so it only ever applies back to this conversation.
+     *  A fresh draft (no conversation yet) saves to the global per-agent prefs instead.
+     *  There is NO migration: once the draft becomes a conversation, that conversation's
+     *  own layer (already populated from the agent default at resolve time) shadows the
+     *  draft-era value. */
+    suspend fun applyConfig(configId: String, valueId: String): OptionApplyOutcome {
         val forAgent = agent
         val forFolder = folder
+        val serverId = profile?.id
         val convId = conversationId
-        if (convId != null) {
-            runCatching { conversationPrefs.saveConfig(profile?.id, convId, forAgent, configId, valueId) }
-        } else {
-            runCatching { selectorPrefs.saveConfig(forAgent, configId, valueId) }
-        }
         val c = client
-        // Fast path, same as [applyMode]: draft-only optimism; a live conversation whose
-        // connection can't be resolved reverts (null).
-        val draft = convId == null
-        if (c == null) return if (draft) valueId else null
-        val conn = connectionId?.takeIf { agent == forAgent && folder?.id == forFolder?.id }
-            ?: convId?.let { cid -> runCatching { c.findConnection(cid, externalId, forAgent)?.connectionId }.getOrNull() }
-            ?: return if (draft) valueId else null
+        if (_ui.value.isInFlight) return OptionApplyOutcome.Busy
+        if (c == null) return savedConfigOutcome(serverId, forAgent, convId, configId, valueId)
+        val resolved = resolveApplyConnection(c, forAgent, forFolder, convId)
+        if (resolved.isFailure) return OptionApplyOutcome.Failed
+        val conn = resolved.getOrNull()
+        if (conn == null) {
+            // No resolvable connection ⇒ the saved pref is what the next connect ships
+            // as preferredConfigValues.
+            evictSnapshotCache()
+            return savedConfigOutcome(serverId, forAgent, convId, configId, valueId)
+        }
         return try {
-            c.acpSetConfigOption(conn, configId, valueId)
-            reconcileSelection(conn, key = configId, desired = valueId).also { evictSnapshotCache() }
+            // Same dismissal-proof commit as [applyMode].
+            withContext(NonCancellable) {
+                c.acpSetConfigOption(conn, configId, valueId)
+                when (reconcileSelection(c, conn, key = configId, desired = valueId)) {
+                    ReconcileResult.Confirmed -> {
+                        rememberConfig(serverId, forAgent, convId, configId, valueId)
+                        evictSnapshotCache()
+                        OptionApplyOutcome.Applied(valueId)
+                    }
+                    ReconcileResult.Rejected -> {
+                        // Same fire-and-forget contract as acp_set_mode: a settled snapshot
+                        // that disagrees is a refusal, not a success to persist.
+                        dropStaleOptionsConnection(conn)
+                        OptionApplyOutcome.Failed
+                    }
+                }
+            }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ApiError.TurnInProgress) {
+            OptionApplyOutcome.Busy
         } catch (e: Exception) {
-            dropStaleOptionsConnection(conn)
-            null
+            // Same three-state probe as [applyMode]: confirmed value / readable
+            // disagreement / connection gone / probe unreadable.
+            withContext(NonCancellable) {
+                when (val probe = probeSelection(c, conn, configId)) {
+                    is SelectionProbe.Value -> when (probe.value) {
+                        valueId -> {
+                            rememberConfig(serverId, forAgent, convId, configId, valueId)
+                            evictSnapshotCache()
+                            OptionApplyOutcome.Applied(valueId)
+                        }
+                        // Unknown (initializing / no selector), not a refusal — same
+                        // rule as applyMode.
+                        null -> {
+                            dropStaleOptionsConnection(conn)
+                            evictSnapshotCache()
+                            savedConfigOutcome(serverId, forAgent, convId, configId, valueId)
+                        }
+                        else -> {
+                            dropStaleOptionsConnection(conn)
+                            OptionApplyOutcome.Failed
+                        }
+                    }
+                    SelectionProbe.NoSession -> {
+                        dropStaleOptionsConnection(conn)
+                        evictSnapshotCache()
+                        savedConfigOutcome(serverId, forAgent, convId, configId, valueId)
+                    }
+                    SelectionProbe.Unreadable -> {
+                        dropStaleOptionsConnection(conn)
+                        if (e is ApiError && e.isStaleConnection) {
+                            evictSnapshotCache()
+                            savedConfigOutcome(serverId, forAgent, convId, configId, valueId)
+                        } else {
+                            OptionApplyOutcome.Failed
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Resolve the live connection an apply targets. `Result.success(null)` means "no
+     *  connection" (saved-first path, incl. a draft with no conversation). A FAILED
+     *  lookup is deliberately not null: a broken findConnection against a live session
+     *  must surface as a failure, not masquerade as "nothing to apply" and silently
+     *  claim the pref was used. */
+    private suspend fun resolveApplyConnection(
+        c: CodegClient,
+        forAgent: AgentType,
+        forFolder: FolderDetail?,
+        convId: Int?,
+    ): Result<String?> {
+        connectionId?.takeIf { agent == forAgent && folder?.id == forFolder?.id }?.let {
+            return Result.success(it)
+        }
+        if (convId == null) return Result.success(null)
+        return try {
+            Result.success(c.findConnection(convId, externalId, forAgent)?.connectionId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            Result.failure(IllegalStateException("connection lookup failed"))
+        }
+    }
+
+    /** What an authoritative snapshot read told us about a failed apply (v136). The
+     *  server GCs idle connections and maps an unknown id to a 500, so the HTTP status
+     *  cannot separate "the connection is gone" (the saved pref is the application)
+     *  from "the agent rejected the pick" (a real failure). A null snapshot can. */
+    private sealed interface SelectionProbe {
+        data object NoSession : SelectionProbe
+        data object Unreadable : SelectionProbe
+        data class Value(val value: String?) : SelectionProbe
+    }
+
+    private suspend fun probeSelection(c: CodegClient, conn: String, key: String): SelectionProbe =
+        try {
+            val snap = c.sessionSnapshot(conn)
+            if (snap == null) SelectionProbe.NoSession else SelectionProbe.Value(snap.selectionFor(key))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            SelectionProbe.Unreadable
+        }
+
+    /** The saved-only outcome: on these paths the preference IS the application, so a
+     *  failed durable write must surface as a failure instead of a phantom success. */
+    private suspend fun savedModeOutcome(
+        serverId: String?,
+        forAgent: AgentType,
+        convId: Int?,
+        modeId: String,
+    ): OptionApplyOutcome =
+        if (rememberMode(serverId, forAgent, convId, modeId)) {
+            OptionApplyOutcome.Applied(modeId)
+        } else {
+            OptionApplyOutcome.Failed
+        }
+
+    /** Persist a mode pick where the next connect reads it: the conversation's own
+     *  record when live, plus the agent-level default (sticky mode). The conversation
+     *  write is decisive; the promotion is best effort (it only affects OTHER
+     *  conversations). Runs uncancellable: the saved-first paths call this while the
+     *  sheet's scope is still live, and a dismiss right after a pick must not drop the
+     *  write that IS the apply. [CancellationException] is not a write failure. */
+    private suspend fun rememberMode(
+        serverId: String?,
+        forAgent: AgentType,
+        convId: Int?,
+        modeId: String,
+    ): Boolean = withContext(NonCancellable) {
+        if (convId == null) {
+            return@withContext try {
+                selectorPrefs.saveMode(forAgent, modeId)
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+        }
+        val saved = try {
+            conversationPrefs.saveMode(serverId, convId, forAgent, modeId)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+        // Promote only when the conversation write actually landed: the agent-level
+        // default must never carry a pick this conversation failed to store.
+        if (saved) {
+            try {
+                selectorPrefs.saveMode(forAgent, modeId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best effort — the conversation record above already carries the pick.
+            }
+        }
+        saved
+    }
+
+    private suspend fun savedConfigOutcome(
+        serverId: String?,
+        forAgent: AgentType,
+        convId: Int?,
+        configId: String,
+        valueId: String,
+    ): OptionApplyOutcome =
+        if (rememberConfig(serverId, forAgent, convId, configId, valueId)) {
+            OptionApplyOutcome.Applied(valueId)
+        } else {
+            OptionApplyOutcome.Failed
+        }
+
+    /** Persist a config-option pick. No agent-level promotion: the model is a
+     *  per-conversation lock (see [applyConfig]). Uncancellable for the same reason as
+     *  [rememberMode]. */
+    private suspend fun rememberConfig(
+        serverId: String?,
+        forAgent: AgentType,
+        convId: Int?,
+        configId: String,
+        valueId: String,
+    ): Boolean = withContext(NonCancellable) {
+        try {
+            if (convId != null) {
+                conversationPrefs.saveConfig(serverId, convId, forAgent, configId, valueId)
+            } else {
+                selectorPrefs.saveConfig(forAgent, configId, valueId)
+            }
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -2268,24 +2458,44 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     /** Poll the authoritative snapshot of [conn] until it reports [desired] for [key]
-     *  (the mode or a config-option id), or it settles on the agent's normalized value, or
-     *  the budget (~2.3s) elapses. Adopts the authoritative value when seen; otherwise
-     *  keeps the optimistic [desired] as a best effort. Mirrors the iOS reconcile. */
-    private suspend fun reconcileSelection(conn: String, key: String, desired: String): String {
-        val c = client ?: return desired
-        var lastSeen: String? = null
+     *  (the mode or a config-option id) or the ~2.7s budget elapses.
+     *
+     *  `acp_set_mode` / `set_config_option` are fire-and-forget server-side (HTTP 200
+     *  just means "queued"), so only the snapshot can tell an applied pick from a
+     *  refused one. Only the LAST readable observation decides, and only a definite
+     *  non-null value that differs is [ReconcileResult.Rejected]; an unreadable or
+     *  value-less snapshot at the end is unknown, not a refusal — the RPC was
+     *  accepted, so claiming failure there is exactly the "it changed but still
+     *  warned me" report (a slow agent past the budget looks the same as a refusal).
+     *  Persisting a genuinely refused pick would ship it on the next connect, which
+     *  is why an observed mismatch is never treated as Applied. Mirrors the iOS
+     *  reconcile. */
+    private suspend fun reconcileSelection(
+        c: CodegClient,
+        conn: String,
+        key: String,
+        desired: String,
+    ): ReconcileResult {
+        var verdict: ReconcileResult? = null
         repeat(RECONCILE_ATTEMPTS) { attempt ->
-            // Batch v130: 150/250/250ms — the optimistic checkmark is already on the pick;
-            // reconcile only confirms or reverts, so a long budget just holds the spinner.
-            delay(if (attempt == 0) 150L else 250L)
-            val snap = runCatching { c.sessionSnapshot(conn) }.getOrNull() ?: return@repeat
-            val current = snap.selectionFor(key) ?: return@repeat
-            lastSeen = current
-            if (current == desired) return current
+            // 150ms then 500ms steps: a mode switch can take a beat to show up, and an
+            // early "still old" read must not be mistaken for a refusal.
+            delay(if (attempt == 0) 150L else 500L)
+            val snap = try {
+                c.sessionSnapshot(conn)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            val current = snap?.selectionFor(key)
+            verdict = when {
+                current == null -> null // unreadable / selector absent: unknown
+                current == desired -> return ReconcileResult.Confirmed
+                else -> ReconcileResult.Rejected
+            }
         }
-        // Budget exhausted: the set itself succeeded, so the server adopts momentarily.
-        // Adopting a still-old snapshot value here would flip the checkmark back off.
-        return desired
+        return verdict ?: ReconcileResult.Confirmed
     }
 
     // endregion
@@ -2609,10 +2819,6 @@ internal fun buildSessionSummaryText(
  *  a stale connection and retries once with a fresh connect. */
 private class StreamAttachFailed(val reason: String?) : Exception("stream attach failed: ${reason ?: "closed"}")
 
-/** An in-flight options-connection resolve tagged with the agent/folder it targets, so the
- *  memo is only reused for a matching context (see [SessionDetailViewModel.optionsConnection]). */
-private class OptionsConnect(val agent: AgentType, val folderId: Int?, val deferred: Deferred<String>)
-
 /** The modes + config a session exposes plus the selection to highlight — authoritative
  *  when sourced from a live snapshot, or the remembered/last-used pick for a draft. */
 data class AgentOptionsData(
@@ -2622,10 +2828,35 @@ data class AgentOptionsData(
     val initialConfig: Map<String, String> = emptyMap(),
 )
 
+/** The outcome of a mode/config pick (v136). [Applied] means the pick is in effect —
+ *  either the server confirmed it on a live connection, or there was no connection to
+ *  apply to and the saved preference (shipped on the next connect) IS the application.
+ *  Only [Busy] and [Failed] may revert the sheet's optimistic row. */
+sealed interface OptionApplyOutcome {
+    /** The value to keep highlighted (server-normalized, or the saved pick). */
+    data class Applied(val value: String) : OptionApplyOutcome
+    /** A turn is running on this session, so the option cannot change right now. */
+    data object Busy : OptionApplyOutcome
+    /** The apply was rejected or could not be confirmed. */
+    data object Failed : OptionApplyOutcome
+}
+
+/** What a post-set snapshot poll could establish about a pick (v136 review). */
+private sealed interface ReconcileResult {
+    /** The snapshot reported the requested value, or never became readable — the RPC
+     *  was accepted and nothing honest contradicts the pick. */
+    data object Confirmed : ReconcileResult
+
+    /** The last readable snapshot settled on a DIFFERENT value: the agent refused or
+     *  normalized the pick. It must neither stay highlighted nor be persisted. */
+    data object Rejected : ReconcileResult
+}
+
 /** The authoritative current value the snapshot reports for a selector key. */
 private fun SessionSnapshot.selectionFor(key: String): String? =
     if (key == MODE_KEY) modes?.currentModeId
     else configOptions.firstOrNull { it.id == key }?.kind?.currentValue
+
 
 /** The current value for each config option, dropping empties. */
 private fun List<SessionConfigOption>.currentValues(): Map<String, String> =

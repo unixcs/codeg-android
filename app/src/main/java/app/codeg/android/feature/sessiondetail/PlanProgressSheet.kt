@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,8 +50,10 @@ fun PlanProgressSheet(live: LiveTurnState, onDismiss: () -> Unit) {
         containerColor = colors.bgElevated,
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -71,14 +76,24 @@ fun PlanProgressSheet(live: LiveTurnState, onDismiss: () -> Unit) {
             if (total > 0) {
                 LinearProgressIndicator(
                     progress = { done.toFloat() / total },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                     color = colors.accent,
                     trackColor = colors.surfaceStroke,
                 )
             }
-            // The same checklist the timeline renders inline — status spinners/checks,
-            // strikethrough on completed rows, high-priority badges.
-            LivePlanView(entries = live.livePlan)
+            // Only the checklist scrolls: the title/progress stay pinned so a long plan
+            // never pushes "计划 x/y" off-screen. The checklist is a plain Column, so the
+            // wrapper scrolls it rather than clipping the tail (same idiom as
+            // SessionDetailsSheet / AgentOptionsSheet); the cap keeps the sheet usable.
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 12.dp),
+            ) {
+                LivePlanView(entries = live.livePlan)
+            }
         }
     }
 }

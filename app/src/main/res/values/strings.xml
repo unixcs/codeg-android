@@ -146,6 +146,7 @@
     <string name="search_clear">Clear</string>
     <string name="search_no_results">No results</string>
     <string name="search_no_results_for">Nothing matched \"%1$s\".</string>
+    <string name="search_no_device_hint">Add or select a server in Settings, then search.</string>
     <string name="search_failed">Search failed</string>
 
     <!-- Common -->
@@ -669,6 +670,7 @@
     <string name="agentopts_title">Agent Options</string>
     <string name="agentopts_mode">MODE</string>
     <string name="agentopts_apply_failed">Couldn\'t apply that change. Check your connection and try again.</string>
+    <string name="agentopts_apply_busy">The session is running a turn. Try again when it finishes.</string>
     <string name="agentopts_no_options">This agent has no adjustable options.</string>
     <string name="agentopts_new_session_title">New Session</string>
     <string name="agentopts_agent_section">AGENT</string>
@@ -1063,9 +1065,9 @@
     <string name="ball_action_font_up">Larger font</string>
     <string name="ball_action_font_down">Smaller font</string>
     <string name="ball_action_font_reset">Reset font size</string>
-    <string name="ball_action_recent_1">Most recent session</string>
-    <string name="ball_action_recent_2">Second most recent session</string>
-    <string name="ball_action_recent_3">Third most recent session</string>
+    <string name="ball_action_recent_1">Quick switch · depth 1</string>
+    <string name="ball_action_recent_2">Quick switch · depth 2</string>
+    <string name="ball_action_recent_3">Quick switch · depth 3</string>
     <string name="ball_action_server_next">Next device</string>
     <string name="ball_action_server_prev">Previous device</string>
     <string name="ball_action_ball_settings">Ball settings</string>

@@ -1,12 +1,16 @@
 package app.codeg.android.feature.sessiondetail
 
+import app.codeg.android.core.model.MessageTurn
 import app.codeg.android.core.model.SessionConfigKind
 import app.codeg.android.core.model.SessionConfigOption
 import app.codeg.android.core.model.SessionConfigSelectGroup
 import app.codeg.android.core.model.SessionConfigSelectOption
+import app.codeg.android.core.model.TurnRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.Instant
+import java.time.ZoneId
 
 class SessionFormatTest {
 
@@ -78,10 +82,11 @@ class SessionFormatTest {
     }
 
     @Test
-    fun durationUnderAnHourShowsMinutesAndSeconds() {
-        assertEquals("1m00s", turnDurationLabel(60_000))
-        assertEquals("2m13s", turnDurationLabel(133_000))
-        assertEquals("15m36s", turnDurationLabel((15 * 60 + 36) * 1000L))
+    fun durationUnderAnHourShowsWholeMinutes() {
+        assertEquals("1m", turnDurationLabel(60_000))
+        assertEquals("2m", turnDurationLabel(133_000))
+        assertEquals("15m", turnDurationLabel((15 * 60 + 36) * 1000L))
+        assertEquals("31m", turnDurationLabel(31 * 60_000L + 4_000L))
     }
 
     @Test
@@ -89,6 +94,62 @@ class SessionFormatTest {
         assertEquals("1h04m", turnDurationLabel(64 * 60_000L))
         assertEquals("2h00m", turnDurationLabel(2 * 3600_000L))
         assertEquals("1h00m", turnDurationLabel(3600_000L + 59_000L))
+    }
+
+    // ===== replyFinishedLabel (footer line 3) =====
+
+    private val zone = ZoneId.of("Asia/Shanghai")
+
+    private fun reply(
+        timestamp: String,
+        completedAt: String? = null,
+        durationMs: Int? = null,
+    ) = MessageTurn(
+        id = "a1",
+        role = TurnRole.ASSISTANT,
+        timestamp = Instant.parse(timestamp),
+        durationMs = durationMs,
+        completedAt = completedAt?.let { Instant.parse(it) },
+    )
+
+    @Test
+    fun finishedLabelShowsClockAndServerDuration() {
+        // 10-24 14:46 in Asia/Shanghai, 31m04s of server-reported run time.
+        val turn = reply(
+            timestamp = "2026-10-24T06:46:00Z",
+            completedAt = "2026-10-24T06:46:00Z",
+            durationMs = (31 * 60 + 4) * 1000,
+        )
+        assertEquals("10-24 14:46 （31m）", replyFinishedLabel(turn, zone))
+    }
+
+    @Test
+    fun finishedLabelFallsBackToTimestampWhenCompletionMarkerIsMissing() {
+        // No completed_at and no duration: still a clock, and the transcript span
+        // (first assistant event → finish = the timestamp itself) is zero → omitted.
+        val turn = reply(timestamp = "2026-10-21T02:11:00Z")
+        assertEquals("10-21 10:11", replyFinishedLabel(turn, zone))
+    }
+
+    @Test
+    fun finishedLabelDerivesDurationFromTheTranscriptSpan() {
+        // Server sent no duration_ms; the run's own span (start → completed_at) is
+        // the honest substitute.
+        val turn = reply(
+            timestamp = "2026-10-21T02:11:00Z",
+            completedAt = "2026-10-21T02:42:00Z",
+        )
+        assertEquals("10-21 10:42 （31m）", replyFinishedLabel(turn, zone))
+    }
+
+    @Test
+    fun finishedLabelIgnoresNonPositiveSpans() {
+        // Clock skew (completed_at before the turn timestamp) must not print "(−1m)".
+        val turn = reply(
+            timestamp = "2026-10-21T02:42:00Z",
+            completedAt = "2026-10-21T02:11:00Z",
+        )
+        assertEquals("10-21 10:11", replyFinishedLabel(turn, zone))
     }
 
     // ===== currentModelLabel =====

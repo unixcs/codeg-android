@@ -2,9 +2,12 @@ package app.codeg.android.app
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.codeg.android.core.data.QuickSwitchRing
+import app.codeg.android.core.data.QuickSwitchStep
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.SessionFocusHub
 import app.codeg.android.core.data.SessionProjectRepository
+import app.codeg.android.core.data.nextQuickSwitchStep
 import app.codeg.android.core.datastore.AppSettings
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
@@ -208,6 +211,30 @@ class AppViewModel @Inject constructor(
      *  Fire-and-forget: a navigation always follows, the write must never gate it. */
     fun markSessionRead(key: String) {
         viewModelScope.launch { appSettingsStore.markSessionRead(key) }
+    }
+
+    /** Per-depth quick-switch rings (v136). Process-local walking cursors, not prefs —
+     *  a ring's whole point is to survive while its members reorder. */
+    private val quickSwitchRings = mutableMapOf<Int, QuickSwitchRing>()
+
+    /** Next target for the "quick switch · depth N" ball action: walks the N most
+     *  recently opened sessions as a stable ring (see [nextQuickSwitchStep]).
+     *  [current] is the conversation currently on screen (null from a list), so a fire
+     *  advances instead of re-opening it. Peek only — [commitQuickSwitchStep] advances
+     *  the walking cursor once the switch really navigates, so a gesture dropped by the
+     *  handoff single-flight can't burn a ring slot. */
+    fun peekQuickSwitchTarget(depth: Int, validServers: Set<String>, current: SessionRef?): QuickSwitchStep? =
+        nextQuickSwitchStep(
+            marks = sessionReadMarks.value,
+            validServers = validServers,
+            depth = depth,
+            current = current,
+            previous = quickSwitchRings[depth],
+        )
+
+    /** Record a step returned by [peekQuickSwitchTarget] as the new walking cursor. */
+    fun commitQuickSwitchStep(depth: Int, ring: QuickSwitchRing) {
+        quickSwitchRings[depth] = ring
     }
 
     // ---- Session projects + aggregate Chats mode (batch v132) ----

@@ -48,20 +48,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.R
-import app.codeg.android.core.common.RelativeTime
 import app.codeg.android.core.designsystem.markdown.MarkdownContent
 import app.codeg.android.core.designsystem.markdown.SingleBlockView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.ContentBlock
 import app.codeg.android.core.model.MessageTurn
-import app.codeg.android.feature.sessiondetail.completedAtLabel
 import app.codeg.android.feature.sessiondetail.formatTokens
+import app.codeg.android.feature.sessiondetail.replyFinishedLabel
 import app.codeg.android.feature.sessiondetail.rendering.InlineImage
 import app.codeg.android.feature.sessiondetail.rendering.LivePlanView
 import app.codeg.android.feature.sessiondetail.rendering.ReasoningBlock
 import app.codeg.android.feature.sessiondetail.rendering.ToolCallCard
 import app.codeg.android.feature.sessiondetail.rendering.ToolGroupCard
-import app.codeg.android.feature.sessiondetail.turnDurationLabel
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -191,7 +189,7 @@ private fun SystemNodeBody(turn: MessageTurn, modifier: Modifier) {
 /**
  * Per-reply action buttons + metadata block, the MindFS footer shape: actions on
  * the left, a three-line meta column on the right (model / context occupancy /
- * `MM-dd HH:mm(duration)`). Long model names wrap instead of ellipsizing the
+ * `MM-dd HH:mm（duration）`). Long model names wrap instead of ellipsizing the
  * timestamp away — the whole reason this is a column, not one cramped row.
  */
 @Composable
@@ -209,19 +207,10 @@ private fun TurnFooter(
             .mapNotNull { (it as? ContentBlock.Text)?.text?.takeIf { t -> t.isNotBlank() } }
             .joinToString("\n\n")
     }
-    // Line 3: `10-21 02:45(4m)` — absolute finish time with the run duration in
-    // parens. No completedAt → fall back to the relative compact time rather than
-    // inventing a wall-clock value; duration only when the server sent one.
-    val time = buildList {
-        val at = turn.completedAt
-        if (at != null) {
-            val clock = completedAtLabel(at)
-            val duration = turn.durationMs?.takeIf { it > 0 }?.let { "(${turnDurationLabel(it.toLong())})" } ?: ""
-            add(clock + duration)
-        } else {
-            add(RelativeTime.compact(turn.timestamp))
-        }
-    }.joinToString(" · ")
+    // Line 3: `10-21 10:11 （31m）` — absolute finish time to the minute plus how
+    // long this reply ran. See [replyFinishedLabel] for the fallbacks (always a
+    // clock, never the old bare `10-21` relative date).
+    val time = replyFinishedLabel(turn)
 
     // Line 2: the session's live context-window occupancy (`28.7K(55%)`), from the
     // server's `usage_update` reporting. Without a window reading, fall back to

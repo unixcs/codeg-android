@@ -32,3 +32,13 @@ fun isDuplicateDetailPush(
     topRoute?.startsWith("conversation/") == true &&
         topConversationId == targetConversationId &&
         !(targetServerId != null && topDetailServerId != null && targetServerId != topDetailServerId)
+
+/**
+ * Is [route] a conversation DETAIL destination (as opposed to the new-task composer
+ * `conversation_new?...`, a tab, or null)? Used by the ball-driven switching path
+ * (v136) to decide whether the pushed conversation should REPLACE the top entry:
+ * switching sessions while reading one must not grow the back stack (Back then
+ * returns to the list the switching started from).
+ */
+fun isConversationDetailRoute(route: String?): Boolean =
+    route?.startsWith("conversation/") == true

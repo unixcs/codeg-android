@@ -1,7 +1,9 @@
 package app.codeg.android.feature.sessiondetail
 
+import app.codeg.android.core.model.MessageTurn
 import app.codeg.android.core.model.SessionConfigKind
 import app.codeg.android.core.model.SessionConfigOption
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -64,14 +66,40 @@ internal fun completedAtLabel(instant: Instant, zone: ZoneId = ZoneId.systemDefa
 
 /**
  * Compact run duration for the footer's parenthesized span: `42s` under a minute,
- * `2m13s` under an hour, `1h04m` beyond (seconds dropped — hour-long replies are
- * navigated by minutes).
+ * `4m` under an hour, `1h04m` beyond. Past a minute the seconds are dropped — the
+ * footer answers "how long did this reply run" at a glance, and `31m` reads better
+ * than `31m04s` (owner-specified shape: `10-21 10:11 （31m）`).
  */
 internal fun turnDurationLabel(elapsedMs: Long): String {
     val parts = elapsedParts(elapsedMs)
     return when {
         parts.hours > 0 -> String.format(Locale.US, "%dh%02dm", parts.hours, parts.minutes)
-        parts.minutes > 0 -> String.format(Locale.US, "%dm%02ds", parts.minutes, parts.seconds)
+        parts.minutes > 0 -> String.format(Locale.US, "%dm", parts.minutes)
         else -> "${parts.seconds}s"
     }
+}
+
+/**
+ * The reply footer's third line: `10-21 10:11 （31m）` — absolute finish time to
+ * the minute plus how long this reply ran.
+ *
+ * - Finish time is the server's `completed_at`, else the turn's own [MessageTurn.timestamp]
+ *   (always a clock, never the old bare `10-21` relative date). `completed_at` is shown
+ *   as reported even when it predates the timestamp (clock skew): it is the server's
+ *   own finish marker, and only the derived span treats that ordering as unusable.
+ * - Run time is the server's `duration_ms` when present; otherwise a LOCAL ESTIMATE
+ *   from the transcript span (first assistant event → finish). The two are not
+ *   guaranteed to measure identical work — the fallback only has to be close enough
+ *   to answer "how long did this take", and it is a lower bound when intermediate
+ *   turns carried no timestamps. A non-positive span (missing data, clock skew)
+ *   omits the parenthesized part rather than inventing a number.
+ *
+ * Folded into one function so the composable stays free of time arithmetic and this
+ * shape is unit-tested directly.
+ */
+internal fun replyFinishedLabel(turn: MessageTurn, zone: ZoneId = ZoneId.systemDefault()): String {
+    val finishedAt = turn.completedAt ?: turn.timestamp
+    val runMs = turn.durationMs?.takeIf { it > 0 }?.toLong()
+        ?: Duration.between(turn.timestamp, finishedAt).toMillis().takeIf { it > 0 }
+    return completedAtLabel(finishedAt, zone) + (runMs?.let { " （${turnDurationLabel(it)}）" } ?: "")
 }

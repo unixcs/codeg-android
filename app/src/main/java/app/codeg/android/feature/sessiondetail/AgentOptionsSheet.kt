@@ -73,6 +73,7 @@ import app.codeg.android.core.model.GitBranchList
 import app.codeg.android.core.model.SessionConfigOption
 import app.codeg.android.core.model.SessionConfigSelectOption
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class SheetPage { Main, Branch }
@@ -106,11 +107,38 @@ fun AgentOptionsSheet(
     var data by remember { mutableStateOf(AgentOptionsData()) }
     var currentMode by remember { mutableStateOf<String?>(null) }
     var currentValues by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var note by remember { mutableStateOf<String?>(null) }
+    // One-line notice under the selectors. [noteStamp] re-arms the auto-dismiss for a
+    // REPEATED identical failure (same string, new attempt); a stale apply must not
+    // write here at all — see the epoch/seq guards on the pick handlers.
+    var noteText by remember { mutableStateOf<String?>(null) }
+    var noteStamp by remember { mutableStateOf(0L) }
+    // Which selector the visible notice belongs to. A success for another selector must
+    // not retract a failure the user still needs to read; only the owner clears it.
+    var noteKey by remember { mutableStateOf<String?>(null) }
     // Keyed by the LOGICAL selector ("mode" / config-option id), as a set — several config
     // options can be applying at once, and each must clear only its own lock (iOS Set<String>).
     var applying by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // A reload while an apply is in flight invalidates that apply's completion: the rows
+    // now belong to another context (draft agent/folder switch), so neither the value nor
+    // the note may be written into it. [applySeq] additionally lets only the LATEST
+    // attempt own the notice, so a slow earlier failure can't resurrect a cleared message.
+    var applyEpoch by remember { mutableStateOf(0L) }
+    var applySeq by remember { mutableStateOf(0L) }
+    // Latest attempt per LOGICAL selector. A global seq alone suppresses a late failure of
+    // selector A whenever the user picked selector B afterwards — the pick then reverts
+    // with no explanation. Gating notices per selector keeps "the pick I just made failed"
+    // attached to that pick.
+    val applySeqByKey = remember { mutableMapOf<String, Long>() }
     val applyFailedNote = stringResource(R.string.agentopts_apply_failed)
+    val applyBusyNote = stringResource(R.string.agentopts_apply_busy)
+    // Every notice self-clears: a failure two taps ago must not linger over a pick that
+    // has since applied (the reported "switched fine but still warned" symptom).
+    LaunchedEffect(noteStamp) {
+        if (noteText == null) return@LaunchedEffect
+        delay(4_000)
+        noteText = null
+        noteKey = null
+    }
 
     // Reload the agent's options whenever the (draft) agent or folder changes, then
     // revalidate. A cached catalog (see SessionDetailViewModel) makes the initial
@@ -120,7 +148,13 @@ fun AgentOptionsSheet(
     // (close sheet → reopen) renders immediately from cache instead of spinning.
     LaunchedEffect(ui.agent, ui.selectedFolderId) {
         loading = true
-        note = null
+        // New context: invalidate every completion still in flight (it belongs to the old
+        // rows) and drop any notice it left behind.
+        applyEpoch += 1
+        applySeq += 1
+        applySeqByKey.clear()
+        noteText = null
+        noteKey = null
         // Clear any in-flight apply lock: a switch cancels the old-context options connect, which
         // cancels the awaiting apply before it can release its own lock. Resetting here (the switch
         // is the trigger) keeps the new agent's rows tappable.
@@ -131,14 +165,18 @@ fun AgentOptionsSheet(
         loading = false
         // Stale-while-revalidate: the sheet is showing last-known options; re-probe
         // (this also re-seeds the VM cache for the next open) and adopt the fresh
-        // resolution. The callback only fires if the agent/folder context still matches.
-        // Joining the Job means a context switch cancels the pending adoption with this
-        // effect (instead of landing stale rows after the switch), and the rows stay
-        // tappable while the re-probe runs — `loading` is already false.
+        // resolution. The probe runs in viewModelScope — awaiting it here only ties this
+        // effect's lifetime to it (a context switch cancels the awaiter, not the probe);
+        // adoption stays safe because the VM skips the callback when its context moved on,
+        // and the seq guard below keeps a pre-pick selection from visually undoing a pick
+        // that was made while the probe was in flight.
+        val seqAtLoad = applySeq
         viewModel.refreshAgentOptions { fresh ->
             data = fresh
-            currentMode = fresh.initialModeId
-            currentValues = fresh.initialConfig
+            if (applySeq == seqAtLoad) {
+                currentMode = fresh.initialModeId
+                currentValues = fresh.initialConfig
+            }
         }.join()
     }
 
@@ -161,90 +199,159 @@ fun AgentOptionsSheet(
             SheetPage.Main -> {
                 val hasConfig = data.configOptions.isNotEmpty()
                 val showModes = data.modes?.availableModes?.isNotEmpty() == true && !hasConfig
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 560.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 28.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Text(
-                        stringResource(if (ui.isDraftEditable) R.string.agentopts_new_session_title else R.string.agentopts_title),
-                        fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary,
-                    )
-
-                    if (ui.isDraftEditable) AgentPickerSection(ui.availableAgents, ui.agent) { viewModel.selectAgent(it) }
-
-                    if (ui.folderPath != null) {
-                        WorkspaceSection(
-                            ui = ui,
-                            onSelectFolder = { viewModel.selectFolder(it) },
-                            onOpenBranch = { page = SheetPage.Branch },
+                // The notice is pinned to the bottom of the sheet, OUTSIDE the scroll
+                // container: with a long selector list it used to sit above the fold, so
+                // a failed pick on a row further down produced a warning the user never
+                // saw. Two lines fit "…please check the network and retry" without
+                // ellipsizing it (one line cut the message off mid-sentence).
+                Box(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = if (noteText != null) 48.dp else 28.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Text(
+                            stringResource(if (ui.isDraftEditable) R.string.agentopts_new_session_title else R.string.agentopts_title),
+                            fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary,
                         )
-                    }
 
-                    if (ui.isInFlight) {
-                        Text(stringResource(R.string.agentopts_busy), fontSize = 12.sp, color = colors.textTertiary)
-                    }
+                        if (ui.isDraftEditable) AgentPickerSection(ui.availableAgents, ui.agent) { viewModel.selectAgent(it) }
 
-                    note?.let { Text(it, fontSize = 12.sp, color = colors.textTertiary) }
-
-                    when {
-                        loading -> Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = colors.accent)
+                        if (ui.folderPath != null) {
+                            WorkspaceSection(
+                                ui = ui,
+                                onSelectFolder = { viewModel.selectFolder(it) },
+                                onOpenBranch = { page = SheetPage.Branch },
+                            )
                         }
-                        showModes -> {
-                            Text(stringResource(R.string.agentopts_mode), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textTertiary)
-                            val modeApplying = MODE_APPLY in applying
-                            OptionGroup {
-                                data.modes!!.availableModes.forEachIndexed { i, mode ->
-                                    if (i > 0) GroupDivider()
-                                    // Lock every mode row while a mode apply is in flight; also while a
-                                    // turn is running (options can't change mid-response — and an apply
-                                    // that failed then could null the live turn's connection). Spinner on
-                                    // the optimistically-selected row.
-                                    OptionRow(mode.name.ifEmpty { mode.id }, mode.description, selected = currentMode == mode.id, busy = modeApplying && currentMode == mode.id, enabled = !modeApplying && !ui.isInFlight) {
-                                        // Move the checkmark instantly (iOS parity); the apply runs in the
-                                        // background and reverts to the previous pick only on real failure.
-                                        val previous = currentMode
-                                        currentMode = mode.id
-                                        applying = applying + MODE_APPLY
-                                        note = null
-                                        scope.launch {
-                                            val resolved = viewModel.applyMode(mode.id)
-                                            applying = applying - MODE_APPLY
-                                            // Adopt the reconciled/normalized value; on failure revert + notice.
-                                            if (resolved != null) currentMode = resolved
-                                            else { currentMode = previous; note = applyFailedNote }
+
+                        if (ui.isInFlight) {
+                            Text(stringResource(R.string.agentopts_busy), fontSize = 12.sp, color = colors.textTertiary)
+                        }
+
+                        when {
+                            loading -> Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = colors.accent)
+                            }
+                            showModes -> {
+                                Text(stringResource(R.string.agentopts_mode), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textTertiary)
+                                val modeApplying = MODE_APPLY in applying
+                                OptionGroup {
+                                    data.modes!!.availableModes.forEachIndexed { i, mode ->
+                                        if (i > 0) GroupDivider()
+                                        // Lock every mode row while a mode apply is in flight; also while a
+                                        // turn is running (options can't change mid-response — and an apply
+                                        // that failed then could null the live turn's connection). Spinner on
+                                        // the optimistically-selected row.
+                                        OptionRow(mode.name.ifEmpty { mode.id }, mode.description, selected = currentMode == mode.id, busy = modeApplying && currentMode == mode.id, enabled = !modeApplying && !ui.isInFlight) {
+                                            // Move the checkmark instantly (iOS parity); the apply runs in the
+                                            // background and reverts to the previous pick only on real failure.
+                                            val previous = currentMode
+                                            currentMode = mode.id
+                                            applying = applying + MODE_APPLY
+                                            noteText = null
+                                            noteKey = null
+                                            val epoch = applyEpoch
+                                            val seq = ++applySeq
+                                            applySeqByKey[MODE_APPLY] = seq
+                                            scope.launch {
+                                                val outcome = viewModel.applyMode(mode.id)
+                                                // The sheet reloaded for another context while this ran. A
+                                                // newer pick for THIS selector also owns the row now: its
+                                                // own completion moves the value and releases the lock.
+                                                if (epoch != applyEpoch) return@launch
+                                                val latest = applySeqByKey[MODE_APPLY] == seq
+                                                if (latest) applying = applying - MODE_APPLY
+                                                when (outcome) {
+                                                    // Adopt the reconciled/normalized value.
+                                                    is OptionApplyOutcome.Applied -> if (latest) {
+                                                        currentMode = outcome.value
+                                                        // Retire only this selector's own stale notice.
+                                                        if (noteKey == MODE_APPLY) {
+                                                            noteText = null
+                                                            noteKey = null
+                                                        }
+                                                    }
+                                                    OptionApplyOutcome.Busy -> if (latest) {
+                                                        currentMode = previous
+                                                        noteText = applyBusyNote
+                                                        noteKey = MODE_APPLY
+                                                        noteStamp += 1
+                                                    }
+                                                    OptionApplyOutcome.Failed -> if (latest) {
+                                                        currentMode = previous
+                                                        noteText = applyFailedNote
+                                                        noteKey = MODE_APPLY
+                                                        noteStamp += 1
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        hasConfig -> data.configOptions.forEach { option ->
-                            ConfigOptionSection(option, currentValues[option.id], optionApplying = option.id in applying, locked = ui.isInFlight) { valueId ->
-                                // Optimistic: move the checkmark now, revert only if the apply fails.
-                                val previous = currentValues[option.id]
-                                currentValues = currentValues + (option.id to valueId)
-                                applying = applying + option.id
-                                note = null
-                                scope.launch {
-                                    val resolved = viewModel.applyConfig(option.id, valueId)
-                                    applying = applying - option.id
-                                    if (resolved != null) {
-                                        currentValues = currentValues + (option.id to resolved)
-                                    } else {
-                                        currentValues = if (previous != null) currentValues + (option.id to previous) else currentValues - option.id
-                                        note = applyFailedNote
+                            hasConfig -> data.configOptions.forEach { option ->
+                                ConfigOptionSection(option, currentValues[option.id], optionApplying = option.id in applying, locked = ui.isInFlight) { valueId ->
+                                    // Optimistic: move the checkmark now, revert only if the apply fails.
+                                    val key = option.id
+                                    val previous = currentValues[option.id]
+                                    currentValues = currentValues + (key to valueId)
+                                    applying = applying + key
+                                    noteText = null
+                                    noteKey = null
+                                    val epoch = applyEpoch
+                                    val seq = ++applySeq
+                                    applySeqByKey[key] = seq
+                                    scope.launch {
+                                        val outcome = viewModel.applyConfig(key, valueId)
+                                        if (epoch != applyEpoch) return@launch
+                                        val latest = applySeqByKey[key] == seq
+                                        if (latest) applying = applying - key
+                                        when (outcome) {
+                                            is OptionApplyOutcome.Applied -> if (latest) {
+                                                currentValues = currentValues + (key to outcome.value)
+                                                if (noteKey == key) {
+                                                    noteText = null
+                                                    noteKey = null
+                                                }
+                                            }
+                                            OptionApplyOutcome.Busy -> if (latest) {
+                                                currentValues = if (previous != null) currentValues + (key to previous) else currentValues - key
+                                                noteText = applyBusyNote
+                                                noteKey = key
+                                                noteStamp += 1
+                                            }
+                                            OptionApplyOutcome.Failed -> if (latest) {
+                                                currentValues = if (previous != null) currentValues + (key to previous) else currentValues - key
+                                                noteText = applyFailedNote
+                                                noteKey = key
+                                                noteStamp += 1
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            else -> Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
+                                Text(stringResource(R.string.agentopts_no_options), fontSize = 13.sp, color = colors.textTertiary)
+                            }
                         }
-                        else -> Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
-                            Text(stringResource(R.string.agentopts_no_options), fontSize = 13.sp, color = colors.textTertiary)
-                        }
+                    }
+                    noteText?.let { message ->
+                        Text(
+                            message,
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .background(colors.bgElevated.copy(alpha = 0.96f))
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            fontSize = 12.sp,
+                            color = colors.textTertiary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }

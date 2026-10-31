@@ -34,6 +34,19 @@ class FloatingBallCatalogTest {
     }
 
     @Test
+    fun `batch v136 keeps the three recent-session action ids and their defaults`() {
+        // The labels changed to "quick switch · depth N", but the ids are the saved
+        // pref values — renaming one would silently reset every existing binding.
+        for (id in listOf("recentSession1", "recentSession2", "recentSession3")) {
+            assertTrue("missing action $id", id in FloatingBallCatalog.ACTION_IDS)
+        }
+        assertEquals(21, FloatingBallCatalog.ACTIONS.size)
+        assertEquals("recentSession1", FloatingBallCatalog.DEFAULT_BINDINGS["upThenRight"])
+        assertEquals("recentSession2", FloatingBallCatalog.DEFAULT_BINDINGS["upRightThenDown"])
+        assertEquals("recentSession3", FloatingBallCatalog.DEFAULT_BINDINGS["upLeftThenRight"])
+    }
+
+    @Test
     fun `default bindings cover exactly the gesture set`() {
         assertEquals(FloatingBallCatalog.GESTURES.toSet(), FloatingBallCatalog.DEFAULT_BINDINGS.keys)
     }

@@ -357,7 +357,17 @@ object TranscriptTimeline {
             blocks = group.flatMap { it.blocks },
             timestamp = group.first().timestamp,
             usage = mergedUsage,
-            durationMs = if (durations.isEmpty()) null else durations.sum(),
+            // Only a COMPLETE sum is the run's duration. A partial sum (some turns sent
+            // duration_ms, some didn't) would understate it and, worse, win over the
+            // footer's transcript-span fallback — null lets that fallback cover the run.
+            // Summed in Long and clamped: an oversized/corrupt value must not wrap negative
+            // and be read back as "duration unknown".
+            durationMs = durations
+                .takeIf { it.size == group.size }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { parts ->
+                    parts.sumOf { it.toLong() }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                },
             model = group.lastOrNull { !it.model.isNullOrEmpty() }?.model ?: group.first().model,
             completedAt = group.last().completedAt ?: group.last().timestamp,
         )

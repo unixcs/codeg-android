@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -23,11 +24,16 @@ class ServerStore @Inject constructor(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
+    // DataStore is ONE preferences file shared by every store in the app (settings,
+    // drafts, read marks, recent searches, …), so `dataStore.data` re-emits on any
+    // write anywhere. Without the equality gate, storing an unrelated key looks like
+    // a profile change to every collector — the search screen wiped its results on
+    // the "recent searches" write that followed each successful query.
     val profiles: Flow<List<ServerProfile>> =
-        dataStore.data.map { decode(it[PROFILES]) }
+        dataStore.data.map { decode(it[PROFILES]) }.distinctUntilChanged()
 
     val selectedId: Flow<String?> =
-        dataStore.data.map { it[SELECTED] }
+        dataStore.data.map { it[SELECTED] }.distinctUntilChanged()
 
     /** Insert or replace a profile (matched by id). First profile auto-selects. */
     suspend fun upsert(profile: ServerProfile) {
