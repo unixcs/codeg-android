@@ -18,7 +18,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -26,6 +28,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -171,24 +174,32 @@ class SearchViewModelTest {
     @Test
     fun `a search survives the recent-searches write that follows it`() = runBlocking {
         val world = newWorld()
+        // Warm the recents collector BEFORE searching: a cold DataStore read started
+        // only after the search races the timeout on a loaded CI runner, and this test
+        // is about the re-emission clearing results, not about store startup speed.
+        val written = CompletableDeferred<Unit>()
+        val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+            world.recents.searches.collect { terms -> if ("ai chat" in terms) written.complete(Unit) }
+        }
         try {
-            withTimeout(5_000) { world.vm.ui.first { it.serverId == "a" } }
+            withTimeout(10_000) { world.vm.ui.first { it.serverId == "a" } }
 
             world.vm.onQueryChange("ai chat")
-            withTimeout(5_000) {
+            withTimeout(10_000) {
                 world.vm.ui.first { it.query == "ai chat" && !it.searching && it.results.size == 2 }
             }
 
             // The successful search persists the term into the SAME preferences file.
             // Before the v136 fix that write re-emitted the profile flow and cleared
             // `results`, leaving the "nothing matched" page with the query still shown.
-            withTimeout(5_000) { world.recents.searches.first { "ai chat" in it } }
+            withTimeout(10_000) { written.await() }
             delay(300)
 
             val state = world.vm.ui.value
             assertEquals("ai chat", state.query)
             assertEquals(2, state.results.size)
         } finally {
+            watcher.cancel()
             world.close()
         }
     }
@@ -197,9 +208,9 @@ class SearchViewModelTest {
     fun `switching devices re-runs the visible query on the new device`() = runBlocking {
         val world = newWorld()
         try {
-            withTimeout(5_000) { world.vm.ui.first { it.serverId == "a" } }
+            withTimeout(10_000) { world.vm.ui.first { it.serverId == "a" } }
             world.vm.onQueryChange("ai chat")
-            withTimeout(5_000) {
+            withTimeout(10_000) {
                 world.vm.ui.first { it.query == "ai chat" && !it.searching && it.results.size == 2 }
             }
 
@@ -207,7 +218,7 @@ class SearchViewModelTest {
 
             // Results are device-scoped: they must be refetched from B for the query
             // still visible in the field instead of being dropped on the floor.
-            val switched = withTimeout(5_000) {
+            val switched = withTimeout(10_000) {
                 world.vm.ui.first { it.serverId == "b" && !it.searching && it.results.isNotEmpty() }
             }
             assertEquals(listOf(7), switched.results.map { it.id })
@@ -221,13 +232,13 @@ class SearchViewModelTest {
     fun `a slow response from the old device cannot overwrite the new device's results`() = runBlocking {
         val world = newWorld()
         try {
-            withTimeout(5_000) { world.vm.ui.first { it.serverId == "a" } }
+            withTimeout(10_000) { world.vm.ui.first { it.serverId == "a" } }
             world.vm.onQueryChange("ai chat")
             // A answers in ~400ms; switch while that request is in flight.
-            withTimeout(5_000) { world.vm.ui.first { it.searching } }
+            withTimeout(10_000) { world.vm.ui.first { it.searching } }
             world.store.select("b")
 
-            val onB = withTimeout(5_000) {
+            val onB = withTimeout(10_000) {
                 world.vm.ui.first { it.serverId == "b" && !it.searching && it.results.isNotEmpty() }
             }
             assertEquals(listOf(7), onB.results.map { it.id })
@@ -247,9 +258,9 @@ class SearchViewModelTest {
     fun `editing the selected device's URL refetches from the new endpoint`() = runBlocking {
         val world = newWorld()
         try {
-            withTimeout(5_000) { world.vm.ui.first { it.serverId == "a" } }
+            withTimeout(10_000) { world.vm.ui.first { it.serverId == "a" } }
             world.vm.onQueryChange("ai chat")
-            withTimeout(5_000) {
+            withTimeout(10_000) {
                 world.vm.ui.first { it.query == "ai chat" && !it.searching && it.results.size == 2 }
             }
 
@@ -257,7 +268,7 @@ class SearchViewModelTest {
             // not survive the move (their ids would be sent to the new server).
             world.store.upsert(ServerProfile(id = "a", name = "A", baseUrl = "https://c.test"))
 
-            val moved = withTimeout(5_000) {
+            val moved = withTimeout(10_000) {
                 world.vm.ui.first { !it.searching && it.results.map { r -> r.id } == listOf(9) }
             }
             assertEquals("a", moved.serverId)
@@ -273,16 +284,16 @@ class SearchViewModelTest {
         try {
             // No token: the VM still resolves the selected device (serverId), and the
             // first non-empty query must say "no device", not "nothing matched".
-            withTimeout(5_000) { world.vm.ui.first { it.serverId == "a" } }
+            withTimeout(10_000) { world.vm.ui.first { it.serverId == "a" } }
             world.vm.onQueryChange("ai chat")
-            withTimeout(5_000) { world.vm.ui.first { it.query == "ai chat" && it.noDevice } }
+            withTimeout(10_000) { world.vm.ui.first { it.query == "ai chat" && it.noDevice } }
             assertEquals(0, world.vm.ui.value.results.size)
 
             // Token edits never emit on the profile flow; Retry must re-resolve.
             world.secrets.put("a", "token-a")
             world.vm.retry()
 
-            val healed = withTimeout(5_000) {
+            val healed = withTimeout(10_000) {
                 world.vm.ui.first { !it.searching && !it.noDevice && it.results.size == 2 }
             }
             assertEquals("a", healed.serverId)
