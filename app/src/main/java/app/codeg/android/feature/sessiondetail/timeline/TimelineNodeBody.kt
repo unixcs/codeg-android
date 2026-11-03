@@ -91,7 +91,9 @@ val LocalSessionContext = staticCompositionLocalOf { SessionContextUsage() }
 fun NodeBody(
     node: TimelineNode,
     modifier: Modifier = Modifier,
-    onForkFromTurn: ((String) -> Unit)? = null,
+    forkSession: ForkSessionState = ForkSessionState(),
+    onForkFromTurn: ((String?) -> Unit)? = null,
+    onForkBlocked: ((ForkBlockReason) -> Unit)? = null,
 ) {
     when (val c = node.content) {
         is NodeContent.User -> UserNodeBody(c.turn, modifier)
@@ -110,12 +112,22 @@ fun NodeBody(
         is NodeContent.ToolGroup -> ToolGroupCard(c.items, modifier, streaming = c.streaming)
         is NodeContent.Image -> InlineImage(c.image, c.caption, modifier)
         is NodeContent.Compaction -> ContextCompactionDivider(c.before, c.after, c.running, modifier)
-        is NodeContent.Footer -> TurnFooter(
-            c.turn,
-            c.questionId,
-            onFork = onForkFromTurn?.let { cb -> c.forkTurnId?.let { id -> { cb(id) } } },
-            modifier = modifier,
-        )
+        is NodeContent.Footer -> {
+            val gate = ForkAvailability.resolve(
+                supported = forkSession.supported,
+                busy = forkSession.busy,
+                forkTurnId = c.forkTurnId,
+                isThreadTail = c.forkIsThreadTail,
+            )
+            TurnFooter(
+                c.turn,
+                c.questionId,
+                gate = gate,
+                onFork = onForkFromTurn,
+                onForkBlocked = onForkBlocked,
+                modifier = modifier,
+            )
+        }
         is NodeContent.Plan -> LivePlanView(c.entries, modifier)
         is NodeContent.Thinking -> ThinkingShimmer(modifier)
         is NodeContent.Error -> InlineTurnError(c.message, modifier)
@@ -197,7 +209,9 @@ private fun TurnFooter(
     turn: MessageTurn,
     questionId: String?,
     modifier: Modifier,
-    onFork: (() -> Unit)? = null,
+    gate: ForkGate? = null,
+    onFork: ((String?) -> Unit)? = null,
+    onForkBlocked: ((ForkBlockReason) -> Unit)? = null,
 ) {
     val colors = CodegTheme.colors
     // Copy text joins every block → memoize it. Meta stays live so the clock
@@ -233,14 +247,10 @@ private fun TurnFooter(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (copyText.isNotEmpty()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CopyButton(copyText)
-                if (onFork != null) ForkButton(onFork)
-                if (questionId != null) JumpToQuestionButton(questionId)
-            }
-        } else if (questionId != null) {
-            JumpToQuestionButton(questionId)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (copyText.isNotEmpty()) CopyButton(copyText)
+            if (gate != null) ForkButton(gate, onFork, onForkBlocked)
+            if (questionId != null) JumpToQuestionButton(questionId)
         }
         Spacer(Modifier.weight(1f))
         Column(Modifier.weight(2.2f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -282,12 +292,23 @@ private fun CopyButton(text: String) {
 }
 
 @Composable
-private fun ForkButton(onFork: () -> Unit) {
+private fun ForkButton(
+    gate: ForkGate,
+    onFork: ((String?) -> Unit)?,
+    onForkBlocked: ((ForkBlockReason) -> Unit)?,
+) {
     val colors = CodegTheme.colors
+    val enabled = gate is ForkGate.Ready
+    val tint = if (enabled) colors.textTertiary else colors.textTertiary.copy(alpha = 0.45f)
     Row(
         Modifier
             .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onFork)
+            .clickable {
+                when (gate) {
+                    is ForkGate.Ready -> onFork?.invoke(gate.turnId)
+                    is ForkGate.Blocked -> onForkBlocked?.invoke(gate.reason)
+                }
+            }
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -297,10 +318,10 @@ private fun ForkButton(onFork: () -> Unit) {
             // The label below already reads "Fork from here"; a description here
             // would make TalkBack announce it twice.
             contentDescription = null,
-            tint = colors.textTertiary,
+            tint = tint,
             modifier = Modifier.size(13.dp),
         )
-        Text(stringResource(R.string.fork_from_here), fontSize = 11.sp, color = colors.textTertiary)
+        Text(stringResource(R.string.fork_from_here), fontSize = 11.sp, color = tint)
     }
 }
 

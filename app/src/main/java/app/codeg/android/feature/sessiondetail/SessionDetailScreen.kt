@@ -113,6 +113,7 @@ import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.LivePulse
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.ContentBlock
 import app.codeg.android.core.model.PlanEntry
 import app.codeg.android.feature.handoff.HandoffSheet
@@ -125,6 +126,8 @@ import app.codeg.android.core.designsystem.component.DocPreviewDialog
 import app.codeg.android.core.designsystem.markdown.LocalPathOpener
 import app.codeg.android.feature.sessiondetail.timeline.LocalSessionContext
 import app.codeg.android.feature.sessiondetail.timeline.LocalTimelineScroll
+import app.codeg.android.feature.sessiondetail.timeline.ForkBlockReason
+import app.codeg.android.feature.sessiondetail.timeline.ForkSessionState
 import app.codeg.android.feature.sessiondetail.timeline.NodeBody
 import app.codeg.android.feature.sessiondetail.timeline.NodeContent
 import app.codeg.android.feature.sessiondetail.timeline.SessionContextUsage
@@ -309,6 +312,19 @@ fun SessionDetailScreen(
         TranscriptTimeline.withLive(persistedNodes, ui.live, ui.agent)
     }
     val hasContent = nodes.isNotEmpty()
+    // Fork is shown on every completed reply, but greyed out with a reason when the
+    // session as a whole cannot fork. Turn-level reasons (no text / live id) are
+    // resolved per footer by ForkAvailability.
+    val forkSession = remember(ui.forkSupported, ui.isInFlight, ui.forking) {
+        ForkSessionState(supported = ui.forkSupported, busy = ui.isInFlight || ui.forking)
+    }
+    val forkTurnInProgressText = stringResource(R.string.fork_turn_in_progress)
+    val forkAlreadyRunningText = stringResource(R.string.fork_already_running)
+    val forkUnresolvedText = stringResource(R.string.fork_unresolved_turn)
+    val forkUnsupportedText = stringResource(
+        if (ui.agent == AgentType.CODEX) R.string.fork_server_unsupported
+        else R.string.fork_agent_unsupported,
+    )
 
     var showToc by remember { mutableStateOf(false) }
     // Fullscreen editor survives rotation; the text itself stays in the shared [draft].
@@ -599,12 +615,19 @@ fun SessionDetailScreen(
                                 ) {
                                     NodeBody(
                                         node,
-                                        // Fork entry rides the footer of every completed
-                                        // assistant group; null hides it for non-Codex agents
-                                        // and while a turn is in flight.
-                                        onForkFromTurn = if (ui.forkSupported && !ui.isInFlight && !ui.forking) {
-                                            viewModel::forkFromTurn
-                                        } else null,
+                                        forkSession = forkSession,
+                                        onForkFromTurn = viewModel::forkFromTurn,
+                                        onForkBlocked = { reason ->
+                                            viewModel.showNotice(
+                                                when (reason) {
+                                                    ForkBlockReason.BUSY ->
+                                                        if (ui.forking) forkAlreadyRunningText
+                                                        else forkTurnInProgressText
+                                                    ForkBlockReason.UNRESOLVED -> forkUnresolvedText
+                                                    ForkBlockReason.UNSUPPORTED -> forkUnsupportedText
+                                                },
+                                            )
+                                        },
                                     )
                                 }
                             }

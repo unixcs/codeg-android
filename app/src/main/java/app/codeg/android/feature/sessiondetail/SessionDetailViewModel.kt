@@ -1739,19 +1739,37 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    /** Fork this conversation's session at [turnId] (batch v134). The gate is
+    /** Fork this conversation's session at [turnId] (batch v134; null = tail fork).
+     *  The gate is
      *  `ui.forkSupported` — the server's own verdict for the attached CLI, fed by the
-     *  RPC snapshot, the WS snapshot and the `fork_supported` event. Agents the server
-     *  does not advertise (ZCode today) never see the button.
+     *  RPC snapshot, the WS snapshot and the `fork_supported` event. The footer still
+     *  shows the entry greyed out for agents the server does not advertise so the
+     *  reason is discoverable; this guard makes a stale tap harmless.
      *
      *  Semantics: the server re-points the CURRENT conversation row at the new
      *  session (history truncated to the branch point, title gets a `[Fork] ` prefix)
      *  and adds a sibling row keeping the original history — so on success we STAY on
      *  this screen: [load] re-pulls the now-forked detail, and the lists notification
      *  surfaces the sibling. No navigation. */
-    fun forkFromTurn(turnId: String) {
+    fun forkFromTurn(turnId: String?) {
         val c = client ?: return
-        if (!_ui.value.forkSupported || _ui.value.isInFlight || _ui.value.forking) return
+        if (_ui.value.forking) {
+            _ui.update { it.copy(notice = appContext.getString(R.string.fork_already_running)) }
+            return
+        }
+        if (_ui.value.isInFlight) {
+            _ui.update { it.copy(notice = appContext.getString(R.string.fork_turn_in_progress)) }
+            return
+        }
+        if (!_ui.value.forkSupported) {
+            val message = if (agent == AgentType.CODEX) {
+                R.string.fork_server_unsupported
+            } else {
+                R.string.fork_agent_unsupported
+            }
+            _ui.update { it.copy(notice = appContext.getString(message)) }
+            return
+        }
         val convId = conversationId ?: return
         // One-shot: a double tap must not post two acp_fork calls (the second would
         // race the first's row re-point).

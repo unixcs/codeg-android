@@ -1,11 +1,15 @@
 package app.codeg.android.core.network
 
 import app.codeg.android.core.model.AgentType
+import app.codeg.android.core.model.AcpForkBody
 import app.codeg.android.core.model.ConnectBody
 import app.codeg.android.core.model.ConversationStatus
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.model.FolderDetail
+import app.codeg.android.core.model.ForkResult
 import app.codeg.android.core.model.QuestionAnswer
+import app.codeg.android.core.model.SessionSnapshot
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -75,5 +79,43 @@ class CodegJsonTest {
     @Test
     fun `bare JSON integer decodes (create_conversation)`() {
         assertEquals(42, CodegJson.response.decodeFromString(Int.serializer(), "42"))
+    }
+
+    @Test
+    fun `acp fork body encodes camelCase and omits an absent anchor`() {
+        val json = CodegJson.request.encodeToString(
+            AcpForkBody(connectionId = "conn-1", conversationId = 7, folderId = 3),
+        )
+        assertTrue(json.contains("\"connectionId\":\"conn-1\""))
+        assertTrue(json.contains("\"conversationId\":7"))
+        assertTrue(json.contains("\"folderId\":3"))
+        assertFalse(json.contains("forkFromTurnId"))
+    }
+
+    @Test
+    fun `acp fork body sends an explicit fork point`() {
+        val json = CodegJson.request.encodeToString(AcpForkBody("conn-1", forkFromTurnId = "turn-4"))
+        assertTrue(json.contains("\"forkFromTurnId\":\"turn-4\""))
+    }
+
+    @Test
+    fun `fork result decodes camelCase wire keys`() {
+        // `acp_fork` is the one response that is camelCase; the client decodes it
+        // with a plain Json instance (no SnakeCase naming strategy).
+        val result = Json { ignoreUnknownKeys = true }.decodeFromString<ForkResult>(
+            """{"forkedSessionId":"S2","originalSessionId":"S1","siblingConversationId":124}""",
+        )
+        assertEquals("S2", result.forkedSessionId)
+        assertEquals("S1", result.originalSessionId)
+        assertEquals(124, result.siblingConversationId)
+    }
+
+    @Test
+    fun `session snapshot decodes the fork capability in snake_case`() {
+        val snapshot = CodegJson.response.decodeFromString<SessionSnapshot>(
+            """{"selectors_ready":true,"fork_supported":true,"connection_id":"conn-1"}""",
+        )
+        assertTrue(snapshot.forkSupported)
+        assertEquals("conn-1", snapshot.connectionId)
     }
 }

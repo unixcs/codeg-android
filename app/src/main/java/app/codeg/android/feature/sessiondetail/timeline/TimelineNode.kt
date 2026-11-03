@@ -40,14 +40,18 @@ sealed interface NodeContent {
      *  Token counts are Grok-only (codex sends none). */
     data class Compaction(val before: Int?, val after: Int?, val running: Boolean) : NodeContent
     data class Footer(
-    val turn: MessageTurn,
-    val questionId: String?,
-    /** Fork anchor (v134): the last TEXT-bearing assistant turn id of the merged
-     *  group. Forking from it keeps the merged run's prose but DROPS the tool-only
-     *  turns after it — the server can only resolve a branch point by assistant text,
-     *  and a text-less anchor would silently tail-fork instead. */
-    val forkTurnId: String? = null,
-) : NodeContent
+        val turn: MessageTurn,
+        val questionId: String?,
+        /** Fork anchor (v134): the last TEXT-bearing assistant turn id of the merged
+         *  group. Forking from it keeps the merged run's prose but DROPS the tool-only
+         *  turns after it — the server can only resolve a branch point by assistant text,
+         *  and a text-less anchor would silently tail-fork instead. */
+        val forkTurnId: String? = null,
+        /** True when this reply's group ends the rendered transcript, so a tail fork
+         *  lands exactly here. [forkTurnId] may then be null (tool-only tail) and the
+         *  request deliberately omits the anchor. */
+        val forkIsThreadTail: Boolean = false,
+    ) : NodeContent
     data class Plan(val entries: List<PlanEntry>) : NodeContent
     data object Thinking : NodeContent
     data class Error(val message: String) : NodeContent
@@ -209,11 +213,13 @@ object TranscriptTimeline {
                     // assistant text. The server fingerprints text blocks to locate the
                     // branch point and silently tail-forks when it can't resolve one, so
                     // anchoring on a text-less tool-call tail would make "fork from here"
-                    // a no-op. No text anywhere in the run → no fork entry.
+                    // a no-op. No text anywhere in the run → no anchor, which the footer
+                    // shows as a tail fork when exact, and greyed out when not.
                     val forkTurnId = run.lastOrNull { turn ->
                         turn.blocks.any { (it as? ContentBlock.Text)?.text?.isNotBlank() == true }
                     }?.id
-                    nodes.addAll(assistantNodes(merged, forkTurnId, lastUserId, agent))
+                    val isThreadTail = j == source.size && pending.isEmpty()
+                    nodes.addAll(assistantNodes(merged, forkTurnId, lastUserId, agent, isThreadTail))
                     i = j
                 }
             }
@@ -227,7 +233,20 @@ object TranscriptTimeline {
     /** Append the in-flight reply to the persisted nodes and terminate the rail's endpoints. */
     fun withLive(persisted: List<TimelineNode>, live: LiveTurnState?, agent: AgentType): List<TimelineNode> {
         val nodes = persisted.toMutableList()
-        if (live != null) nodes.addAll(liveNodes(live, agent))
+        if (live != null) {
+            nodes.addAll(liveNodes(live, agent))
+            // A live reply now ends the visible thread. The last persisted reply was
+            // marked as the tail before this append, so demote it — otherwise a
+            // text-less reply could offer an exact-tail fork while another reply is
+            // visibly below it.
+            val staleTail = nodes.indexOfLast {
+                (it.content as? NodeContent.Footer)?.forkIsThreadTail == true
+            }
+            if (staleTail >= 0) {
+                val footer = nodes[staleTail].content as NodeContent.Footer
+                nodes[staleTail] = nodes[staleTail].copy(content = footer.copy(forkIsThreadTail = false))
+            }
+        }
         if (nodes.isNotEmpty()) {
             nodes[0] = nodes[0].copy(connectTop = false)
             nodes[nodes.lastIndex] = nodes[nodes.lastIndex].copy(connectBottom = false)
@@ -237,11 +256,23 @@ object TranscriptTimeline {
 
     /** A merged reply → ordered part nodes + a footer (always emitted, even tool-only).
      *  Text parts split into per-block nodes; persisted text is parse-memoized. */
-    private fun assistantNodes(merged: MessageTurn, forkTurnId: String?, questionId: String?, agent: AgentType): List<TimelineNode> {
+    private fun assistantNodes(
+        merged: MessageTurn,
+        forkTurnId: String?,
+        questionId: String?,
+        agent: AgentType,
+        forkIsThreadTail: Boolean,
+    ): List<TimelineNode> {
         val out = MessageRender.adaptTurn(merged)
             .flatMapIndexed { idx, part -> nodesFor(part, merged.id, idx, agent, cached = true) }
             .toMutableList()
-        out.add(TimelineNode("${merged.id}#footer", NodeContent.Footer(merged, questionId, forkTurnId), agent))
+        out.add(
+            TimelineNode(
+                "${merged.id}#footer",
+                NodeContent.Footer(merged, questionId, forkTurnId, forkIsThreadTail),
+                agent,
+            ),
+        )
         return out
     }
 

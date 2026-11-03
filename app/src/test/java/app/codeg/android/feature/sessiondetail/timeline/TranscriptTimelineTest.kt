@@ -61,6 +61,7 @@ class TranscriptTimelineTest {
         // The server fingerprints assistant TEXT to find the branch point and
         // silently tail-forks when it can't — the tool-only tail must not be the anchor.
         assertEquals("a1", footer.forkTurnId)
+        assertTrue(footer.forkIsThreadTail)
     }
 
     @Test
@@ -72,6 +73,57 @@ class TranscriptTimelineTest {
         val nodes = TranscriptTimeline.build(turns, emptyList(), null, agent)
         val footer = nodes.mapNotNull { it.content as? NodeContent.Footer }.single()
         assertEquals(null, footer.forkTurnId)
+        // The reply ends the thread, so omitting the anchor is an exact tail fork.
+        assertTrue(footer.forkIsThreadTail)
+    }
+
+    @Test
+    fun `a textless reply before the tail is not a tail fork point`() {
+        val turns = listOf(
+            user("u1", "hi"),
+            assistant("a1", listOf(ContentBlock.ToolUse("t1", "Read", """{"file_path":"a"}"""))),
+            user("u2", "next"),
+            assistant("a2", listOf(ContentBlock.Text("done"))),
+        )
+        val nodes = TranscriptTimeline.build(turns, emptyList(), null, agent)
+        val footers = nodes.mapNotNull { it.content as? NodeContent.Footer }
+        assertEquals(2, footers.size)
+        assertEquals(null, footers[0].forkTurnId)
+        assertFalse(footers[0].forkIsThreadTail)
+        assertTrue(footers[1].forkIsThreadTail)
+    }
+
+    @Test
+    fun `an optimistic pending prompt keeps the previous reply off the tail`() {
+        val turns = listOf(
+            user("u1", "hi"),
+            assistant("a1", listOf(ContentBlock.Text("the answer"))),
+        )
+        val pending = listOf(user("p1", "still typing"))
+        val nodes = TranscriptTimeline.build(turns, pending, null, agent)
+        val footer = nodes.mapNotNull { it.content as? NodeContent.Footer }.single()
+        assertEquals("a1", footer.forkTurnId)
+        assertFalse(footer.forkIsThreadTail)
+    }
+
+    @Test
+    fun `a live reply takes the thread tail away from the last persisted reply`() {
+        val turns = listOf(
+            user("u1", "hi"),
+            assistant("a1", listOf(ContentBlock.Text("the answer"))),
+        )
+        val live = LiveTurnState(
+            id = "live1",
+            segments = listOf(LiveSegment.Text("t0", "still streaming")),
+            livePlan = emptyList(),
+            isStreaming = true,
+            stopReason = null,
+            errorMessage = null,
+        )
+        val nodes = TranscriptTimeline.build(turns, emptyList(), live, agent)
+        val footer = nodes.mapNotNull { it.content as? NodeContent.Footer }.single()
+        assertEquals("a1", footer.forkTurnId)
+        assertFalse(footer.forkIsThreadTail)
     }
 
     @Test
