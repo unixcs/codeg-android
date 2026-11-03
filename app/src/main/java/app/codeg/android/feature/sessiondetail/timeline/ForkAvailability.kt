@@ -1,5 +1,7 @@
 package app.codeg.android.feature.sessiondetail.timeline
 
+import app.codeg.android.core.model.AgentType
+
 /** Why a completed reply's Fork chip is greyed out instead of hidden. */
 enum class ForkBlockReason {
     /** The attached agent or the server does not implement `session/fork`. */
@@ -26,6 +28,7 @@ sealed interface ForkGate {
 
 /** Session-wide inputs for every footer's Fork chip. */
 data class ForkSessionState(
+    val agent: AgentType = AgentType.CODEX,
     val supported: Boolean = false,
     val busy: Boolean = false,
 )
@@ -39,6 +42,10 @@ object ForkAvailability {
      * against its own parse (`turn-N`), so a live id is not a usable anchor.
      */
     fun isLiveTurnId(id: String): Boolean = id.startsWith(LIVE_TURN_PREFIX)
+
+    /** The first Android release deliberately exposes Codex only, even if a
+     *  newer server advertises `session/fork` for another adapter. */
+    fun supportsAgent(agent: AgentType): Boolean = agent == AgentType.CODEX
 
     /**
      * Decide whether this reply can be forked and, when it cannot, why.
@@ -55,12 +62,13 @@ object ForkAvailability {
      * there, so its `None` path is exact.
      */
     fun resolve(
+        agent: AgentType,
         supported: Boolean,
         busy: Boolean,
         forkTurnId: String?,
         isThreadTail: Boolean,
     ): ForkGate = when {
-        !supported -> ForkGate.Blocked(ForkBlockReason.UNSUPPORTED)
+        !supportsAgent(agent) || !supported -> ForkGate.Blocked(ForkBlockReason.UNSUPPORTED)
         busy -> ForkGate.Blocked(ForkBlockReason.BUSY)
         isLiveTurnId(forkTurnId.orEmpty()) -> ForkGate.Blocked(ForkBlockReason.UNRESOLVED)
         isThreadTail -> ForkGate.Ready(forkTurnId)

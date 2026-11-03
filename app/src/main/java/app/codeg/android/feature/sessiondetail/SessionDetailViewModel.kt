@@ -1761,13 +1761,12 @@ class SessionDetailViewModel @Inject constructor(
             _ui.update { it.copy(notice = appContext.getString(R.string.fork_turn_in_progress)) }
             return
         }
+        if (agent != AgentType.CODEX) {
+            _ui.update { it.copy(notice = appContext.getString(R.string.fork_agent_unsupported)) }
+            return
+        }
         if (!_ui.value.forkSupported) {
-            val message = if (agent == AgentType.CODEX) {
-                R.string.fork_server_unsupported
-            } else {
-                R.string.fork_agent_unsupported
-            }
-            _ui.update { it.copy(notice = appContext.getString(message)) }
+            _ui.update { it.copy(notice = appContext.getString(R.string.fork_server_unsupported)) }
             return
         }
         val convId = conversationId ?: return

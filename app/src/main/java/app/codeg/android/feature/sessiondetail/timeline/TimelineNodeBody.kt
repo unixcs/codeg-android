@@ -114,6 +114,7 @@ fun NodeBody(
         is NodeContent.Compaction -> ContextCompactionDivider(c.before, c.after, c.running, modifier)
         is NodeContent.Footer -> {
             val gate = ForkAvailability.resolve(
+                agent = forkSession.agent,
                 supported = forkSession.supported,
                 busy = forkSession.busy,
                 forkTurnId = c.forkTurnId,

@@ -11,7 +11,7 @@
 | Handler | `src-tauri/src/web/handlers/acp.rs::acp_fork` |
 | 请求 | camelCase（见下） |
 | 响应 | camelCase（见下） |
-| 能力判定 | `agent_type != ZCode && session_capabilities.fork.is_some()` |
+| 服务端能力判定 | `agent_type != ZCode && session_capabilities.fork.is_some()` |
 
 请求：
 
@@ -58,6 +58,7 @@
 
 | 情况 | 行为 |
 |---|---|
+| 非 Codex（OpenCode / Pi / ZCode / DeepSeek 等） | **禁灰**，不发请求；即使服务端为其他适配器广告了 Fork 能力，首版也只放行 Codex |
 | 锚点存在且是正常 `turn-N` | 发送该 `forkFromTurnId` |
 | 该回复是**线程尾部**，且有文本锚点 | 发送锚点（精确分支） |
 | 该回复是**线程尾部**，无文本锚点 | 发送 `null`（尾部 Fork；服务端自己的解析就结束在这里，语义等价） |

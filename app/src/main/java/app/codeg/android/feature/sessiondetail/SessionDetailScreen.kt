@@ -315,8 +315,12 @@ fun SessionDetailScreen(
     // Fork is shown on every completed reply, but greyed out with a reason when the
     // session as a whole cannot fork. Turn-level reasons (no text / live id) are
     // resolved per footer by ForkAvailability.
-    val forkSession = remember(ui.forkSupported, ui.isInFlight, ui.forking) {
-        ForkSessionState(supported = ui.forkSupported, busy = ui.isInFlight || ui.forking)
+    val forkSession = remember(ui.agent, ui.forkSupported, ui.isInFlight, ui.forking) {
+        ForkSessionState(
+            agent = ui.agent,
+            supported = ui.forkSupported,
+            busy = ui.isInFlight || ui.forking,
+        )
     }
     val forkTurnInProgressText = stringResource(R.string.fork_turn_in_progress)
     val forkAlreadyRunningText = stringResource(R.string.fork_already_running)
