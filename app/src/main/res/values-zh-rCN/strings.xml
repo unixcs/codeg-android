@@ -113,8 +113,12 @@
     <string name="fork_from_here">从此处分叉</string>
     <string name="session_turn_in_progress">该会话已有回合正在运行，已为你重连到运行现场</string>
     <string name="fork_turn_in_progress">当前有回合正在进行，请等结束后再试</string>
+    <string name="fork_already_running">正在分叉，请稍候</string>
     <string name="fork_unavailable">没有可用的会话连接，无法分叉</string>
-    <string name="fork_succeeded">已分叉到新会话</string>
+    <string name="fork_succeeded">已分叉，原会话保留在会话列表</string>
+    <string name="fork_agent_unsupported">当前智能体暂不支持从历史分叉（首版仅 Codex）</string>
+    <string name="fork_server_unsupported">服务端不支持分叉，请升级 Codeg</string>
+    <string name="fork_unresolved_turn">这条回复没有可用于定位的文本，无法在准确位置分叉</string>
     <string name="general_new_session_section">新建会话</string>
     <string name="general_default_folder_title">新建会话默认目录</string>
     <string name="general_default_folder_follow">跟随上次使用</string>

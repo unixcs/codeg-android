@@ -113,8 +113,12 @@
     <string name="fork_from_here">Fork from here</string>
     <string name="session_turn_in_progress">A turn is already running on this session — reattached to the live run</string>
     <string name="fork_turn_in_progress">A turn is in progress — try again when it finishes</string>
+    <string name="fork_already_running">A fork is already in progress</string>
     <string name="fork_unavailable">No session connection available to fork</string>
-    <string name="fork_succeeded">Forked into a new session</string>
+    <string name="fork_succeeded">Forked — the original is kept in the session list</string>
+    <string name="fork_agent_unsupported">This agent does not support forking from history yet (Codex only for now)</string>
+    <string name="fork_server_unsupported">This server does not support Fork — update Codeg</string>
+    <string name="fork_unresolved_turn">This reply has no locatable text, so it cannot be forked at this exact point</string>
     <string name="general_new_session_section">New session</string>
     <string name="general_default_folder_title">Default folder for new sessions</string>
     <string name="general_default_folder_follow">Follow last used</string>
