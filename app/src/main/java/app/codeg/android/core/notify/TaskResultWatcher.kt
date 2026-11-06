@@ -5,11 +5,13 @@ import app.codeg.android.core.data.TaskRow
 import app.codeg.android.core.data.TaskTransition
 import app.codeg.android.core.data.taskBaseline
 import app.codeg.android.core.data.taskTransitions
+import app.codeg.android.core.model.WorkTaskInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -39,10 +41,15 @@ data class DeviceDownEvent(
  * silent). No bus of record: the poll diff IS the event source, so a killed
  * process simply rebuilds its baseline on the first round back.
  *
+ * Device-down judgment (批v161.3 R1): ONE dropped round is not an outage — a
+ * wifi hiccup or a slow server restart used to announce itself instantly. A
+ * device must now fail TWO CONSECUTIVE rounds (armed in [downCandidates] on
+ * the first, announced on the second, un-armed by any success) before the
+ * silent alert fires.
+ *
  * Transport notes: `client(profile)` returns null for a token-less profile and
  * the shared OkHttp engine caps every POST at 30s (connect/read/write), so a
- * hung device degrades to a null round within one interval — the same
- * runCatching(null) pattern the interactive watcher uses for `petSessions`.
+ * hung device degrades to a null round within one interval.
  *
  * Lifecycle is reference-counted ([start]/[stop]); the Application holds the
  * process-lifetime reference (notifications must work in the background).
@@ -55,13 +62,16 @@ class TaskResultWatcher @Inject constructor(
     private val scope = kotlinx.coroutines.CoroutineScope(supervisor + Dispatchers.Default)
 
     private val _taskTransitions = MutableSharedFlow<TaskTransition>(
-        extraBufferCapacity = 16,
+        // 批v161.3 R2: widened alongside the other notification buffers — 16
+        // drop-oldest slots were thin for a burst round (many tasks finishing
+        // during one 30s window plus a cold-start diff).
+        extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val taskTransitions: SharedFlow<TaskTransition> = _taskTransitions.asSharedFlow()
 
     private val _deviceDown = MutableSharedFlow<DeviceDownEvent>(
-        extraBufferCapacity = 16,
+        extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val deviceDown: SharedFlow<DeviceDownEvent> = _deviceDown.asSharedFlow()
@@ -75,18 +85,28 @@ class TaskResultWatcher @Inject constructor(
      *  "上一轮成功" so a device that was offline at cold start is not announced. */
     private val knownOk = ConcurrentHashMap.newKeySet<String>()
 
+    /** 批v161.3 R1: devices that failed the LAST round while in [knownOk] —
+     *  armed but not yet announced. A second consecutive failed round converts
+     *  the candidate into a [downReported] announcement; any success un-arms. */
+    private val downCandidates = ConcurrentHashMap.newKeySet<String>()
+
     /** Outages already announced; cleared silently on recovery. */
     private val downReported = ConcurrentHashMap.newKeySet<String>()
 
     private var pollJob: Job? = null
     private val refCount = AtomicInteger(0)
 
-    /** Idempotent: N holders share one running watcher. */
+    /** Idempotent: N holders share one running watcher. The @Synchronized
+     *  closes the check-then-act race (批v161.3 R2): two start()s (or a
+     *  start/stop pair) interleaving on the refcount could launch two loops or
+     *  drop the only reference while a loop was mid-launch. */
+    @Synchronized
     fun start() {
         if (refCount.incrementAndGet() > 1) return
         pollJob = scope.launch { pollLoop() }
     }
 
+    @Synchronized
     fun stop() {
         val n = refCount.decrementAndGet()
         if (n > 0) return
@@ -116,26 +136,55 @@ class TaskResultWatcher @Inject constructor(
         val liveIds = profiles.map { it.id }.toSet()
         // Devices removed from the aggregate must not keep stale outage state.
         knownOk.retainAll(liveIds)
+        downCandidates.retainAll(liveIds)
         downReported.retainAll(liveIds)
 
+        // 批v161.3 R2: the per-device requests run CONCURRENTLY (same
+        // coroutineScope+launch shape as TaskHubViewModel.fetchDevices) — the
+        // serial sweep let the slowest device stretch the round toward the 30s
+        // transport ceiling and delayed every notification behind it. Each
+        // worker records its own outcome; per-device CancellationException
+        // propagates through coroutineScope and out of pollOnce.
+        val successes = ConcurrentHashMap<String, List<WorkTaskInfo>>()
+        coroutineScope {
+            profiles.forEach { profile ->
+                launch {
+                    // Null = transport failure / old server / missing token.
+                    // try/catch, not runCatching (批v161.3 R2): runCatching
+                    // swallows the coroutine's CancellationException and turned
+                    // a watcher stop into a "device failed" round — a candidate
+                    // step toward a false offline alert.
+                    val tasks = try {
+                        repository.client(profile)?.workTaskList()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (tasks != null) successes[profile.id] = tasks
+                }
+            }
+        }
+
         val rows = mutableListOf<TaskRow>()
-        val okNow = mutableListOf<String>()
         for (profile in profiles) {
-            val tasks = runCatching {
-                repository.client(profile)?.workTaskList()
-            }.getOrNull()
-            // Null = transport failure / old server / missing token.
+            val tasks = successes[profile.id]
             if (tasks == null) {
-                if (profile.id in knownOk && downReported.add(profile.id)) {
-                    _deviceDown.tryEmit(DeviceDownEvent(profile.id, profile.name))
+                // Two-consecutive-failed gate (批v161.3 R1): the first failed
+                // round arms a candidate silently; the second announces once.
+                if (profile.id in knownOk) {
+                    if (!downCandidates.add(profile.id) && downReported.add(profile.id)) {
+                        downCandidates.remove(profile.id)
+                        _deviceDown.tryEmit(DeviceDownEvent(profile.id, profile.name))
+                    }
                 }
                 continue
             }
-            okNow += profile.id
+            downCandidates.remove(profile.id)
             downReported.remove(profile.id)
             tasks.forEach { task -> rows += TaskRow(profile.id, profile.name, task) }
         }
-        knownOk.addAll(okNow)
+        knownOk.addAll(successes.keys)
 
         val previous = baseline
         baseline = taskBaseline(rows)

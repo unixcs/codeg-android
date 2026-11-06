@@ -44,8 +44,18 @@ import javax.inject.Singleton
  * Suppression: a turn notification is dropped while that conversation is the
  * foreground detail ([ForegroundConversation]); a task notification is dropped
  * while the task board itself is on screen ([ForegroundBoard]) — the user is
- * already looking at the outcome. One-shot events are NOT re-posted after the
- * suppression window passes.
+ * already looking at the outcome. Both screen checks are gated on the app
+ * being foreground ([AppForeground], 批v161.3 R1): behind the shade or another
+ * app the screen mirrors say nothing about what the user sees, and suppressing
+ * there would eat exactly the alerts the feature exists for. One-shot events
+ * are NOT re-posted after the suppression window passes.
+ *
+ * Concurrency (批v161.3 R2): the settings collector's toggle-off cleanup and
+ * the event handlers both run on the app scope — without a shared lock an
+ * event could land its notification AFTER the cleanup cancelled everything,
+ * leaving a shade row for a disabled class. The whole 判定+notify+record of
+ * each handler is therefore one [lock] critical section (cleanup takes the
+ * same lock), closing the window.
  *
  * Notification ids must be STABLE ACROSS PROCESSES (same contract as
  * [InteractiveNotifier.notificationId]): pure hash formulas, never a counter.
@@ -59,14 +69,17 @@ class TaskResultNotifier @Inject constructor(
     @ApplicationContext private val context: Context,
     private val watcher: TaskResultWatcher,
     private val interactionWatcher: InteractiveRequestWatcher,
+    private val appForeground: AppForeground,
     private val appSettingsStore: AppSettingsStore,
     @ApplicationScope appScope: CoroutineScope,
 ) {
-    /** key → notification id for outstanding task_results posts. */
-    private val postedResults = HashMap<String, Int>()
+    /** key → notification id for outstanding task_results posts. LinkedHashMap
+     *  (insertion-ordered) so the [POSTED_CAP] eviction can drop the oldest —
+     *  all access happens under [lock]. */
+    private val postedResults = LinkedHashMap<String, Int>()
 
-    /** key → notification id for outstanding device_events posts. */
-    private val postedDevice = HashMap<String, Int>()
+    /** key → notification id for outstanding device_events posts (same cap). */
+    private val postedDevice = LinkedHashMap<String, Int>()
 
     private val lock = Any()
 
@@ -81,6 +94,9 @@ class TaskResultNotifier @Inject constructor(
                 settings = current
                 // Toggle-off cleanup (mirrors InteractiveNotifier.render): each
                 // switch cancels its own class; flipping back on just resumes.
+                // Same lock as the handlers — a handler either finishes its
+                // post+record BEFORE this cleanup (the row is cancelled below)
+                // or sees the fresh setting and never posts.
                 if (!current.notifyTaskResultsEnabled && previous.notifyTaskResultsEnabled) {
                     synchronized(lock) {
                         val nm = notificationManager()
@@ -117,11 +133,13 @@ class TaskResultNotifier @Inject constructor(
         }
     }
 
-    private fun onTaskTransition(transition: TaskTransition) {
+    private fun onTaskTransition(transition: TaskTransition) = synchronized(lock) {
         if (!settings.notifyTaskResultsEnabled) return
         // Looking at the board right now → the alert would be noise. One-shot:
-        // leaving the board later does not resurrect it.
-        if (ForegroundBoard.onBoard.value) return
+        // leaving the board later does not resurrect it. The app must also be
+        // foreground (批v161.3 R1): the board mirror is stale the moment the
+        // user leaves the app, and background alerts are the point.
+        if (appForeground.fg.value && ForegroundBoard.onBoard.value) return
         val ctx = LocaleManager.wrap(context)
         val id = taskNotificationId(transition.serverId, transition.taskId)
         val text = ctx.getString(
@@ -133,20 +151,24 @@ class TaskResultNotifier @Inject constructor(
             .setContentText("$text · ${transition.serverName}")
             .setContentIntent(boardContentIntent(ctx))
             .setAutoCancel(true)
+            // Re-posts for the same task (a re-run landing in the same id) must
+            // stay silent after the first alert, like the interactive builder.
+            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .build()
         // POST_NOTIFICATIONS revoked → SecurityException lands here, logged, not fatal.
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify task result failed: ${it.message}") }
-        synchronized(lock) {
-            postedResults["${transition.serverId}|${transition.taskId}"] = id
-        }
+        putCapped(postedResults, "${transition.serverId}|${transition.taskId}", id)
     }
 
-    private fun onTurnComplete(event: TurnCompleteEvent) {
+    private fun onTurnComplete(event: TurnCompleteEvent) = synchronized(lock) {
         if (!settings.notifyTaskResultsEnabled) return
-        // Viewing the conversation right now → the alert would be noise.
-        if (ForegroundConversation.ref.value == SessionRef(event.serverId, event.conversationId)) return
+        // Viewing the conversation right now → the alert would be noise. Same
+        // foreground gate as the board check above (批v161.3 R1).
+        if (appForeground.fg.value &&
+            ForegroundConversation.ref.value == SessionRef(event.serverId, event.conversationId)
+        ) return
         val ctx = LocaleManager.wrap(context)
         val id = turnNotificationId(event.serverId, event.conversationId)
         val title = event.conversationTitle?.takeIf { it.isNotBlank() }
@@ -159,16 +181,15 @@ class TaskResultNotifier @Inject constructor(
                 conversationContentIntent(ctx, event.serverId, event.conversationId),
             )
             .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .build()
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify turn complete failed: ${it.message}") }
-        synchronized(lock) {
-            postedResults["turn|${event.serverId}|${event.conversationId}"] = id
-        }
+        putCapped(postedResults, "turn|${event.serverId}|${event.conversationId}", id)
     }
 
-    private fun onDeviceDown(event: DeviceDownEvent) {
+    private fun onDeviceDown(event: DeviceDownEvent) = synchronized(lock) {
         if (!settings.notifyDeviceEventsEnabled) return
         val ctx = LocaleManager.wrap(context)
         val id = deviceNotificationId(event.serverId)
@@ -178,13 +199,25 @@ class TaskResultNotifier @Inject constructor(
             .setContentText(ctx.getString(R.string.notify_device_offline))
             .setContentIntent(boardContentIntent(ctx))
             .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SYSTEM)
             .build()
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify device down failed: ${it.message}") }
-        synchronized(lock) {
-            postedDevice[event.serverId] = id
+        putCapped(postedDevice, event.serverId, id)
+    }
+
+    /** Cap on the outstanding-post ledgers: the key spaces are unbounded in
+     *  principle (one per task/turn ever seen), and the only thing these maps
+     *  buy is the toggle-off cleanup. Evicting the oldest entry past the cap
+     *  loses the cleanup for that one id — the shade enforces its own far
+     *  smaller limits long before 128 rows. 批v161.3 R2; caller holds [lock]. */
+    private fun putCapped(map: LinkedHashMap<String, Int>, key: String, id: Int) {
+        while (map.size >= POSTED_CAP) {
+            val eldest = map.keys.firstOrNull() ?: break
+            map.remove(eldest)
         }
+        map[key] = id
     }
 
     private fun notificationManager(): NotificationManager =
@@ -226,6 +259,9 @@ class TaskResultNotifier @Inject constructor(
         private const val REQUEST_CODE_BOARD = 1_000_101
         private const val REQUEST_CODE_TURN = 1_000_102
 
+        /** Outstanding-post ledger cap (批v161.3 R2). */
+        private const val POSTED_CAP = 128
+
         /** Notification content titles render on one line — keep the truncation
          *  tight so the shade never has to ellipsize a runaway task title. */
         private const val TITLE_MAX = 64
@@ -243,7 +279,15 @@ class TaskResultNotifier @Inject constructor(
         fun deviceNotificationId(serverId: String): Int =
             43 * serverId.hashCode()
 
-        fun ellipsis(title: String): String =
-            if (title.length <= TITLE_MAX) title else title.take(TITLE_MAX) + "…"
+        /** Collapse line breaks first (a multi-line title would break the one-
+         *  line shade row), then count CHARACTERS as code points (批v161.3 R2):
+         *  String.length counts UTF-16 units, so a CJK-heavy title was cut at
+         *  half its visible length and a surrogate pair split across the cut
+         *  turned into a stray replacement char. */
+        fun ellipsis(title: String): String {
+            val flat = title.replace("\n", " ")
+            if (flat.codePointCount(0, flat.length) <= TITLE_MAX) return flat
+            return flat.substring(0, flat.offsetByCodePoints(0, TITLE_MAX)) + "…"
+        }
     }
 }

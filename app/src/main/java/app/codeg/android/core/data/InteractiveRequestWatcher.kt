@@ -103,9 +103,11 @@ class InteractiveRequestWatcher @Inject constructor(
 
     /** 系统级通知体系: hot stream of turn completions. Replay-free (a notifier
      *  only cares about turns finishing from now on) with a small drop-oldest
-     *  buffer so a slow consumer cannot block the frame collectors. */
+     *  buffer so a slow consumer cannot block the frame collectors. 批v161.3
+     *  R2: 16 → 64 alongside the other notification buffers — a burst of
+     *  finishing turns plus a cold-start snapshot used to thin the margin. */
     private val _turnComplete = MutableSharedFlow<TurnCompleteEvent>(
-        extraBufferCapacity = 16,
+        extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val turnComplete: SharedFlow<TurnCompleteEvent> = _turnComplete.asSharedFlow()

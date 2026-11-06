@@ -8,8 +8,10 @@ import org.junit.Test
 /**
  * 系统级通知体系: the poll-round diff that feeds the task_results notifications.
  * Pure function — these tests pin the event semantics the notifier relies on:
- * first rounds build a baseline silently, only active→done/failed arrivals are
- * news, and deliberate exits (cancel/archive) never announce.
+ * first rounds build a baseline silently, any non-terminal → done/failed move
+ * is news (批v161.3 R2: the from side is a terminal-state BLACKLIST, so
+ * todo→done announces too), and deliberate exits (cancel/archive) never
+ * announce.
  */
 class TaskTransitionsTest {
 
@@ -66,15 +68,48 @@ class TaskTransitionsTest {
     }
 
     @Test
-    fun `review and awaiting_input also count as active exits`() {
-        // The full active ladder: anything the user still has to act on leaving
-        // into a terminal arrival is news, not just running.
-        listOf("review", "awaiting_input", "preparing", "merging").forEach { from ->
+    fun `todo to done also triggers - non-terminal blacklist semantics`() {
+        // 批v161.3 R2: the from side is now "not in the terminal set", so the
+        // pre-flight todo column IS an exit — a task launched straight to done
+        // must announce (the old active-status whitelist silently ate it).
+        val events = taskTransitions(
+            previous = mapOf("s1:1" to "todo"),
+            current = listOf(row("s1", 1, "done")),
+        )
+        assertEquals("todo→done should notify", 1, events.size)
+        // Same rule for the failure arrival.
+        val failed = taskTransitions(
+            previous = mapOf("s1:2" to "todo"),
+            current = listOf(row("s1", 2, "failed")),
+        )
+        assertEquals(1, failed.size)
+    }
+
+    @Test
+    fun `every non-terminal from-state announces on a done arrival`() {
+        // The full non-terminal ladder. Not a whitelist anymore (批v161.3 R2):
+        // any status the server adds outside the terminal set is covered
+        // automatically — this list just pins the statuses that exist today.
+        listOf("todo", "queued", "preparing", "running", "awaiting_input", "review", "merging")
+            .forEach { from ->
+                val events = taskTransitions(
+                    previous = mapOf("s1:1" to from),
+                    current = listOf(row("s1", 1, "done")),
+                )
+                assertEquals("from $from should notify", 1, events.size)
+            }
+    }
+
+    @Test
+    fun `terminal from-states never trigger - either cancelled spelling`() {
+        // done→done and failed→done are re-arrivals of a finished task, and a
+        // cancelled task reaching done is a server-side oddity, not news.
+        listOf("done", "failed", "cancelled", "canceled").forEach { from ->
             val events = taskTransitions(
                 previous = mapOf("s1:1" to from),
                 current = listOf(row("s1", 1, "done")),
             )
-            assertEquals("from $from should notify", 1, events.size)
+            assertTrue("from=$from must be silent", events.isEmpty())
         }
     }
 

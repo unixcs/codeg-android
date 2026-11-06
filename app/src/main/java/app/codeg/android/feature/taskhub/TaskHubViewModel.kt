@@ -152,8 +152,9 @@ class TaskHubViewModel @Inject constructor(
 
     private val _refreshTick = MutableStateFlow(0)
     private var generation = 0
-    /** The tick already fetched: combine re-emits on every active/foreground
-     * toggle, and without this each one would redo the tick>0 refetch forever. */
+    /** The last tick SEEN (armed even when no fetch followed — 批v161.3 R2):
+     *  combine re-emits on every active/foreground toggle, and without this
+     *  each one would redo the tick>0 refetch forever. */
     private var lastSeenTick = -1
     /** Bumped by post(): in-flight loadDetail rounds from before an action must
      * not repopulate the dropped (pre-action) detail afterwards. */
@@ -302,6 +303,11 @@ class TaskHubViewModel @Inject constructor(
         repository.profiles
             .map { list -> list.filter { it.visible && it.includeInAll } }
             .distinctUntilChanged()
+            // drop(1) (批v161.3 R2): the FIRST profiles emission (cold-start
+            // DataStore read) is not a change — pollLoop's tick==0 branch
+            // already fetches once, and the initial bump would double-fetch.
+            // Only a REAL device-set change (add/remove/visibility) may bump.
+            .drop(1)
             .onEach { _refreshTick.value += 1 }
             // DataStore failure on the profiles read must not kill the process
             // (bare init coroutine = crash from the Activity tab, v130 class).
@@ -321,10 +327,17 @@ class TaskHubViewModel @Inject constructor(
         // Converges: a prune write re-triggers one round, which then finds no
         // stale keys and writes nothing; an idempotent track() edit that
         // changes nothing emits nothing.
+        // retryWhen (批v161.3 R2, same shape as the profiles collector): a
+        // DataStore failure must resubscribe — a dead collection here would
+        // silence the "just added" bump for the VM's whole life.
         boardTrack.tracked
             .drop(1)
             .distinctUntilChanged()
             .onEach { _refreshTick.value += 1 }
+            .retryWhen { _, attempt ->
+                kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                true
+            }
             .launchIn(viewModelScope)
     }
 
@@ -355,9 +368,20 @@ class TaskHubViewModel @Inject constructor(
     }
 
     private fun pollLoop() {
+        // 批v161.3 R2: survives across collectLatest restarts — each combine
+        // emission cancels the previous block and re-enters, and the board
+        // re-entry edge (entered) is only detectable if lastActive remembers
+        // the previous state. Declared OUTSIDE the collectLatest lambda.
+        var lastActive = false
         viewModelScope.launch {
             // Global device scope feeds the poll: switching the bar re-runs the
             // round immediately (collectLatest cancels any round in flight).
+            // Three signals drive a fetch round (批v161.3 R2):
+            // - tickNew: a bumped tick (pull-to-refresh, ledger write, device
+            //   change) — only fetches while the board is actually shown;
+            // - entered: the board re-entry edge — the old "fetch on tick only"
+            //   meant returning to the board waited out a full 25s beat;
+            // - the steady 25s foreground beat itself.
             combine(
                 _refreshTick,
                 _active,
@@ -366,23 +390,28 @@ class TaskHubViewModel @Inject constructor(
                 repository.tasksAll,
             ) { tick, active, fg, _, _ -> PollInputs(tick, active, fg) }
                 .collectLatest { input ->
-                    // Pull-to-refresh / device-set change: refetch now (any new tick
-                    // cancels this collector, superseding a round in flight)...
-                    if (input.tick > 0 && input.tick != lastSeenTick) {
-                        lastSeenTick = input.tick
-                        fetchAll()
-                    }
+                    // Arm the tick even when off the board: a ledger write that
+                    // lands while the board is hidden must NOT trigger a full
+                    // fetch, but it must not fire an extra round on re-entry
+                    // either — the entered fetch below already refreshes.
+                    val tickNew = input.tick > 0 && input.tick != lastSeenTick
+                    if (tickNew) lastSeenTick = input.tick
+                    val entered = input.active && !lastActive
+                    lastActive = input.active
                     when {
-                        // ...then ALWAYS resume the foreground poll (a one-shot
-                        // `tick>0 -> return` would kill the 25s loop forever, v139 H1).
+                        // Board shown and app foreground: refresh on the two
+                        // edges, then hold the 25s beat (a one-shot
+                        // `tick>0 -> return` would kill the loop forever, v139 H1).
                         input.active && input.fg -> {
-                            if (input.tick == 0) fetchAll()
+                            if (tickNew || entered) fetchAll()
                             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                                 delay(25_000)
                                 fetchAll()
                             }
                         }
-                        // Board hidden or app backgrounded: cold start does one fetch, no poll.
+                        // Cold start (board never opened): one fetch so the
+                        // first entry has data; later off-board ticks only arm
+                        // lastSeenTick above.
                         input.tick == 0 -> fetchAll()
                     }
                 }
@@ -545,10 +574,13 @@ class TaskHubViewModel @Inject constructor(
      * device that actually has tracked members, plus the live-connection table so
      * a card can tell "running" from "row exists, nothing attached".
      *
-     * Pruning is deliberately timid: `list_all_conversations` hides loop-kind
-     * rows, delegation child sessions and conversations under soft-deleted
-     * projects, so a single miss proves nothing. A member is dropped only after
-     * TWO consecutive COMPLETE rounds (no timeout, no error) failed to list it.
+     * Two pruning rules. Device-level (批v161.3 R2): a member whose OWNING
+     * device no longer exists is dropped unconditionally — no fetch can ever
+     * serve it. Conversation-level is deliberately timid:
+     * `list_all_conversations` hides loop-kind rows, delegation child sessions
+     * and conversations under soft-deleted projects, so a single miss proves
+     * nothing. A member is dropped only after TWO consecutive COMPLETE rounds
+     * (no timeout, no error) failed to list it.
      */
     private val conversationMissRounds = mutableMapOf<String, Int>()
 
@@ -557,6 +589,24 @@ class TaskHubViewModel @Inject constructor(
         if (tracked.isEmpty()) {
             _ui.update { it.copy(conversations = emptyList()) }
             return
+        }
+        // 批v161.3 R2: ledger entries for DELETED devices can never be served —
+        // no fetch will ever list them, they only sit in the JSON forever. Prune
+        // against the FULL profile id set (repository.profiles, every device
+        // that exists), NOT this round's scope-filtered `devices`: a hidden
+        // device (visible=false / excluded from 全部) legitimately owns members
+        // that this round's fetch simply never touches.
+        val allProfileIds = runCatching { repository.profiles.first().map { it.id }.toSet() }
+            .getOrNull()
+        if (allProfileIds != null) {
+            val dead = tracked.filter { it.serverId !in allProfileIds }.map { it.key }.toSet()
+            if (dead.isNotEmpty()) {
+                runCatching { boardTrack.prune(dead) }
+                // The miss counter rides the ledger keys: pruned keys must not
+                // keep stale counts (a re-added member would be pruned after
+                // one miss instead of two).
+                dead.forEach { conversationMissRounds.remove(it) }
+            }
         }
         val byServer = tracked.groupBy { it.serverId }
         coroutineScope {

@@ -321,13 +321,36 @@ fun GeneralContent(
                     ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
                 )
             }
+            // 批v161.3 R1: all three notify toggles share ONE launcher — the
+            // pending persist records WHICH switch asked, so the grant callback
+            // flips the right pref and a denial snaps every switch back off.
+            var pendingEnable by remember { mutableStateOf<(() -> Unit)?>(null) }
             val requestPermission = androidx.activity.compose.rememberLauncherForActivityResult(
                 androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
             ) { granted ->
                 permissionGranted = granted
                 // Deny stays un-persisted: the switch snaps back to off and the
                 // user can retry (or grant from the system settings).
-                if (granted) viewModel.setNotifyInteractiveEnabled(true)
+                if (granted) pendingEnable?.invoke()
+                pendingEnable = null
+            }
+            // The shared gate (批v161.3 R1): turning a switch ON with
+            // POST_NOTIFICATIONS ungranted (33+) first launches the request —
+            // only a grant persists, a denial leaves the pref untouched. Turning
+            // OFF always persists immediately.
+            fun gatedChange(on: Boolean, persist: (Boolean) -> Unit) {
+                if (!on) {
+                    persist(false)
+                    return
+                }
+                val needsRequest =
+                    android.os.Build.VERSION.SDK_INT >= 33 && !permissionGranted
+                if (needsRequest) {
+                    pendingEnable = { persist(true) }
+                    requestPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    persist(true)
+                }
             }
             val notifyOn = appSettings.notifyInteractiveEnabled
             ListItem(
@@ -337,14 +360,7 @@ fun GeneralContent(
                     Switch(
                         checked = notifyOn,
                         onCheckedChange = { on ->
-                            if (on) {
-                                val needsRequest =
-                                    android.os.Build.VERSION.SDK_INT >= 33 && !permissionGranted
-                                if (needsRequest) requestPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                                else viewModel.setNotifyInteractiveEnabled(true)
-                            } else {
-                                viewModel.setNotifyInteractiveEnabled(false)
-                            }
+                            gatedChange(on, viewModel::setNotifyInteractiveEnabled)
                         },
                         colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.onAccent),
                     )
@@ -355,26 +371,25 @@ fun GeneralContent(
                     supportingColor = colors.textTertiary,
                 ),
                 modifier = Modifier.clickable {
-                    if (!notifyOn) {
-                        val needsRequest = android.os.Build.VERSION.SDK_INT >= 33 && !permissionGranted
-                        if (needsRequest) requestPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        else viewModel.setNotifyInteractiveEnabled(true)
-                    } else viewModel.setNotifyInteractiveEnabled(false)
+                    gatedChange(!notifyOn, viewModel::setNotifyInteractiveEnabled)
                 },
             )
             // 系统级通知体系: per-channel switches — task-board outcomes (and
             // turn completions share the channel) + silent device-offline alerts.
+            // Same runtime-permission gate as the interactive switch (批v161.3
+            // R1): persisting first used to let these two bypass the 33+ prompt
+            // entirely — the notifications then never showed.
             ToggleRow(
                 title = stringResource(R.string.settings_notify_task_results),
                 subtitle = stringResource(R.string.settings_notify_task_results_subtitle),
                 checked = appSettings.notifyTaskResultsEnabled,
-                onChange = viewModel::setNotifyTaskResultsEnabled,
+                onChange = { on -> gatedChange(on, viewModel::setNotifyTaskResultsEnabled) },
             )
             ToggleRow(
                 title = stringResource(R.string.settings_notify_device_events),
                 subtitle = stringResource(R.string.settings_notify_device_events_subtitle),
                 checked = appSettings.notifyDeviceEventsEnabled,
-                onChange = viewModel::setNotifyDeviceEventsEnabled,
+                onChange = { on -> gatedChange(on, viewModel::setNotifyDeviceEventsEnabled) },
             )
             ToggleRow(
                 title = stringResource(R.string.notify_keepalive_title),
@@ -429,6 +444,27 @@ fun GeneralContent(
                 color = colors.textTertiary,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
             )
+            // Android 14+ gates full-screen (lock-screen floating) alerts behind
+            // a separate "Display over other apps" grant (批v161.3 R1) — without
+            // it the P0 alert silently degrades to a heads-up, so surface the
+            // missing permission right where the notification toggles live.
+            val canFullScreen = remember {
+                if (android.os.Build.VERSION.SDK_INT >= 34) {
+                    (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
+                        as? android.app.NotificationManager)
+                        ?.canUseFullScreenIntent() ?: false
+                } else {
+                    true
+                }
+            }
+            if (!canFullScreen) {
+                Text(
+                    stringResource(R.string.notify_fsi_hint),
+                    fontSize = 12.sp,
+                    color = colors.textTertiary,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                )
+            }
         }
         Section(stringResource(R.string.general_floating_ball_section)) {
             ToggleRow(

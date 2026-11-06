@@ -79,6 +79,7 @@
     <string name="notify_turn_title">Session finished</string>
     <string name="notify_device_offline">Device offline</string>
     <string name="notify_channels_hint">Sounds and style live in the system app notification settings</string>
+    <string name="notify_fsi_hint">Full-screen alerts need the \"Display over other apps\" permission in system settings</string>
     <string name="settings_notify_task_results">Task results</string>
     <string name="settings_notify_task_results_subtitle">Notify when a task finishes or fails</string>
     <string name="settings_notify_device_events">Device offline alerts</string>

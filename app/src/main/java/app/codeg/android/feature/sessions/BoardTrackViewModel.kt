@@ -13,11 +13,13 @@ import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.datastore.BoardTrackStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -39,19 +41,37 @@ class BoardTrackViewModel @Inject constructor(
         .map { members -> members.map { it.key }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    fun toggle(serverId: String, conversationId: Int, folderId: Int, onResult: (Boolean) -> Unit = {}) {
+    /**
+     * 批v161.3 R2: [onResult] carries WHAT happened, not just that it happened —
+     * [added] is this invocation's own direction (!onBoard), so the caller's
+     * toast cannot disagree with the write when the menu's key snapshot goes
+     * stale between render and tap. [ok] is the write outcome.
+     */
+    fun toggle(
+        serverId: String,
+        conversationId: Int,
+        folderId: Int,
+        onResult: (ok: Boolean, added: Boolean) -> Unit = { _, _ -> },
+    ) {
         val onBoard = key(serverId, conversationId) in trackedKeys.value
+        val added = !onBoard
         viewModelScope.launch {
-            // A DataStore failure must not crash a list that is only offering a
-            // convenience: the next poll simply keeps the old membership. The
-            // caller's toast waits for the write — 批v161.2, a failed write
-            // must not claim success.
-            runCatching {
-                if (onBoard) store.untrack(serverId, conversationId)
-                else store.track(serverId, conversationId, folderId)
+            // NonCancellable (批v161.3 R2): the write must finish and the
+            // callback must land even when the VM is destroyed mid-flight
+            // (leaving the screen right after the tap) — a cancelled write
+            // would leave the ledger ambiguous AND swallow the user's toast.
+            withContext(NonCancellable) {
+                // A DataStore failure must not crash a list that is only offering a
+                // convenience: the next poll simply keeps the old membership. The
+                // caller's toast waits for the write — 批v161.2, a failed write
+                // must not claim success.
+                runCatching {
+                    if (onBoard) store.untrack(serverId, conversationId)
+                    else store.track(serverId, conversationId, folderId)
+                }
+                    .onSuccess { onResult(true, added) }
+                    .onFailure { onResult(false, added) }
             }
-                .onSuccess { onResult(true) }
-                .onFailure { onResult(false) }
         }
     }
 
@@ -89,17 +109,18 @@ fun rememberBoardTrackMenu(): BoardTrackMenu {
     val context = LocalContext.current
     return remember(viewModel, keys, context) {
         BoardTrackMenu(keys) { serverId, conversationId, folderId ->
-            val onBoard = BoardTrackViewModel.key(serverId, conversationId) in keys
-            viewModel.toggle(serverId, conversationId, folderId) { ok ->
-                // 批v161.2: success/failure toast — the old code toasted before
-                // the write, so a failed DataStore write still claimed 「已加入」.
+            viewModel.toggle(serverId, conversationId, folderId) { ok, added ->
+                // 批v161.3 R2: the direction now comes from the WRITE itself
+                // (added), not from the menu's key snapshot at render time —
+                // a stale snapshot used to toast 「已移出」 on an add (and vice
+                // versa). Success/failure still rides ok (批v161.2).
                 Toast.makeText(
                     context,
                     context.getString(
                         when {
                             !ok -> R.string.board_conv_failed
-                            onBoard -> R.string.board_conv_remove
-                            else -> R.string.board_conv_added
+                            added -> R.string.board_conv_added
+                            else -> R.string.board_conv_remove
                         },
                     ),
                     Toast.LENGTH_SHORT,

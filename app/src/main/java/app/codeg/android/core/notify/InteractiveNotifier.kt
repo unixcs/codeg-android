@@ -63,8 +63,9 @@ object ForegroundBoard {
  * Pure projection of [InteractiveRequestWatcher.requests]: one notification PER
  * CONVERSATION (stable id → tap-cancel / auto-cancel / re-post all agree), the
  * body lists that conversation's pending requests. Suppressed — cancelled, not
- * just muted — while that conversation is the foreground detail; re-posted the
- * moment the user navigates away while it still waits. Disabled in settings →
+ * just muted — while that conversation is the foreground detail AND the app is
+ * foreground ([AppForeground], 批v161.3 R1); re-posted the moment the user
+ * navigates away (or leaves the app) while it still waits. Disabled in settings →
  * everything cancelled and the collector idles.
  *
  * Notification ids must be STABLE ACROSS PROCESSES (cancel-after-tap and
@@ -75,6 +76,7 @@ object ForegroundBoard {
 class InteractiveNotifier @Inject constructor(
     @ApplicationContext private val context: Context,
     private val watcher: InteractiveRequestWatcher,
+    private val appForeground: AppForeground,
     private val appSettingsStore: AppSettingsStore,
     @ApplicationScope appScope: CoroutineScope,
 ) {
@@ -83,15 +85,20 @@ class InteractiveNotifier @Inject constructor(
 
     init {
         appScope.launch {
+            // 批v161.3 R1: the app-foreground StateFlow joins the combine as a
+            // fourth source — all four are StateFlows (never idle waiting for a
+            // first emission), so a foreground/background flip re-renders the
+            // whole picture instead of waiting for the next request event.
             combine(
                 watcher.requests,
                 appSettingsStore.settings,
                 ForegroundConversation.ref,
-            ) { requests, settings, fg ->
+                appForeground.fg,
+            ) { requests, settings, fgConv, fgApp ->
                 // One bad render (e.g. a SecurityException from a just-revoked
                 // permission) must not kill the process-lifetime collector.
                 try {
-                    render(requests, settings.notifyInteractiveEnabled, fg)
+                    render(requests, settings.notifyInteractiveEnabled, fgConv, fgApp)
                 } catch (_: Exception) {
                 }
             }.collect()
@@ -145,6 +152,7 @@ class InteractiveNotifier @Inject constructor(
         requests: List<PendingInteraction>,
         enabled: Boolean,
         fg: SessionRef?,
+        appFg: Boolean,
     ) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (!enabled) {
@@ -160,7 +168,10 @@ class InteractiveNotifier @Inject constructor(
             val first = items.first()
             val id = notificationId(first.serverId, first.conversationId)
             // Viewing the conversation right now → the alert would be noise.
-            if (fg == SessionRef(first.serverId, first.conversationId)) {
+            // But only while the app itself is foreground (批v161.3 R1): behind
+            // the shade or another app the screen mirror is meaningless — the
+            // suppression must not eat the alert the user cannot see.
+            if (appFg && fg == SessionRef(first.serverId, first.conversationId)) {
                 if (groupKey in posted) {
                     nm.cancel(id)
                     posted.remove(groupKey)

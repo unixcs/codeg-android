@@ -79,6 +79,7 @@
     <string name="notify_turn_title">会话已结束</string>
     <string name="notify_device_offline">设备离线</string>
     <string name="notify_channels_hint">提醒声音与样式可在系统设置的应用通知里调整</string>
+    <string name="notify_fsi_hint">锁屏悬浮提醒需在系统设置中允许“显示在其他应用上层”</string>
     <string name="settings_notify_task_results">任务完成提醒</string>
     <string name="settings_notify_task_results_subtitle">任务跑完或失败时通知</string>
     <string name="settings_notify_device_events">设备离线提醒</string>

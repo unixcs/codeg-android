@@ -8,13 +8,14 @@ import app.codeg.android.core.crash.CrashReporter
 import app.codeg.android.core.crash.CrashStore
 import app.codeg.android.core.data.InteractiveRequestWatcher
 import app.codeg.android.core.datastore.AppSettingsStore
+import app.codeg.android.core.notify.AppForeground
 import app.codeg.android.core.notify.KeepAliveService
 import app.codeg.android.core.notify.InteractiveNotifier
+import app.codeg.android.core.notify.TaskResultNotifier
 import app.codeg.android.core.notify.TaskResultWatcher
 import app.codeg.android.di.ApplicationScope
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -33,9 +34,9 @@ import javax.inject.Inject
  * [CrashReporter.handleUncaught] is fully guarded.
  *
  * Publishes app foreground/background as a process-wide [StateFlow] (batch
- * v130) so polling loops (Activity feed) can pause while backgrounded
- * instead of waking the radio against every device for the app's whole
- * background life.
+ * v130; owned by [AppForeground] since 批v161.3 R1 so the notifiers share it)
+ * so polling loops (Activity feed) can pause while backgrounded instead of
+ * waking the radio against every device for the app's whole background life.
  */
 @HiltAndroidApp
 class CodegApplication : Application() {
@@ -45,6 +46,14 @@ class CodegApplication : Application() {
 
     @Inject
     lateinit var interactiveNotifier: InteractiveNotifier
+
+    // 批v161.3 R1: Hilt builds @Singleton classes lazily — the notifier is only
+    // reachable through its three collectors, and nothing else held a
+    // process-lifetime reference, so WITHOUT this injection the collectors
+    // never ran and all three notification classes (task results / turn
+    // completions / device outages) were silently dead.
+    @Inject
+    lateinit var taskResultNotifier: TaskResultNotifier
 
     // 系统级通知体系: both watchers run for the whole process now — the shell's
     // old foreground-only refcount meant the app went deaf the moment it was
@@ -56,6 +65,12 @@ class CodegApplication : Application() {
     @Inject
     lateinit var taskResultWatcher: TaskResultWatcher
 
+    // 批v161.3 R1: the foreground mirror moved into [AppForeground] so the
+    // notifiers can read it too; this alias keeps the polling ViewModels'
+    // `(appContext as CodegApplication).appForeground` reads working.
+    @Inject
+    lateinit var appForegroundRef: AppForeground
+
     @Inject
     lateinit var appSettingsStore: AppSettingsStore
 
@@ -63,15 +78,11 @@ class CodegApplication : Application() {
     @ApplicationScope
     lateinit var appScope: CoroutineScope
 
-    private val _appForeground = MutableStateFlow(true)
-    val appForeground: StateFlow<Boolean> = _appForeground
+    /** Process-wide foreground [StateFlow] — now owned by [AppForeground]. */
+    val appForeground: StateFlow<Boolean> get() = appForegroundRef.fg
 
     override fun onCreate() {
         super.onCreate()
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) { _appForeground.value = true }
-            override fun onStop(owner: LifecycleOwner) { _appForeground.value = false }
-        })
         val crashDir = File(cacheDir, CrashReporter.DIR_NAME)
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
