@@ -1481,6 +1481,16 @@
     <string name="board_conv_remove_body">只移出看板，不删除会话。</string>
     <string name="board_conv_set_status">改会话状态</string>
     <string name="task_action_edit">编辑</string>
+    <string name="task_action_save_template">存为模板</string>
+    <!-- Fleet M5 任务模板：新建任务 chips 行 + 长按删除确认。 -->
+    <string name="task_template_row_label">模板</string>
+    <string name="task_template_saved">已存为模板「%1$s」</string>
+    <string name="task_template_save_failed">存为模板失败</string>
+    <string name="task_template_deleted">模板已删除</string>
+    <string name="task_template_delete_failed">删除模板失败</string>
+    <string name="task_template_error_no_device">无法连接该设备</string>
+    <string name="task_template_delete_title">删除模板？</string>
+    <string name="task_template_delete_msg">删除「%1$s」？已用它创建的任务不受影响。</string>
     <string name="task_action_schedule">定时</string>
     <string name="task_detail_prompt">任务描述</string>
     <string name="task_cancel_reason_hint">原因（可选）</string>

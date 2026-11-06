@@ -491,8 +491,13 @@ fun TaskHubScreen(
                     onSelect = { segment -> pendingSegment = segment },
                 )
                 val onCardAction: (ConfirmAction) -> Unit = { action ->
-                    // 编辑 opens a sheet, not a confirm dialog.
-                    if (action is ConfirmAction.EDIT) editEntry = action.entry else confirm = action
+                    when (action) {
+                        // 编辑 opens a sheet; 存为模板 is a fire-and-forget save
+                        // with its own toast — neither is a confirm dialog.
+                        is ConfirmAction.EDIT -> editEntry = action.entry
+                        is ConfirmAction.SAVE_TEMPLATE -> viewModel.saveTaskTemplate(action.entry)
+                        else -> confirm = action
+                    }
                 }
                 if (boardLayout == TASK_BOARD_LIST) {
                     val segment = SEGMENT_ORDER[focusIndex.coerceIn(0, SEGMENT_ORDER.lastIndex)]
@@ -611,7 +616,12 @@ fun TaskHubScreen(
                 actionError = ui.actionError,
                 actionNote = ui.actionNote,
                 onAction = { action ->
-                    if (action is ConfirmAction.EDIT) editEntry = action.entry else confirm = action
+                    when (action) {
+                        // same intercepts as the card menu (编辑 sheet / 存模板 toast)
+                        is ConfirmAction.EDIT -> editEntry = action.entry
+                        is ConfirmAction.SAVE_TEMPLATE -> viewModel.saveTaskTemplate(action.entry)
+                        else -> confirm = action
+                    }
                 },
                 onOpenSession = onOpenSession,
                 onOpen = { viewModel.loadDetail(entry.serverId, entry.task.id) },
@@ -2515,6 +2525,12 @@ private fun TaskContextMenu(
                 },
             )
         }
+        // Fleet M5: 存为模板 — every non-archived row can seed a composer
+        // template (upsert by name; saving the same task again just refreshes it).
+        MenuAction(R.string.task_action_save_template) {
+            onDismiss()
+            onAction(ConfirmAction.SAVE_TEMPLATE(entry))
+        }
         when (task.status) {
             // R1A: queued split from todo — the server schedules/edits ONLY
             // todo rows (set_schedule/update CAS on Status::Todo), and a task
@@ -3318,6 +3334,10 @@ private sealed interface ConfirmAction {
 
     /** 批v155: 编辑任务 (todo/failed/canceled only) — opens the edit sheet. */
     data class EDIT(override val entry: TaskBoardEntry) : ConfirmAction
+
+    /** Fleet M5: 存为模板 (any non-archived row) — intercepted at the screen
+     *  like EDIT: fires the save + toast, never routes into ConfirmDialogs. */
+    data class SAVE_TEMPLATE(override val entry: TaskBoardEntry) : ConfirmAction
 }
 
 @Composable
@@ -3350,6 +3370,7 @@ private fun ConfirmDialogs(
             )
             is ConfirmAction.SCHEDULE -> ScheduleDialog(action, busy, onRun, onDismiss)
             is ConfirmAction.EDIT -> Unit // never routed here (screen intercepts into the sheet)
+            is ConfirmAction.SAVE_TEMPLATE -> Unit // never routed here (screen intercepts into a toast)
             else -> {
                 val (titleRes, msgRes, danger) = when (action) {
                     is ConfirmAction.MERGE -> Triple(R.string.task_confirm_merge_title, R.string.task_confirm_merge_msg, true)

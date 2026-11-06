@@ -28,6 +28,7 @@ import app.codeg.android.core.model.AutomationUpdateBody
 import app.codeg.android.core.model.WorkTaskChangedFile
 import app.codeg.android.core.model.WorkTaskEvent
 import app.codeg.android.core.model.WorkTaskInfo
+import app.codeg.android.core.model.WorkTaskTemplateInfo
 import app.codeg.android.core.model.WorkTaskWire
 import app.codeg.android.core.model.ConversationConnectionInfo
 import app.codeg.android.core.model.ForkResult
@@ -1009,6 +1010,27 @@ class CodegClient(
     /** Schedules a `todo` task; [scheduledAtIsoUtc] null clears the plan. */
     suspend fun workTaskSchedule(id: Int, scheduledAtIsoUtc: String?) {
         send("work_task_schedule", WorkTaskWire.scheduleBody(id, scheduledAtIsoUtc).toString())
+    }
+
+    // ── 任务模板 (fleet M5) ─────────────────────────────────────────────────
+    // list 是无参 handler，回 Vec<WorkTaskTemplateInfo>（plain snake_case
+    // Serialize → CodegJson.response 直解，按 name/id 升序）；save 按名字精确
+    // upsert（同名原地更新 title+config）；delete 对缺行静默成功。
+
+    suspend fun workTaskTemplateList(): List<WorkTaskTemplateInfo> =
+        decode(
+            send("work_task_template_list", encode(EmptyBody)),
+            ListSerializer(WorkTaskTemplateInfo.serializer()),
+        )
+
+    suspend fun workTaskTemplateSave(name: String, title: String, config: JsonObject): WorkTaskTemplateInfo =
+        decode(
+            send("work_task_template_save", WorkTaskWire.templateSaveBody(name, title, config).toString()),
+            WorkTaskTemplateInfo.serializer(),
+        )
+
+    suspend fun workTaskTemplateDelete(id: Int) {
+        send("work_task_template_delete", WorkTaskWire.idBody(id).toString())
     }
 
     suspend fun workTaskStart(id: Int) {

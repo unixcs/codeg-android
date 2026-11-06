@@ -1,15 +1,20 @@
 package app.codeg.android.feature.dispatch
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -74,10 +79,15 @@ import app.codeg.android.core.designsystem.component.PrimaryButton
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.FolderDetail
+import app.codeg.android.core.model.WorkTaskTemplateInfo
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -137,6 +147,23 @@ interface DispatchFormHost {
 
     /** Fire the pipeline; [onDone] delivers the ledger ref (PENDING included). */
     fun dispatch(submit: DispatchFormSubmit, onDone: (DispatchRef) -> Unit)
+
+    // ── Fleet M5 任务模板 (newTaskMode only) ────────────────────────────────
+    // Only host C (task board composer) renders the 模板 chip row; hosts A/B
+    // keep these defaults and never see it. Templates are PER-DEVICE — the form
+    // reloads them on every device change and prefill never touches network.
+
+    /** The device's templates (server returns them name-asc). */
+    val taskTemplates: StateFlow<List<WorkTaskTemplateInfo>>
+        get() = MutableStateFlow(emptyList())
+
+    /** Fetch templates for one device. Never throws: a failed/old-server load
+     *  degrades to an empty list (the row hides). */
+    fun loadTaskTemplates(serverId: String) {}
+
+    /** Chip long-press delete — the confirm dialog lives in the form, the
+     *  feedback toast in the host. */
+    fun deleteTaskTemplate(serverId: String, id: Int) {}
 }
 
 /** Form-level host state: dispatch progress, errors, and the branch list. */
@@ -197,7 +224,7 @@ data class DispatchFormSubmit(
  * dispatch check and the UNKNOWN triple gate live in the HOSTS (both re-check
  * against real state at send time).
  */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DispatchForm(
     host: DispatchFormHost,
@@ -324,6 +351,9 @@ fun DispatchForm(
     // Result of THIS composition's submit; suppresses the error line once the
     // screen-level dialog is up (same rule as the pre-rebuild sheet).
     var result by remember { mutableStateOf<DispatchRef?>(null) }
+    // Fleet M5: chip awaiting its delete confirmation (plain remember — the
+    // dialog dies with the sheet like every other transient here).
+    var templatePendingDelete by remember { mutableStateOf<WorkTaskTemplateInfo?>(null) }
 
     // 30s ticker (v146 invariant): "schedule in the past" goes stale as the wall
     // clock advances with no state change — the button must not stay enabled.
@@ -730,6 +760,91 @@ fun DispatchForm(
                     stringResource(R.string.dispatch_branch_failed),
                     color = colors.danger,
                     style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+
+        // Fleet M5 模板 chips (new-task composer only): tap prefills 标题/描述
+        // (+ agent when the snapshot's agent_type maps); long-press deletes after
+        // a confirm. Templates are PER-DEVICE — reloaded on every device change,
+        // and the row hides entirely while the device has none.
+        if (newTaskMode) {
+            val templates by host.taskTemplates.collectAsStateWithLifecycle()
+            LaunchedEffect(device) { device?.let { host.loadTaskTemplates(it) } }
+
+            // V1 prefill scope: full prompt text (prompt_blocks joined, falling
+            // back to display_text — same precedence as WorkTaskInfo.
+            // configPromptText) + the agent chip. mode_id/config_values are
+            // deliberately NOT restored — they keep "the agent's own defaults".
+            fun applyTaskTemplate(tpl: WorkTaskTemplateInfo) {
+                title = tpl.title
+                val cfg = tpl.config
+                val blocks = (cfg["prompt_blocks"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonObject)?.get("text") as? JsonPrimitive }
+                    ?.mapNotNull { it.contentOrNull }
+                    ?.joinToString("\n\n")
+                    .orEmpty()
+                val display = (cfg["display_text"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                (blocks.ifBlank { display }).takeIf { it.isNotBlank() }?.let { description = it }
+                (cfg["agent_type"] as? JsonPrimitive)?.contentOrNull?.let { wire ->
+                    AgentType.entries.firstOrNull { it.wire == wire }?.let { agent = it }
+                }
+            }
+
+            if (templates.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.task_template_row_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.textSecondary,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                ) {
+                    items(templates, key = { it.id }) { tpl ->
+                        Box(
+                            // house chip look (Pickers FilterChip): bg fill +
+                            // surfaceStroke border reads against the sheet's
+                            // bgElevated surface in both modes.
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(colors.bg)
+                                .border(1.dp, colors.surfaceStroke, RoundedCornerShape(999.dp))
+                                .combinedClickable(
+                                    onClick = { applyTaskTemplate(tpl) },
+                                    onLongClick = { templatePendingDelete = tpl },
+                                )
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Text(
+                                tpl.name,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+            templatePendingDelete?.let { tpl ->
+                AlertDialog(
+                    onDismissRequest = { templatePendingDelete = null },
+                    title = { Text(stringResource(R.string.task_template_delete_title)) },
+                    text = { Text(stringResource(R.string.task_template_delete_msg, tpl.name)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            templatePendingDelete = null
+                            device?.let { host.deleteTaskTemplate(it, tpl.id) }
+                        }) { Text(stringResource(R.string.common_delete)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { templatePendingDelete = null }) {
+                            Text(stringResource(R.string.common_cancel))
+                        }
+                    },
                 )
             }
         }

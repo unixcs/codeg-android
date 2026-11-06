@@ -1,5 +1,6 @@
 package app.codeg.android.core.model
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -214,6 +215,28 @@ data class WorkTaskChangedFile(
 }
 
 /**
+ * Fleet M5: one row of `work_task_template_list` — a named title+config snapshot
+ * the composer's 模板 chips prefill from (save/delete via [WorkTaskWire]).
+ *
+ * Server struct is a plain snake_case Serialize (`models/work_task.rs`), so this
+ * decodes through [app.codeg.android.core.network.CodegJson.response]:
+ * created_at/updated_at map to camelCase automatically and unknown keys are
+ * ignored. [config] is the task's raw config object verbatim (serde_json::Value
+ * on the server, always an object there — save validates it) — same shape as
+ * [WorkTaskInfo.rawConfig]; the form reads display_text / prompt_blocks /
+ * agent_type out of it and restores nothing else (V1: no mode_id/config_values).
+ */
+@Serializable
+data class WorkTaskTemplateInfo(
+    val id: Int,
+    val name: String,
+    val title: String,
+    val config: JsonObject = JsonObject(emptyMap()),
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+)
+
+/**
  * Requests. EVERY top-level `work_task_*` params struct on the server
  * (handlers/work_task.rs) carries `#[serde(rename_all = "camelCase")]` — the
  * wire for these bodies is camelCase, and an unknown key is SILENTLY dropped
@@ -300,6 +323,19 @@ object WorkTaskWire {
         buildJsonObject {
             put("id", id)
             scheduledAtIsoUtc?.let { put("scheduledAt", it) }
+        }
+
+    /** Fleet M5: TemplateSaveParams (handlers/work_task.rs) is a camelCase
+     *  struct whose only field is `draft`; the nested {name,title,config} keys
+     *  are all single-word so no rename rule can bite. Config rides verbatim —
+     *  the server stores it as an opaque Value and upserts by exact name. */
+    fun templateSaveBody(name: String, title: String, config: JsonObject): JsonObject =
+        buildJsonObject {
+            put("draft", buildJsonObject {
+                put("name", name)
+                put("title", title)
+                put("config", config)
+            })
         }
 }
 

@@ -1495,6 +1495,16 @@
     <string name="board_conv_remove_body">Only the board entry goes away — the session itself is untouched.</string>
     <string name="board_conv_set_status">Change session status</string>
     <string name="task_action_edit">Edit</string>
+    <string name="task_action_save_template">Save as template</string>
+    <!-- Fleet M5 任务模板: composer chip row + chip long-press delete. -->
+    <string name="task_template_row_label">Templates</string>
+    <string name="task_template_saved">Saved as template \"%1$s\"</string>
+    <string name="task_template_save_failed">Couldn\'t save the template</string>
+    <string name="task_template_deleted">Template deleted</string>
+    <string name="task_template_delete_failed">Couldn\'t delete the template</string>
+    <string name="task_template_error_no_device">Can\'t reach that device</string>
+    <string name="task_template_delete_title">Delete template?</string>
+    <string name="task_template_delete_msg">Delete \"%1$s\"? Tasks already created from it are not affected.</string>
     <string name="task_action_schedule">Schedule</string>
     <string name="task_detail_prompt">Task description</string>
     <string name="task_cancel_reason_hint">Reason (optional)</string>

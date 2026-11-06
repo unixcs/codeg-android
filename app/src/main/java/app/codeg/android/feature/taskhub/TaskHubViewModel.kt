@@ -1,9 +1,11 @@
 package app.codeg.android.feature.taskhub
 
 import android.content.Context
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.CodegApplication
+import app.codeg.android.R
 import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
 import app.codeg.android.core.data.DeviceLoad
 import app.codeg.android.core.data.DeviceLoadStatus
@@ -23,6 +25,7 @@ import app.codeg.android.core.model.WorkTaskChangedFile
 import app.codeg.android.core.model.WorkTaskEvent
 import app.codeg.android.core.model.ConversationStatus
 import app.codeg.android.core.model.WorkTaskInfo
+import app.codeg.android.core.model.WorkTaskTemplateInfo
 import app.codeg.android.core.network.ApiError
 import app.codeg.android.core.network.CodegClient
 import app.codeg.android.core.network.displayMessage
@@ -52,6 +55,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
 import java.time.Instant
 import javax.inject.Inject
 
@@ -70,7 +74,7 @@ import javax.inject.Inject
 @HiltViewModel
 class TaskHubViewModel @Inject constructor(
     private val repository: ServerRepository,
-    @ApplicationContext appContext: Context,
+    @ApplicationContext private val appContext: Context,
     // 批v155 宿主 C: the board's 新建任务 form rides the same dispatch pipeline
     // (ledger double-create guard) as the inbox and the ball.
     private val dispatchService: app.codeg.android.core.data.DispatchService,
@@ -970,6 +974,80 @@ class TaskHubViewModel @Inject constructor(
     fun clearFormError() {
         if (!_formUi.value.dispatching) {
             _formUi.value = _formUi.value.copy(error = null)
+        }
+    }
+
+    // ── Fleet M5 任务模板 ───────────────────────────────────────────────────
+    // The composer's chip-row source (per-device). A failed/old-server load
+    // degrades to empty and the form hides the row — same degradation contract
+    // as modelProviderEntries. Seq guard like formTargetSeq: a slow reply for a
+    // switched-away device must not overwrite a newer one.
+
+    private val _taskTemplates = MutableStateFlow<List<WorkTaskTemplateInfo>>(emptyList())
+    override val taskTemplates: StateFlow<List<WorkTaskTemplateInfo>> = _taskTemplates.asStateFlow()
+
+    private var templatesSeq = 0
+
+    override fun loadTaskTemplates(serverId: String) {
+        val seq = ++templatesSeq
+        viewModelScope.launch {
+            val list = runCatching {
+                deviceById(serverId)?.let { repository.client(it)?.workTaskTemplateList() }
+            }.getOrElse { e ->
+                if (e is CancellationException) throw e
+                android.util.Log.w("TaskHubViewModel", "work_task_template_list failed: ${e.message}")
+                null
+            }
+            if (seq == templatesSeq) _taskTemplates.value = list.orEmpty()
+        }
+    }
+
+    override fun deleteTaskTemplate(serverId: String, id: Int) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val client = deviceById(serverId)?.let { repository.client(it) }
+                    ?: error(appContext.getString(R.string.task_template_error_no_device))
+                client.workTaskTemplateDelete(id)
+            }
+            val toast = result.fold(
+                { appContext.getString(R.string.task_template_deleted) },
+                { e ->
+                    if (e is CancellationException) throw e
+                    (e as? ApiError)?.displayMessage() ?: e.message
+                        ?: appContext.getString(R.string.task_template_delete_failed)
+                },
+            )
+            Toast.makeText(appContext, toast, Toast.LENGTH_SHORT).show()
+            loadTaskTemplates(serverId)
+        }
+    }
+
+    /** 任务卡长按「存为模板」: the title+config snapshot upserts by name onto the
+     *  task's OWN device (server trims + validates; same name refreshes in
+     *  place). Toast feedback; the composer's chips reload on next form open. */
+    fun saveTaskTemplate(entry: TaskBoardEntry) {
+        val task = entry.task
+        val name = task.title.trim()
+        if (name.isEmpty()) return
+        viewModelScope.launch {
+            val result = runCatching {
+                val client = deviceById(entry.serverId)?.let { repository.client(it) }
+                    ?: error(appContext.getString(R.string.task_template_error_no_device))
+                client.workTaskTemplateSave(
+                    name = name,
+                    title = name,
+                    config = task.rawConfig ?: JsonObject(emptyMap()),
+                )
+            }
+            val toast = result.fold(
+                { saved -> appContext.getString(R.string.task_template_saved, saved.name) },
+                { e ->
+                    if (e is CancellationException) throw e
+                    (e as? ApiError)?.displayMessage() ?: e.message
+                        ?: appContext.getString(R.string.task_template_save_failed)
+                },
+            )
+            Toast.makeText(appContext, toast, Toast.LENGTH_SHORT).show()
         }
     }
 
