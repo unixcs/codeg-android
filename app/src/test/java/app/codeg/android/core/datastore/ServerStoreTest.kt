@@ -73,12 +73,13 @@ class ServerStoreTest {
     private fun profile(id: String) =
         ServerProfile(id = id, name = id.uppercase(), baseUrl = "https://$id.test")
 
-    /** Skips emissions the predicate rejects. 45s, not 5s: this spans REAL
+    /** Skips emissions the predicate rejects. 90s, not 5s: this spans REAL
      *  DataStore file I/O on Dispatchers.IO under a loaded CI runner (the v146
-     *  20s budget was still hit twice in one Release run); a genuine regression
-     *  still fails, just later. */
+     *  20s budget was still hit twice in one Release run; rc.6 Verify ate a
+     *  5-red streak with reruns no longer rescuing, so 45s → 90s — a genuine
+     *  regression still fails, just later). */
     private suspend fun <T> Channel<T>.awaitMatching(predicate: (T) -> Boolean): T =
-        withTimeout(45_000) {
+        withTimeout(90_000) {
             while (true) {
                 val value = receive()
                 if (predicate(value)) return@withTimeout value

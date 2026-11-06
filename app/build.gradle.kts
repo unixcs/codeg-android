@@ -38,8 +38,8 @@ android {
         applicationId = "app.codeg.android.fengx"
         minSdk = 31
         targetSdk = 36
-        versionCode = 59
-        versionName = "1.0.1-fengx.52-rc.5"
+        versionCode = 60
+        versionName = "1.0.1-fengx.52-rc.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -106,14 +106,16 @@ android {
 
     testOptions {
         unitTests.all {
-            //批v163: the DataStore real-I/O tests (ServerStoreTest / SessionProject*)
+            // 批v163: the DataStore real-I/O tests (ServerStoreTest / SessionProject*)
             // were flaking on CI with rotating victims — after ~600 tests in ONE JVM
             // the shared Dispatchers.IO pool is polluted by leaked coroutines from
             // earlier tests and any withTimeout budget gets knife-edge. Restart the
-            // test JVM every 100 tests: fresh IO pool each segment, no parallel-fork
+            // test JVM every 50 tests: fresh IO pool each segment, no parallel-fork
             // contention (maxParallelForks stays 1). rc.2 Verify hit this 4 runs in
-            // a row; rerun-failed-jobs stopped rescuing it.
-            it.setForkEvery(100)
+            // a row at forkEvery=100; rc.6 flared again (5-red streak, reruns no
+            // longer rescuing) so the segment shrinks further. The extra forks cost
+            // ~30s of JVM startup per test task — cheap vs a red Verify.
+            it.setForkEvery(50)
             it.maxParallelForks = 1
         }
     }
