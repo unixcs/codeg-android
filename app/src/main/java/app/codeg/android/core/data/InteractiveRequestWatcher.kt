@@ -246,6 +246,9 @@ class InteractiveRequestWatcher @Inject constructor(
         }
         val stream = repository.eventStream(profile) ?: return null
         val runtime = ProfileRuntime(stream)
+        // 批v161.3 R5: how long the collector lived decides whether its death
+        // earns an instant rebuild (see the trySend gate below).
+        val startedAt = android.os.SystemClock.elapsedRealtime()
         runtime.job = scope.launch {
             try {
                 stream.frames().collect { frame -> handleFrame(profile, runtime, frame) }
@@ -260,7 +263,16 @@ class InteractiveRequestWatcher @Inject constructor(
             // closed) — wake the poll loop NOW instead of staying deaf until the
             // next 30s beat. Harmless on the retire/restart path (a spurious
             // early round is idempotent).
-            rebuildSignal.trySend(Unit)
+            // 批v161.3 R5: EXCEPT a collector that died almost immediately. A
+            // fast-failing connect (refused / DNS / airplane mode) fails in
+            // milliseconds; waking the loop per death would turn the poll into
+            // an unthrottled retry storm for a hard-down device — that device
+            // belongs on the 30s cadence, which the next beat already gives
+            // it. Only a collector that ran a while and THEN died (a real
+            // mid-stream drop) signals the instant rebuild.
+            if (android.os.SystemClock.elapsedRealtime() - startedAt >= REBUILD_MIN_LIFETIME_MS) {
+                rebuildSignal.trySend(Unit)
+            }
         }
         runtimes[profile.id] = runtime
         return runtime
@@ -411,5 +423,10 @@ class InteractiveRequestWatcher @Inject constructor(
         /** Watch cadence: the snapshot-on-attach carries the pending state, so the
          *  poll only needs to catch NEW connections — 30s is plenty (and light). */
         const val POLL_INTERVAL_MS = 30_000L
+
+        /** 批v161.3 R5: a runtime must live at least this long for its death to
+         *  earn the instant rebuild signal — shorter lives are fast-failing
+         *  connects and stay on the regular 30s beat. */
+        const val REBUILD_MIN_LIFETIME_MS = 5_000L
     }
 }

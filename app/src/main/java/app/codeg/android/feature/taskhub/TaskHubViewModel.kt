@@ -607,7 +607,10 @@ class TaskHubViewModel @Inject constructor(
     private val conversationMissRounds = mutableMapOf<String, Int>()
 
     private suspend fun fetchTrackedConversations(devices: List<ServerProfile>, gen: Int) {
-        val tracked = runCatching { boardTrack.trackedNow() }.getOrDefault(emptyList())
+        // 批v161.3 R5: a DataStore read failure is NOT "no members" — wiping
+        // the slice here would blink every conversation card off the board for
+        // a round. Skip this round untouched; the next one retries.
+        val tracked = runCatching { boardTrack.trackedNow() }.getOrNull() ?: return
         if (tracked.isEmpty()) {
             _ui.update { it.copy(conversations = emptyList()) }
             return

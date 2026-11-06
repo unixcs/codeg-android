@@ -240,8 +240,11 @@ fun TaskHubScreen(
     val actedLanded by viewModel.actedLandedSegment.collectAsStateWithLifecycle()
     LaunchedEffect(actedLanded) {
         val landed = actedLanded ?: return@LaunchedEffect
-        pendingSegment = landed
         viewModel.consumeActedLandedSegment()
+        // 批v161.3 R5: on the automation pane the user opted out of watching
+        // the board — same rule the swipe handler applies. A 45s-old action
+        // completing must not yank them back to the kanban.
+        if (!automationMode) pendingSegment = landed
     }
     // 批v160 W5: the 「切任务状态」 horizontal swipe — a page step in kanban
     // mode, a selected-status step in list mode (both clamp at the ends).

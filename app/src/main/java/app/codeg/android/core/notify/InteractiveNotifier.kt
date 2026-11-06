@@ -108,12 +108,16 @@ class InteractiveNotifier @Inject constructor(
     /** Idempotent; called from [app.codeg.android.CodegApplication.onCreate]. */
     fun ensureChannels() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // 批v161.3 R5: one wrapped context for BOTH names and descriptions —
+        // descriptions were still on the raw context, so with app language ≠
+        // system language a channel shipped a mixed-language pair.
+        val localized = LocaleManager.wrapReadOnly(context)
         val interactive = NotificationChannel(
             CHANNEL_INTERACTIVE,
-            LocaleManager.wrapReadOnly(context).getString(R.string.notif_channel_interactive),
+            localized.getString(R.string.notif_channel_interactive),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = context.getString(R.string.notif_channel_interactive_desc)
+            description = localized.getString(R.string.notif_channel_interactive_desc)
             // 系统级通知体系: the P0 alert should break through physically too.
             // (No setSound — null keeps the channel's system default, the style
             // the two original channels shipped with.)
@@ -121,27 +125,27 @@ class InteractiveNotifier @Inject constructor(
         }
         val taskResults = NotificationChannel(
             CHANNEL_TASK_RESULTS,
-            LocaleManager.wrapReadOnly(context).getString(R.string.notif_channel_task_results),
+            localized.getString(R.string.notif_channel_task_results),
             // Second-tier semantics: the shade + sound, never heads-up.
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = context.getString(R.string.notif_channel_task_results_desc)
+            description = localized.getString(R.string.notif_channel_task_results_desc)
             enableVibration(true)
         }
         val deviceEvents = NotificationChannel(
             CHANNEL_DEVICE_EVENTS,
-            LocaleManager.wrapReadOnly(context).getString(R.string.notif_channel_device_events),
+            localized.getString(R.string.notif_channel_device_events),
             // Silent log semantics — the alert exists in the shade for later.
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = context.getString(R.string.notif_channel_device_events_desc)
+            description = localized.getString(R.string.notif_channel_device_events_desc)
         }
         val keepAlive = NotificationChannel(
             CHANNEL_KEEPALIVE,
-            LocaleManager.wrapReadOnly(context).getString(R.string.notif_channel_keepalive),
+            localized.getString(R.string.notif_channel_keepalive),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = context.getString(R.string.notif_channel_keepalive_desc)
+            description = localized.getString(R.string.notif_channel_keepalive_desc)
         }
         runCatching {
             nm.createNotificationChannels(listOf(interactive, taskResults, deviceEvents, keepAlive))
