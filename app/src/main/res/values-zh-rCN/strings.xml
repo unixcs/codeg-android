@@ -1244,6 +1244,7 @@
     <string name="task_search_hint">搜索任务</string>
     <string name="task_filter_show_canceled">显示已取消</string>
     <string name="task_filter_show_archived">显示已归档</string>
+    <string name="task_filter_cd">筛选</string>
     <string name="task_banner_failed">%1$s 加载失败</string>
     <string name="task_retry_failed">重试失败设备</string>
     <string name="task_archived_hidden">已隐藏 %1$d 条归档任务</string>

@@ -1258,6 +1258,7 @@
     <string name="task_search_hint">Search tasks</string>
     <string name="task_filter_show_canceled">Show canceled</string>
     <string name="task_filter_show_archived">Show archived</string>
+    <string name="task_filter_cd">Filters</string>
     <string name="task_banner_failed">%1$s failed to load</string>
     <string name="task_retry_failed">Retry failed devices</string>
     <string name="task_archived_hidden">%1$d archived tasks hidden</string>

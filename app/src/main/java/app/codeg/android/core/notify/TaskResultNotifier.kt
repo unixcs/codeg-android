@@ -140,7 +140,7 @@ class TaskResultNotifier @Inject constructor(
         // foreground (批v161.3 R1): the board mirror is stale the moment the
         // user leaves the app, and background alerts are the point.
         if (appForeground.fg.value && ForegroundBoard.onBoard.value) return
-        val ctx = LocaleManager.wrap(context)
+        val ctx = LocaleManager.wrapReadOnly(context)
         val id = taskNotificationId(transition.serverId, transition.taskId)
         val text = ctx.getString(
             if (transition.to == "done") R.string.notify_task_done else R.string.notify_task_failed,
@@ -169,7 +169,7 @@ class TaskResultNotifier @Inject constructor(
         if (appForeground.fg.value &&
             ForegroundConversation.ref.value == SessionRef(event.serverId, event.conversationId)
         ) return
-        val ctx = LocaleManager.wrap(context)
+        val ctx = LocaleManager.wrapReadOnly(context)
         val id = turnNotificationId(event.serverId, event.conversationId)
         val title = event.conversationTitle?.takeIf { it.isNotBlank() }
             ?: ctx.getString(R.string.notify_turn_title)
@@ -191,7 +191,7 @@ class TaskResultNotifier @Inject constructor(
 
     private fun onDeviceDown(event: DeviceDownEvent) = synchronized(lock) {
         if (!settings.notifyDeviceEventsEnabled) return
-        val ctx = LocaleManager.wrap(context)
+        val ctx = LocaleManager.wrapReadOnly(context)
         val id = deviceNotificationId(event.serverId)
         val notification = NotificationCompat.Builder(ctx, InteractiveNotifier.CHANNEL_DEVICE_EVENTS)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -234,12 +234,14 @@ class TaskResultNotifier @Inject constructor(
         )
 
     /** Same deep-link shape the interactive alert uses (device id rides along —
-     *  conversation ids are server-local); request codes stay disjoint so the
-     *  two notifiers never mutate each other's PendingIntents. */
+     *  conversation ids are server-local). 批v161.3 R3: the request code is now
+     *  derived PER (serverId, conversationId) — the shared constant +
+     *  FLAG_UPDATE_CURRENT let one conversation's PendingIntent overwrite
+     *  another's, so tapping conversation A's alert could deep-link into B. */
     private fun conversationContentIntent(ctx: Context, serverId: String, conversationId: Int): PendingIntent =
         PendingIntent.getActivity(
             ctx,
-            REQUEST_CODE_TURN,
+            turnRequestCode(serverId, conversationId),
             Intent(
                 Intent.ACTION_VIEW,
                 Uri.parse("codeg://conversation/$conversationId?serverId=${Uri.encode(serverId)}"),
@@ -252,12 +254,25 @@ class TaskResultNotifier @Inject constructor(
     companion object {
         private const val TAG = "TaskResultNotifier"
 
-        // Large fixed offsets: the interactive notifier uses raw conversationId
+        // Large fixed offset: the interactive notifier uses raw conversationId
         // as its request code, and small ids (101/102 are real early-session
         // ids) would let these two PendingIntents overwrite each other under
         // FLAG_UPDATE_CURRENT — tapping one alert could deep-link elsewhere.
         private const val REQUEST_CODE_BOARD = 1_000_101
-        private const val REQUEST_CODE_TURN = 1_000_102
+
+        /** 批v161.3 R3: base band for the per-conversation deep-link codes —
+         *  [turnRequestCode] parks every code between 1e9 and 1e9 + 2^30, well
+         *  clear of the interactive notifier's raw-conversationId codes and the
+         *  board's fixed REQUEST_CODE_BOARD above. */
+        private const val REQUEST_CODE_TURN_BASE = 1_000_000_000
+
+        /** 批v161.3 R3: one code per (serverId, conversationId) — conversation
+         *  ids are server-local, so the device id must join the hash. The
+         *  30-bit mask keeps the sum inside the positive base band (a raw Int
+         *  hash could go negative); residual in-band collisions are the same
+         *  accepted hash risk as the notification-id formulas. */
+        fun turnRequestCode(serverId: String, conversationId: Int): Int =
+            REQUEST_CODE_TURN_BASE + ((31 * serverId.hashCode() + conversationId) and 0x3FFFFFFF)
 
         /** Outstanding-post ledger cap (批v161.3 R2). */
         private const val POSTED_CAP = 128

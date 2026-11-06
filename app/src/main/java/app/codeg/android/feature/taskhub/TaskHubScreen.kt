@@ -278,6 +278,10 @@ fun TaskHubScreen(
     LaunchedEffect(pendingSegment, boardLayout, kanbanColumns) {
         val segment = pendingSegment ?: return@LaunchedEffect
         pendingSegment = null
+        // 批v161.3 R3: a stat-card jump used to land while the automation pane
+        // was up — it scrolled the HIDDEN kanban behind the pane and looked like
+        // a dead tap. The jump must actually show: leave automation mode first.
+        automationMode = false
         val index = SEGMENT_ORDER.indexOf(segment).coerceAtLeast(0)
         focusIndex = index
         if (boardLayout != TASK_BOARD_LIST) {
@@ -287,6 +291,10 @@ fun TaskHubScreen(
     LaunchedEffect(pendingStep, boardLayout, kanbanColumns) {
         val step = pendingStep ?: return@LaunchedEffect
         pendingStep = null
+        // 批v161.3 R3: on the automation pane a swipe used to silently page the
+        // HIDDEN kanban behind it — drop the step there (the gesture has no
+        // meaning for the pane it actually drove).
+        if (automationMode) return@LaunchedEffect
         // A single page (tablet, or 4 columns resolving to one page) has nowhere
         // to page to — step the highlight instead of swallowing the gesture.
         if (boardLayout == TASK_BOARD_LIST || pageCount <= 1) {
@@ -428,7 +436,9 @@ fun TaskHubScreen(
                         singleLine = true,
                         trailingIcon = {
                             IconButton(onClick = { viewModel.setSearchQuery(""); searchOpen = false }) {
-                                Icon(Icons.Rounded.Close, contentDescription = null)
+                                // 批v161.3 R3: same string the search screen's clear
+                                // icon uses (SearchScreen) — one action, one label.
+                                Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.search_clear))
                             }
                         },
                         modifier = Modifier
@@ -811,7 +821,11 @@ private fun ToolbarRow(
         IconButton(onClick = onToggleSearch, modifier = Modifier.size(40.dp)) {
             Icon(
                 if (searchOpen) Icons.Rounded.Close else Icons.Rounded.Search,
-                contentDescription = null,
+                // 批v161.3 R3: the toggle must say what it does NOW (close the
+                // open search, or start one) — a bare icon told TalkBack nothing.
+                contentDescription = stringResource(
+                    if (searchOpen) R.string.common_close else R.string.workbench_quick_search,
+                ),
                 tint = if (searchOpen) colors.accent else colors.textSecondary,
             )
         }
@@ -819,7 +833,7 @@ private fun ToolbarRow(
             IconButton(onClick = { filterMenu = true }, modifier = Modifier.size(40.dp)) {
                 Icon(
                     Icons.Rounded.FilterList,
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.task_filter_cd),
                     // Accent only when the user drifted from the default view
                 // (canceled shown, archived hidden) — a "filters active" hint.
                 tint = if (!showCanceled || showArchived) colors.accent else colors.textSecondary,

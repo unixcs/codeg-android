@@ -11,7 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -128,12 +130,26 @@ class InteractiveRequestWatcher @Inject constructor(
     private var pollJob: Job? = null
     private val refCount = AtomicInteger(0)
 
-    /** Idempotent: N holders (shell + keep-alive service) share one running watcher. */
+    /** 批v161.3 R4: a dead stream collector (socket drop / frames channel
+     *  closed) used to leave the runtime blind until the NEXT 30s poll rebuilt
+     *  it — a deafness window as long as the whole interval. The collector now
+     *  signals here on its way out and the poll loop wakes early to rebuild.
+     *  CONFLATED: bursts collapse into one immediate round, and a signal with
+     *  no waiting consumer just sits there for the next beat. */
+    private val rebuildSignal = Channel<Unit>(Channel.CONFLATED)
+
+    /** Idempotent: N holders (shell + keep-alive service) share one running
+     *  watcher. The @Synchronized closes the check-then-act race (批v161.3 R4,
+     *  same as TaskResultWatcher): two start()s (or a start/stop pair)
+     *  interleaving on the refcount could launch two loops or drop the only
+     *  reference while a loop was mid-launch. */
+    @Synchronized
     fun start() {
         if (refCount.incrementAndGet() > 1) return
         pollJob = scope.launch { pollLoop() }
     }
 
+    @Synchronized
     fun stop() {
         val n = refCount.decrementAndGet()
         if (n > 0) return
@@ -158,7 +174,13 @@ class InteractiveRequestWatcher @Inject constructor(
             } catch (_: Exception) {
                 // One bad round (DataStore read, transport) must not kill the loop.
             }
-            delay(POLL_INTERVAL_MS)
+            // 批v161.3 R4: sleep until the next beat OR an early rebuild signal,
+            // whichever comes first. The timeout IS the normal heartbeat —
+            // withTimeoutOrNull cancels the receive to deliver it, and that
+            // cancellation must be swallowed (never rethrown) or the loop would
+            // die on its own cadence; only the watcher's outer cancel (stop())
+            // may propagate, which it does from the surrounding suspend calls.
+            withTimeoutOrNull(POLL_INTERVAL_MS) { rebuildSignal.receive() }
         }
     }
 
@@ -168,30 +190,50 @@ class InteractiveRequestWatcher @Inject constructor(
         // A deleted (or hidden) device must not keep feeding its registrations.
         runtimes.keys.filter { it !in liveIds }.forEach(::retireProfile)
 
-        for (profile in profiles) {
-            val rows = runCatching {
-                repository.client(profile)?.petSessions()
-            }.getOrNull()
-            // Null = transport failure or old server: keep the current attach set
-            // (and registrations) untouched — a flaky poll must not blink the list.
-            if (rows == null) continue
+        // 批v161.3 R4: the per-device sweeps run CONCURRENTLY (same
+        // coroutineScope+launch shape as TaskResultWatcher.pollOnce) — the
+        // serial for-loop let the slowest device stretch the round toward the
+        // 30s transport ceiling before any new connection got attached. Each
+        // worker owns one device's runtime (runtimes is keyed by profile id and
+        // the frame collectors already ran concurrently with this work), so the
+        // fan-out adds no new shared state.
+        coroutineScope {
+            profiles.forEach { profile ->
+                launch {
+                    // try/catch, not runCatching (批v161.3 R4): runCatching
+                    // swallows the coroutine's CancellationException and turned
+                    // a watcher stop into a silently skipped device. A plain
+                    // failure still degrades to null.
+                    val rows = try {
+                        repository.client(profile)?.petSessions()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                    // Null = transport failure or old server: keep the current
+                    // attach set (and registrations) untouched — a flaky poll
+                    // must not blink the list.
+                    if (rows == null) return@launch
 
-            val runtime = runtimeFor(profile) ?: continue // no token → skip
-            val desired = rows.associate { it.connectionId to it.conversationId }
-            // 系统级通知体系: remember what each connection is called while the
-            // poll is in hand — turn-complete notifications reuse these titles.
-            rows.forEach { row -> runtime.titles[row.connectionId] = row.title }
-            val current = runtime.connections.keys.toSet()
-            (desired.keys - current).forEach { conn ->
-                runtime.stream.attach(subscriptionId(profile.id, conn), conn)
+                    val runtime = runtimeFor(profile) ?: return@launch // no token → skip
+                    val desired = rows.associate { it.connectionId to it.conversationId }
+                    // 系统级通知体系: remember what each connection is called while the
+                    // poll is in hand — turn-complete notifications reuse these titles.
+                    rows.forEach { row -> runtime.titles[row.connectionId] = row.title }
+                    val current = runtime.connections.keys.toSet()
+                    (desired.keys - current).forEach { conn ->
+                        runtime.stream.attach(subscriptionId(profile.id, conn), conn)
+                    }
+                    (current - desired.keys).forEach { conn ->
+                        runtime.stream.detach(subscriptionId(profile.id, conn))
+                        removeConnection(profile.id, conn)
+                        runtime.connections.remove(conn)
+                        runtime.titles.remove(conn)
+                    }
+                    runtime.connections.putAll(desired)
+                }
             }
-            (current - desired.keys).forEach { conn ->
-                runtime.stream.detach(subscriptionId(profile.id, conn))
-                removeConnection(profile.id, conn)
-                runtime.connections.remove(conn)
-                runtime.titles.remove(conn)
-            }
-            runtime.connections.putAll(desired)
         }
     }
 
@@ -214,6 +256,11 @@ class InteractiveRequestWatcher @Inject constructor(
             }
             // A dead collector must not pin the runtime: the next poll rebuilds it.
             runtimes.remove(profile.id, runtime)
+            // 批v161.3 R4: the collector just died (socket drop / frames channel
+            // closed) — wake the poll loop NOW instead of staying deaf until the
+            // next 30s beat. Harmless on the retire/restart path (a spurious
+            // early round is idempotent).
+            rebuildSignal.trySend(Unit)
         }
         runtimes[profile.id] = runtime
         return runtime

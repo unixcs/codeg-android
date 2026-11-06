@@ -163,6 +163,12 @@ class TaskHubViewModel @Inject constructor(
      * pull-to-refresh via [refreshFolders]. */
     private var foldersLoadedFor = setOf<String>()
 
+    /** 批v161.3 R4: insertion order of the detail cache keys (serverId to
+     *  taskId), oldest first — UiState.details is an immutable map with no
+     *  order of its own, so this deque is the eviction ledger for [DETAIL_CAP].
+     *  Only viewModelScope coroutines (main dispatcher) touch it. */
+    private val detailOrder = ArrayDeque<Pair<String, Int>>()
+
     /**
      * Board projection: global device scope + folder/search/filters → segments.
      * Counts ignore the search query so the segment bar stays a stable map of
@@ -439,13 +445,24 @@ class TaskHubViewModel @Inject constructor(
         val profiles = repository.profiles.first()
         val devices = profiles.filter { it.id in scopeIds(profiles, repository.tasksAll.value, repository.selectedId.first()) }
         if (devices.isEmpty()) {
-            _ui.update { it.copy(deviceStates = emptyList(), tasks = emptyList(), lastRefreshed = Instant.now(), hasLoaded = true) }
+            // 批v161.3 R3: an empty scope wipes the conversation slice too — the
+            // same out-of-scope rule the filtered update below applies.
+            _ui.update {
+                it.copy(
+                    deviceStates = emptyList(), tasks = emptyList(),
+                    conversations = emptyList(), lastRefreshed = Instant.now(), hasLoaded = true,
+                )
+            }
             return
         }
         generation += 1
         val gen = generation
+        val ids = devices.map { it.id }.toSet()
+        // 批v161.3 R4: drop devices that left the scope from the once-per-device
+        // folder-load ledger — a re-added device must reload its folders (its
+        // project list may have changed while it was gone).
+        foldersLoadedFor = foldersLoadedFor.intersect(ids)
         _ui.update { state ->
-            val ids = devices.map { it.id }.toSet()
             state.copy(
                 deviceStates = state.deviceStates.participating(ids).let { kept ->
                     devices.map { d ->
@@ -457,10 +474,15 @@ class TaskHubViewModel @Inject constructor(
                 // (rows, and the detail cache that back-expansion would serve).
                 tasks = state.tasks.filter { it.serverId in ids },
                 details = state.details.filterKeys { it in ids },
+                // 批v161.3 R3: same out-of-scope sweep for the conversation cards —
+                // a device removed from the aggregate (or deleted) used to keep
+                // its slice in state forever (the projection merely hid it, and
+                // re-adding the device resurrected the stale cards).
+                conversations = state.conversations.filter { it.serverId in ids },
             )
         }
         loadFolderNames(devices)
-        fetchDevices(devices.map { it.id }.toSet(), devices, gen)
+        fetchDevices(ids, devices, gen)
         fetchTrackedConversations(devices, gen)
         if (gen == generation) _ui.update { it.copy(lastRefreshed = Instant.now(), hasLoaded = true) }
     }
@@ -620,7 +642,12 @@ class TaskHubViewModel @Inject constructor(
                         } ?: throw java.util.concurrent.TimeoutException("device timeout")
                     }
                     if (gen != generation) return@launch
-                    val liveIds = runCatching { client.liveConversationIds() }.getOrNull()
+                    // 批v161.3 R4: same per-device ceiling as the list call — the
+                    // live probe rode the raw client with no timeout, so one hung
+                    // device held its slice's update (and the round) hostage.
+                    val liveIds = runCatching {
+                        withTimeoutOrNull(AGG_DEVICE_TIMEOUT_MS) { client.liveConversationIds() }
+                    }.getOrNull()
                     result.onSuccess { convs ->
                         val byId = convs.associateBy { it.id }
                         val present = mutableSetOf<String>()
@@ -666,6 +693,18 @@ class TaskHubViewModel @Inject constructor(
                 }
             }
         }
+        // 批v161.3 R3: a device whose LAST ledger member left (untrack, the
+        // two-miss prune, a pruned dead device) gets no fetch above (`mine` is
+        // null) and used to keep its old cards on the board forever. Mirror the
+        // tasks out-of-scope sweep: keep only slices of devices this round still
+        // has members for. A membered device keeps its slice even on a failed
+        // fetch (the stale-on-failure rule) — this sweep drops exactly the
+        // member-less devices, never a slice a fetch is still serving.
+        if (gen == generation) {
+            _ui.update { state ->
+                state.copy(conversations = state.conversations.filter { it.serverId in byServer.keys })
+            }
+        }
     }
 
     /** P1: add / remove a conversation from the board (long-press entry points). */
@@ -686,6 +725,10 @@ class TaskHubViewModel @Inject constructor(
                 },
             )
         }
+        // 批v161.3 R4: the miss counter must not outlive its ledger key — a
+        // re-added member would inherit the old count and get pruned after one
+        // missed round instead of two.
+        conversationMissRounds.remove("$serverId:$conversationId")
         viewModelScope.launch {
             runCatching { boardTrack.untrack(serverId, conversationId) }
         }
@@ -822,6 +865,8 @@ class TaskHubViewModel @Inject constructor(
             // The action moved the task (status/列/events); the cached detail
             // is a pre-action snapshot and loadDetail's existing!=null check
             // would keep serving it — drop it so the next expand refetches.
+            // 批v161.3 R4: the eviction ledger stays in step with the map.
+            detailOrder.remove(serverId to taskId)
             _ui.update { state ->
                 if (!state.details.containsKey(serverId)) state
                 else state.copy(details = state.details + (serverId to (state.details[serverId].orEmpty() - taskId)))
@@ -1306,13 +1351,16 @@ class TaskHubViewModel @Inject constructor(
                     }
                     _ui.update { state ->
                         state.copy(
-                            details = state.details +
-                                (serverId to (state.details[serverId].orEmpty() +
-                                    (taskId to (state.details[serverId]?.get(taskId) ?: TaskDetail()).copy(
-                                        events = events,
-                                        changedFiles = files,
-                                        loadError = null,
-                                    )))),
+                            details = capDetails(
+                                state.details +
+                                    (serverId to (state.details[serverId].orEmpty() +
+                                        (taskId to (state.details[serverId]?.get(taskId) ?: TaskDetail()).copy(
+                                            events = events,
+                                            changedFiles = files,
+                                            loadError = null,
+                                        )))),
+                                serverId, taskId,
+                            ),
                         )
                     }
                 }
@@ -1338,9 +1386,38 @@ class TaskHubViewModel @Inject constructor(
     ): UiState {
         val current = state.details[serverId]?.get(taskId) ?: TaskDetail()
         return state.copy(
-            details = state.details +
-                (serverId to (state.details[serverId].orEmpty() + (taskId to transform(current)))),
+            details = capDetails(
+                state.details +
+                    (serverId to (state.details[serverId].orEmpty() + (taskId to transform(current)))),
+                serverId, taskId,
+            ),
         )
+    }
+
+    /** 批v161.3 R4: ceiling for the per-task detail cache — [DETAIL_CAP] task
+     *  keys across ALL devices, evict-oldest (same shape as TaskResultNotifier's
+     *  putCapped). Without it every task ever expanded kept its events/diff for
+     *  the VM's whole life. Evicting only loses the cache: an evicted card
+     *  refetches on its next expand (the read path treats a missing entry as
+     *  "load fresh"), and a key already dropped elsewhere (device left the
+     *  scope, task deleted) evicts as a no-op. Registers the touched key as the
+     *  most recent and returns the capped map. */
+    private fun capDetails(
+        details: Map<String, Map<Int, TaskDetail>>,
+        serverId: String,
+        taskId: Int,
+    ): Map<String, Map<Int, TaskDetail>> {
+        val key = serverId to taskId
+        detailOrder.remove(key)
+        detailOrder.addLast(key)
+        var result = details
+        while (detailOrder.size > DETAIL_CAP) {
+            val eldest = detailOrder.removeFirstOrNull() ?: break
+            val remaining = result[eldest.first].orEmpty() - eldest.second
+            result = if (remaining.isEmpty()) result - eldest.first
+            else result + (eldest.first to remaining)
+        }
+        return result
     }
 
     /** Clears both the error and the non-error outcome note (merge queued…). */
@@ -1355,6 +1432,11 @@ private inline fun MutableStateFlow<TaskHubViewModel.UiState>.update(transform: 
  *  not the post-action refreshes). Past it the busy slot is force-released and
  *  the wait becomes a visible timeout error instead of a silent global freeze. */
 internal const val ACTION_TIMEOUT_MS = 45_000L
+
+/** 批v161.3 R4: task keys kept in the board's per-task detail cache (events /
+ *  changed files / diff) across ALL devices; the oldest entry is evicted past
+ *  this and simply refetches when its card is expanded again. */
+internal const val DETAIL_CAP = 24
 
 /** Column label used in [boardMoveNote] copy (matches the board's zh UI). */
 internal fun segmentMoveLabel(seg: TaskSegment): String = when (seg) {

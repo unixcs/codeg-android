@@ -48,4 +48,18 @@ object LocaleManager {
         config.setLocale(locale)
         return base.createConfigurationContext(config)
     }
+
+    /** 批v161.3 R4: notification-path twin of [wrap] — same locale override, but
+     *  it never calls [Locale.setDefault]. The notification builders run on
+     *  app-scope worker threads (Dispatchers.Default), and a global-default
+     *  write there races the main thread's own default: a mid-render flip can
+     *  localize random UI strings. The returned context carries the locale in
+     *  its configuration, which is all getString() resource resolution reads.
+     *  Main-thread UI paths keep using [wrap]. */
+    fun wrapReadOnly(base: Context): Context {
+        val locale = current(base).locale ?: return base
+        val config = Configuration(base.resources.configuration)
+        config.setLocale(locale)
+        return base.createConfigurationContext(config)
+    }
 }

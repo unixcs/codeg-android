@@ -110,7 +110,7 @@ class InteractiveNotifier @Inject constructor(
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val interactive = NotificationChannel(
             CHANNEL_INTERACTIVE,
-            LocaleManager.wrap(context).getString(R.string.notif_channel_interactive),
+            LocaleManager.wrapReadOnly(context).getString(R.string.notif_channel_interactive),
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = context.getString(R.string.notif_channel_interactive_desc)
@@ -121,7 +121,7 @@ class InteractiveNotifier @Inject constructor(
         }
         val taskResults = NotificationChannel(
             CHANNEL_TASK_RESULTS,
-            LocaleManager.wrap(context).getString(R.string.notif_channel_task_results),
+            LocaleManager.wrapReadOnly(context).getString(R.string.notif_channel_task_results),
             // Second-tier semantics: the shade + sound, never heads-up.
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
@@ -130,7 +130,7 @@ class InteractiveNotifier @Inject constructor(
         }
         val deviceEvents = NotificationChannel(
             CHANNEL_DEVICE_EVENTS,
-            LocaleManager.wrap(context).getString(R.string.notif_channel_device_events),
+            LocaleManager.wrapReadOnly(context).getString(R.string.notif_channel_device_events),
             // Silent log semantics — the alert exists in the shade for later.
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
@@ -138,7 +138,7 @@ class InteractiveNotifier @Inject constructor(
         }
         val keepAlive = NotificationChannel(
             CHANNEL_KEEPALIVE,
-            LocaleManager.wrap(context).getString(R.string.notif_channel_keepalive),
+            LocaleManager.wrapReadOnly(context).getString(R.string.notif_channel_keepalive),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = context.getString(R.string.notif_channel_keepalive_desc)
@@ -185,7 +185,7 @@ class InteractiveNotifier @Inject constructor(
 
     private fun buildNotification(items: List<PendingInteraction>): Notification {
         // The app language rides the custom LocaleManager, not the system config.
-        val ctx = LocaleManager.wrap(context)
+        val ctx = LocaleManager.wrapReadOnly(context)
         val first = items.first()
         val lines = items.map { item ->
             val label = ctx.getString(kindLabel(item.kind))
@@ -205,9 +205,15 @@ class InteractiveNotifier @Inject constructor(
             ctx,
             MainActivity::class.java,
         )
+        // 批v161.3 R3: the request code used to be the raw conversationId — a
+        // DEVICE-LOCAL autoincrement, so two devices with the same local id
+        // overwrote each other's PendingIntents under FLAG_UPDATE_CURRENT. The
+        // same 31·hash formula as the notification id keeps codes per
+        // (serverId, conversationId) and disjoint from TaskResultNotifier's
+        // 1e9 request-code band.
         val contentIntent = PendingIntent.getActivity(
             ctx,
-            first.conversationId,
+            notificationId(first.serverId, first.conversationId),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

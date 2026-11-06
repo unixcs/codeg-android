@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -162,13 +163,28 @@ class ServerRepository @Inject constructor(
 
     fun requestChatsRefresh() { _chatsRefreshTick.value += 1 }
 
-    /** The token for a profile, read off the IO dispatcher (Keystore decrypt). */
-    suspend fun token(id: String): String? =
-        withContext(dispatchers.io) { secretStore.get(id) }
+    /** 批v161.3 R4: plaintext-token cache served by [token] — every
+     *  client()/eventStream() build used to pay a hardware-backed Keystore
+     *  decrypt, and the watchers build several per 30s round. The only writers
+     *  of the secret store are [save]/[delete] below, and both update the
+     *  cache in the same breath, so a re-saved or deleted profile never serves
+     *  a stale token. */
+    private val tokenCache = ConcurrentHashMap<String, String>()
+
+    /** The token for a profile, or null if it has none. */
+    suspend fun token(id: String): String? {
+        tokenCache[id]?.let { return it }
+        val token = withContext(dispatchers.io) { secretStore.get(id) } ?: return null
+        tokenCache[id] = token
+        return token
+    }
 
     /** Save (insert/replace) a profile and its token. */
     suspend fun save(profile: ServerProfile, token: String) {
         withContext(dispatchers.io) { secretStore.put(profile.id, token) }
+        // 批v161.3 R4: the plaintext is right here — seed the cache with the
+        // value just written instead of invalidating into a fresh decrypt.
+        tokenCache[profile.id] = token
         serverStore.upsert(profile)
     }
 
@@ -176,6 +192,7 @@ class ServerRepository @Inject constructor(
         // Secret first (mirrors save): if the second step fails, a profile whose token
         // is gone is visible and recoverable; an orphaned token blob never is.
         withContext(dispatchers.io) { secretStore.remove(id) }
+        tokenCache.remove(id) // 批v161.3 R4: a deleted profile must not keep serving its token.
         serverStore.delete(id)
     }
 
