@@ -2,6 +2,7 @@ package app.codeg.android.core.notify
 
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.TaskRow
+import app.codeg.android.core.data.TaskTransition
 import app.codeg.android.core.data.taskBaseline
 import app.codeg.android.core.data.taskTransitions
 import kotlinx.coroutines.CancellationException

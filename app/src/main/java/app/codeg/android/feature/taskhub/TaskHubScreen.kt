@@ -705,6 +705,7 @@ fun TaskHubScreen(
             is ConfirmAction.DELETE -> viewModel.deleteTask(server, id)
             is ConfirmAction.SCHEDULE -> viewModel.schedule(server, id, action.scheduledAtIsoUtc)
             is ConfirmAction.EDIT -> Unit // handled by the edit sheet, never routed here
+            is ConfirmAction.SAVE_TEMPLATE -> Unit // handled by the screen's toast save, never routed here
         }
     }, onDismiss = { confirm = null })
 
@@ -3370,7 +3371,9 @@ private fun ConfirmDialogs(
             )
             is ConfirmAction.SCHEDULE -> ScheduleDialog(action, busy, onRun, onDismiss)
             is ConfirmAction.EDIT -> Unit // never routed here (screen intercepts into the sheet)
-            is ConfirmAction.SAVE_TEMPLATE -> Unit // never routed here (screen intercepts into a toast)
+            // Unreachable today (both screens intercept into a toast save) — but
+            // if a third route ever leaks it through, fail visible, not frozen.
+            is ConfirmAction.SAVE_TEMPLATE -> onDismiss()
             else -> {
                 val (titleRes, msgRes, danger) = when (action) {
                     is ConfirmAction.MERGE -> Triple(R.string.task_confirm_merge_title, R.string.task_confirm_merge_msg, true)

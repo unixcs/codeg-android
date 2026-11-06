@@ -56,6 +56,8 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.time.Instant
 import javax.inject.Inject
 
@@ -981,15 +983,23 @@ class TaskHubViewModel @Inject constructor(
     // The composer's chip-row source (per-device). A failed/old-server load
     // degrades to empty and the form hides the row — same degradation contract
     // as modelProviderEntries. Seq guard like formTargetSeq: a slow reply for a
-    // switched-away device must not overwrite a newer one.
+    // switched-away device must not overwrite a newer one; the list is CLEARED
+    // up front and tagged with its owner so the form never renders device A's
+    // chips inside device B's composer (ids are per-device spaces — a stale
+    // chip's ✕ could otherwise delete a lookalike row on the wrong device).
 
     private val _taskTemplates = MutableStateFlow<List<WorkTaskTemplateInfo>>(emptyList())
     override val taskTemplates: StateFlow<List<WorkTaskTemplateInfo>> = _taskTemplates.asStateFlow()
 
     private var templatesSeq = 0
 
+    /** Device the current [taskTemplates] list belongs to (null = stale/cleared). */
+    private var templatesServerId: String? = null
+
     override fun loadTaskTemplates(serverId: String) {
         val seq = ++templatesSeq
+        templatesServerId = serverId
+        _taskTemplates.value = emptyList()
         viewModelScope.launch {
             val list = runCatching {
                 deviceById(serverId)?.let { repository.client(it)?.workTaskTemplateList() }
@@ -1018,13 +1028,19 @@ class TaskHubViewModel @Inject constructor(
                 },
             )
             Toast.makeText(appContext, toast, Toast.LENGTH_SHORT).show()
-            loadTaskTemplates(serverId)
+            // Reload only when the form still shows THIS device's list — a reload
+            // for a switched-away device would win the seq race and resurrect its
+            // chips inside the new device's composer.
+            if (serverId == templatesServerId) loadTaskTemplates(serverId)
         }
     }
 
-    /** 任务卡长按「存为模板」: the title+config snapshot upserts by name onto the
-     *  task's OWN device (server trims + validates; same name refreshes in
-     *  place). Toast feedback; the composer's chips reload on next form open. */
+    /** 任务卡长按「存为模板」: a snapshot of ONLY the composer's V1 prefill keys
+     *  upserts by name onto the task's OWN device (server trims + validates;
+     *  same name refreshes in place). Task-specific config fields (base_branch,
+     *  mode_id, config_values…) are dropped — V1 restores none of them and a
+     *  stale branch name must never ride a template into a future restore.
+     *  Toast feedback; the composer's chips reload on next form open. */
     fun saveTaskTemplate(entry: TaskBoardEntry) {
         val task = entry.task
         val name = task.title.trim()
@@ -1033,10 +1049,14 @@ class TaskHubViewModel @Inject constructor(
             val result = runCatching {
                 val client = deviceById(entry.serverId)?.let { repository.client(it) }
                     ?: error(appContext.getString(R.string.task_template_error_no_device))
+                val snapshot = task.rawConfig
+                    ?.filterKeys { it in TEMPLATE_CONFIG_KEYS }
+                    ?.let { keys -> buildJsonObject { keys.forEach { (k, v) -> put(k, v) } } }
+                    ?: JsonObject(emptyMap())
                 client.workTaskTemplateSave(
                     name = name,
                     title = name,
-                    config = task.rawConfig ?: JsonObject(emptyMap()),
+                    config = snapshot,
                 )
             }
             val toast = result.fold(
@@ -1049,6 +1069,11 @@ class TaskHubViewModel @Inject constructor(
             )
             Toast.makeText(appContext, toast, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private companion object {
+        /** The three config keys the composer's V1 prefill actually reads. */
+        val TEMPLATE_CONFIG_KEYS = setOf("display_text", "prompt_blocks", "agent_type")
     }
 
     private var formTargetSeq = 0
