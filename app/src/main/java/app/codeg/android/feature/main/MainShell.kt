@@ -1459,7 +1459,12 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     onOpenAutomations = {
                         appViewModel.requestAutomationTab()
                         jumpToTab(HomeTab.TASKS)
-                        if (servers.size >= 2 && !activityAll) appViewModel.setTasksAll(false)
+                        // M6 审查（与 M3 审查 H1 同款）：the automation pane reads
+                        // the task board's scope flow (tasksAll) while the failure
+                        // row counts the workbench's (activityAll) — mirror both
+                        // directions unconditionally or the landing pane can show
+                        // a different device set than the row just tapped.
+                        if (servers.size >= 2) appViewModel.setTasksAll(activityAll)
                     },
                     // 批v163（舰队 M3）：今日用量卡 → 设置页用量 leaf（一次性总线）。
                     onOpenUsage = {

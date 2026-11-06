@@ -1086,6 +1086,10 @@ class TaskHubViewModel @Inject constructor(
     private val _taskTemplates = MutableStateFlow<List<WorkTaskTemplateInfo>>(emptyList())
     override val taskTemplates: StateFlow<List<WorkTaskTemplateInfo>> = _taskTemplates.asStateFlow()
 
+    /** 同名覆盖待确认（M6 审查 H1）：非 null 时屏幕弹「替换内容？」确认框。 */
+    private val _templateSaveConflict = MutableStateFlow<TaskBoardEntry?>(null)
+    val templateSaveConflict: StateFlow<TaskBoardEntry?> = _templateSaveConflict.asStateFlow()
+
     private var templatesSeq = 0
 
     /** Device the current [taskTemplates] list belongs to (null = stale/cleared). */
@@ -1130,41 +1134,86 @@ class TaskHubViewModel @Inject constructor(
         }
     }
 
-    /** 任务卡长按「存为模板」: a snapshot of ONLY the composer's V1 prefill keys
-     *  upserts by name onto the task's OWN device (server trims + validates;
-     *  same name refreshes in place). Task-specific config fields (base_branch,
-     *  mode_id, config_values…) are dropped — V1 restores none of them and a
-     *  stale branch name must never ride a template into a future restore.
-     *  Toast feedback; the composer's chips reload on next form open. */
-    fun saveTaskTemplate(entry: TaskBoardEntry) {
+    /** 任务卡长按「存为模板」(M6 审查 H1): first asks the device whether a
+     *  same-name template already exists — save straight away when free (or
+     *  identical content), otherwise park in [templateSaveConflict] for the
+     *  screen's replace-confirm dialog, mirroring the delete-confirm pattern.
+     *  Snapshot carries ONLY the composer's V1 prefill keys (task-specific
+     *  fields like base_branch / mode_id / config_values are dropped — V1
+     *  restores none of them and a stale branch name must never ride a
+     *  template into a future restore). Empty title toasts instead of
+     *  returning silently (M6 审查 L2). */
+    fun requestSaveTemplate(entry: TaskBoardEntry) {
         val task = entry.task
         val name = task.title.trim()
-        if (name.isEmpty()) return
+        if (name.isEmpty()) {
+            Toast.makeText(
+                appContext,
+                appContext.getString(R.string.task_template_save_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
         viewModelScope.launch {
-            val result = runCatching {
-                val client = deviceById(entry.serverId)?.let { repository.client(it) }
-                    ?: error(appContext.getString(R.string.task_template_error_no_device))
-                val snapshot = task.rawConfig
-                    ?.filterKeys { it in TEMPLATE_CONFIG_KEYS }
-                    ?.let { keys -> buildJsonObject { keys.forEach { (k, v) -> put(k, v) } } }
-                    ?: JsonObject(emptyMap())
-                client.workTaskTemplateSave(
-                    name = name,
-                    title = name,
-                    config = snapshot,
-                )
+            val existing = runCatching {
+                deviceById(entry.serverId)?.let { repository.client(it)?.workTaskTemplateList() }
+            }.getOrElse { e ->
+                if (e is CancellationException) throw e
+                android.util.Log.w("TaskHubViewModel", "template save lookup failed: ${e.message}")
+                null
             }
-            val toast = result.fold(
-                { saved -> appContext.getString(R.string.task_template_saved, saved.name) },
-                { e ->
-                    if (e is CancellationException) throw e
-                    (e as? ApiError)?.displayMessage() ?: e.message
-                        ?: appContext.getString(R.string.task_template_save_failed)
-                },
-            )
-            Toast.makeText(appContext, toast, Toast.LENGTH_SHORT).show()
+            val snapshot = templateSnapshot(task)
+            // A failed lookup is NOT "no same-name template" — conservatively
+            // let the (server-side upsert-by-name) save through rather than
+            // blocking the M5 3-second acceptance path on a flaky link; the
+            // confirm dialog only fires when we positively saw a differing row.
+            if (existing != null && existing.any { it.name == name && it.config != snapshot }) {
+                _templateSaveConflict.value = entry
+                return@launch
+            }
+            doSaveTemplate(entry, name, snapshot)
         }
     }
+
+    /** 用户在「已存在同名模板」确认框点了替换 — flush the parked entry. */
+    fun confirmSaveTemplate() {
+        val entry = _templateSaveConflict.value ?: return
+        _templateSaveConflict.value = null
+        val name = entry.task.title.trim()
+        if (name.isEmpty()) return
+        viewModelScope.launch { doSaveTemplate(entry, name, templateSnapshot(entry.task)) }
+    }
+
+    fun dismissSaveTemplate() {
+        _templateSaveConflict.value = null
+    }
+
+    private suspend fun doSaveTemplate(entry: TaskBoardEntry, name: String, snapshot: JsonObject) {
+        val result = runCatching {
+            val client = deviceById(entry.serverId)?.let { repository.client(it) }
+                ?: error(appContext.getString(R.string.task_template_error_no_device))
+            client.workTaskTemplateSave(
+                name = name,
+                title = name,
+                config = snapshot,
+            )
+        }
+        val toast = result.fold(
+            { saved -> appContext.getString(R.string.task_template_saved, saved.name) },
+            { e ->
+                if (e is CancellationException) throw e
+                (e as? ApiError)?.displayMessage() ?: e.message
+                    ?: appContext.getString(R.string.task_template_save_failed)
+            },
+        )
+        Toast.makeText(appContext, toast, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun templateSnapshot(task: WorkTaskInfo): JsonObject =
+        task.rawConfig
+            ?.filterKeys { it in TEMPLATE_CONFIG_KEYS }
+            ?.let { keys -> buildJsonObject { keys.forEach { (k, v) -> put(k, v) } } }
+            ?: JsonObject(emptyMap())
 
     private companion object {
         /** The three config keys the composer's V1 prefill actually reads. */

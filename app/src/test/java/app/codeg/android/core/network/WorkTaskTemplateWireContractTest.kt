@@ -78,6 +78,14 @@ class WorkTaskTemplateWireContractTest {
                 "id": 1,
                 "name": "empty",
                 "title": "empty"
+              },
+              {
+                "id": 2,
+                "name": "null-config",
+                "title": "null-config",
+                "config": null,
+                "created_at": null,
+                "updated_at": null
               }
             ]
             """.trimIndent(),
@@ -95,6 +103,12 @@ class WorkTaskTemplateWireContractTest {
         // Minimal row: config defaults to an empty object, timestamps to null.
         assertEquals(0, rows[1].config.size)
         assertEquals(null, rows[1].createdAt)
+        // Server can hand back an explicit null config (older rows / manual
+        // edits): coerceInputValues substitutes the default empty object — the
+        // composer must never see a null map (M6 审查 L5 anchor).
+        assertEquals(0, rows[2].config.size)
+        assertEquals(null, rows[2].createdAt)
+        assertEquals(null, rows[2].updatedAt)
     }
 
     @Test

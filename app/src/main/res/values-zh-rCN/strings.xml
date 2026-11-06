@@ -1494,8 +1494,11 @@
     <string name="task_template_delete_title">删除模板？</string>
     <string name="task_template_delete_msg">删除「%1$s」？已用它创建的任务不受影响。</string>
     <string name="task_template_apply_title">套用模板？</string>
-    <string name="task_template_apply_msg">用「%1$s」的内容替换已填写的标题和描述？</string>
+    <string name="task_template_apply_msg">用「%1$s」替换已填写的标题、描述和 agent？</string>
     <string name="task_template_apply_confirm">替换</string>
+    <string name="task_template_conflict_title">已存在同名模板</string>
+    <string name="task_template_conflict_msg">设备上已存在同名模板「%1$s」，替换其内容？</string>
+    <string name="task_template_delete_named">删除模板「%1$s」</string>
     <string name="task_action_schedule">定时</string>
     <string name="task_detail_prompt">任务描述</string>
     <string name="task_cancel_reason_hint">原因（可选）</string>

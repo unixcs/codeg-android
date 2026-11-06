@@ -800,6 +800,8 @@ fun DispatchForm(
             // back to display_text — same precedence as WorkTaskInfo.
             // configPromptText) + the agent chip. mode_id/config_values are
             // deliberately NOT restored — they keep "the agent's own defaults".
+            // 标题/描述/agent 三字段都无条件按模板重置（空文本即清空）——套用
+            // 的承诺与确认框文案逐字一致，不留半套用状态。
             fun applyTaskTemplate(tpl: WorkTaskTemplateInfo) {
                 title = tpl.title
                 val cfg = tpl.config
@@ -809,12 +811,12 @@ fun DispatchForm(
                     ?.joinToString("\n\n")
                     .orEmpty()
                 val display = (cfg["display_text"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                (blocks.ifBlank { display }).takeIf { it.isNotBlank() }?.let { description = it }
+                description = blocks.ifBlank { display }
                 (cfg["agent_type"] as? JsonPrimitive)?.contentOrNull?.let { wire ->
                     // Only preselect an agent this device actually offers — a
                     // snapshot from an uninstalled agent must not jam the form.
                     AgentType.entries.firstOrNull { it.wire == wire }
-                        ?.takeIf { picked -> targets.agents.any { it == picked } }
+                        ?.takeIf { picked -> targets.agents.isEmpty() || targets.agents.any { it == picked } }
                         ?.let { agent = it }
                 }
             }
@@ -835,7 +837,9 @@ fun DispatchForm(
                         // TalkBack-labelled, unlike a long-press).
                         Surface(
                             onClick = {
-                                if (title.isNotBlank() || description.isNotBlank()) {
+                                // 已有任何内容（含仅选了 agent）就先确认——
+                                // 套用是全字段替换，不是只补空位。
+                                if (title.isNotBlank() || description.isNotBlank() || agent != null) {
                                     templateConfirmApply = tpl
                                 } else {
                                     applyTaskTemplate(tpl)
@@ -865,7 +869,11 @@ fun DispatchForm(
                                 ) {
                                     Icon(
                                         Icons.Rounded.Close,
-                                        contentDescription = stringResource(R.string.common_delete),
+                                        // M6 审查：破坏性操作前 TalkBack 用户必须
+                                        // 听得到删的是哪个模板。
+                                        contentDescription = stringResource(
+                                            R.string.task_template_delete_named, tpl.name,
+                                        ),
                                         tint = colors.textTertiary,
                                         modifier = Modifier.size(15.dp),
                                     )

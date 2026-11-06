@@ -115,7 +115,7 @@ fun SessionImportSheet(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Rounded.Close, contentDescription = null)
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_cancel))
                 }
             }
             if (ui.devices.size > 1) {

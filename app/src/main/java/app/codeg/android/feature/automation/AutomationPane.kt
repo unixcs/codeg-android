@@ -476,7 +476,7 @@ private fun RunsSheet(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Rounded.Close, contentDescription = null)
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_cancel))
                 }
             }
             when {
@@ -629,7 +629,7 @@ private fun AutomationEditorSheet(
                             modifier = Modifier.weight(1f),
                         )
                         IconButton(onClick = viewModel::closeEditor) {
-                            Icon(Icons.Rounded.Close, contentDescription = null)
+                            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_cancel))
                         }
                     }
                     Column(
@@ -770,6 +770,10 @@ private fun AutomationEditorSheet(
                                 state.scheduled, state.preset, state.minute, state.hour,
                                 state.customCron, state.timezone,
                             ) {
+                                // M6 审查：sig 去重只省重复结果不省请求——
+                                // customCron 逐键都打一次 compute_next_run，慢链路
+                                // 上预览在「计算中⇄无效」间闪。400ms 防抖再发。
+                                kotlinx.coroutines.delay(400)
                                 viewModel.scheduleNextRunPreview()
                             }
                             val previewText = when {

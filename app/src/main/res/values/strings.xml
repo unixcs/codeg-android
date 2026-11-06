@@ -1508,8 +1508,11 @@
     <string name="task_template_delete_title">Delete template?</string>
     <string name="task_template_delete_msg">Delete \"%1$s\"? Tasks already created from it are not affected.</string>
     <string name="task_template_apply_title">Apply template?</string>
-    <string name="task_template_apply_msg">Replace the filled-in title and description with \"%1$s\"?</string>
+    <string name="task_template_apply_msg">Replace the filled-in title, description and agent with \"%1$s\"?</string>
     <string name="task_template_apply_confirm">Replace</string>
+    <string name="task_template_conflict_title">Template already exists</string>
+    <string name="task_template_conflict_msg">A template named \"%1$s\" already exists on this device. Replace its content?</string>
+    <string name="task_template_delete_named">Delete template \"%1$s\"</string>
     <string name="task_action_schedule">Schedule</string>
     <string name="task_detail_prompt">Task description</string>
     <string name="task_cancel_reason_hint">Reason (optional)</string>

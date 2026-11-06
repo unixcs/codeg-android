@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -207,9 +208,11 @@ private fun DeviceUsageCard(
                         text = stringResource(R.string.common_retry),
                         style = MaterialTheme.typography.labelLarge,
                         color = colors.accent,
+                        // M6 审查：裸 clickable+4dp 触达 ~28dp，房规重试钮
+                        // （DispatchForm）用 TextButton 48dp 保障——对齐。
                         modifier = Modifier
                             .clickable(role = Role.Button, onClick = onRetry)
-                            .padding(vertical = 4.dp),
+                            .heightIn(min = 48.dp),
                     )
                 }
                 else -> {

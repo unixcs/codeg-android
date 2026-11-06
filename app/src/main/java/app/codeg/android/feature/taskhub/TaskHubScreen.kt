@@ -505,7 +505,7 @@ fun TaskHubScreen(
                         // 编辑 opens a sheet; 存为模板 is a fire-and-forget save
                         // with its own toast — neither is a confirm dialog.
                         is ConfirmAction.EDIT -> editEntry = action.entry
-                        is ConfirmAction.SAVE_TEMPLATE -> viewModel.saveTaskTemplate(action.entry)
+                        is ConfirmAction.SAVE_TEMPLATE -> viewModel.requestSaveTemplate(action.entry)
                         else -> confirm = action
                     }
                 }
@@ -629,7 +629,7 @@ fun TaskHubScreen(
                     when (action) {
                         // same intercepts as the card menu (编辑 sheet / 存模板 toast)
                         is ConfirmAction.EDIT -> editEntry = action.entry
-                        is ConfirmAction.SAVE_TEMPLATE -> viewModel.saveTaskTemplate(action.entry)
+                        is ConfirmAction.SAVE_TEMPLATE -> viewModel.requestSaveTemplate(action.entry)
                         else -> confirm = action
                     }
                 },
@@ -696,6 +696,32 @@ fun TaskHubScreen(
         )
     }
 
+    // M6 审查 H1: 存为模板撞到同名且内容不同 → 先确认再覆盖（与删除模板同款
+    // 确认模式）；请求/放行/toast 全在 VM（requestSaveTemplate）。
+    val templateSaveConflict by viewModel.templateSaveConflict.collectAsStateWithLifecycle()
+    templateSaveConflict?.let { entry ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissSaveTemplate,
+            title = { Text(stringResource(R.string.task_template_conflict_title)) },
+            text = {
+                Text(stringResource(R.string.task_template_conflict_msg, entry.task.title.trim()))
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmSaveTemplate) {
+                    Text(
+                        stringResource(R.string.task_template_apply_confirm),
+                        color = CodegTheme.colors.danger,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissSaveTemplate) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
+
     ConfirmDialogs(confirm, ui.busyKey != null, onRun = { action ->
         val id = action.entry.task.id
         val server = action.entry.serverId
@@ -715,7 +741,7 @@ fun TaskHubScreen(
             is ConfirmAction.DELETE -> viewModel.deleteTask(server, id)
             is ConfirmAction.SCHEDULE -> viewModel.schedule(server, id, action.scheduledAtIsoUtc)
             is ConfirmAction.EDIT -> Unit // handled by the edit sheet, never routed here
-            is ConfirmAction.SAVE_TEMPLATE -> Unit // handled by the screen's toast save, never routed here
+            is ConfirmAction.SAVE_TEMPLATE -> Unit // handled by the screen's requestSaveTemplate, never routed here
         }
     }, onDismiss = { confirm = null })
 
@@ -3385,9 +3411,10 @@ private fun ConfirmDialogs(
             )
             is ConfirmAction.SCHEDULE -> ScheduleDialog(action, busy, onRun, onDismiss)
             is ConfirmAction.EDIT -> Unit // never routed here (screen intercepts into the sheet)
-            // Unreachable today (both screens intercept into a toast save) — but
-            // if a third route ever leaks it through, fail visible, not frozen.
-            is ConfirmAction.SAVE_TEMPLATE -> onDismiss()
+            // Unreachable today (both screens intercept into requestSaveTemplate) —
+            // but if a third route ever leaks it through, dismiss after
+            // composition, never during it (M6 审查 L1).
+            is ConfirmAction.SAVE_TEMPLATE -> LaunchedEffect(Unit) { onDismiss() }
             else -> {
                 val (titleRes, msgRes, danger) = when (action) {
                     is ConfirmAction.MERGE -> Triple(R.string.task_confirm_merge_title, R.string.task_confirm_merge_msg, true)
