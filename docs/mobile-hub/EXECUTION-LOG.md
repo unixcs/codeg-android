@@ -293,10 +293,11 @@
 - 真机验收（PRD 原文）：存一个「周报」模板→新建任务 3 秒预填完成。
 
 ### 批v163 收口：D6 合并 + 正式版 fengx.52 + 分支退役（主人拍板「收口归档」，2026-11-08）
-- 主人 OK 收口：feat/fleet-v1 → fork/main **fast-forward**（实查 0/15 分叉——fork/main ecb59c3 是 fleet 祖先，M6 时 beb6da5 已含其 merge，161 侧无新提交，零 merge 冲突面）；正式版 bump versionCode 62 / versionName **1.0.1-fengx.52**（rc.7 已占 61，正式版顺延 62）；tag v1.0.1-fengx.52 → Release {RELEASE终态}。
+- 主人 OK 收口：feat/fleet-v1 → fork/main **fast-forward**（实查 0/15 分叉——fork/main ecb59c3 是 fleet 祖先，M6 时 beb6da5 已含其 merge，161 侧无新提交，零 merge 冲突面）；正式版 bump versionCode 62 / versionName **1.0.1-fengx.52**（rc.7 已占 61，正式版顺延 62）；tag v1.0.1-fengx.52 → **Release ✅ rerun 后绿**（详见下行门禁）。
 - V1 舰队控制面正式版全链：M0-M7（M1 长会话窗口化 / M2+M3 自动化 UI+用量页 / M4 会话导入 / M5 任务模板 / M6 全量审查+测试基建二次放宽 / M7 导入 UX+全屏查看）+ 批v161.2（任务板即时上板）+ 批v161.3（系统级通知三渠道分级）。
 - 退役（fast-forward + Release 绿后）：fork 远端删 feat/fleet-v1 + 本地 worktree remove（android-fleet-v1）+ 主仓（/mnt/Projects/codeg/android）pull main 后删本地分支；tag 锚定提交随 main 永续，不影响 Release 资产下载。/mnt/Projects/codeg 下 android-task-fork（task/fork）与两个 /tmp prunable worktree 非本批资产，不动。
-- 门禁：bump+台账提交 push → Verify {BUMP_VERIFY终态} → tag v1.0.1-fengx.52 → Release {RELEASE终态} → fork/main fast-forward {MAIN_FF终态}。Release URL：{RELEASE_URL}
+- 门禁：bump+台账 4b82c9d push → Verify 42391784595 首跑 ❌（ServerStoreTest 既有计时抖动，722 仅 1 红，与本提交零关联）→ rerun ✅ → tag v1.0.1-fengx.52（锚 4b82c9d）→ **Release 42393110745 首跑 ❌（SessionProjectRepositoryTest 既有抖动，非本批文件、同树 Verify 刚全绿）→ rerun ✅**（release 437713191；双 APK modern 54,002,092B / legacy 54,477,424B + sha256 ×2 + TG）→ fork/main fast-forward。Release URL：https://github.com/unixcs/codeg-android/releases/tag/v1.0.1-fengx.52
+- 既有抖动再添一例：SessionProjectRepositoryTest（activateCreated AssertionError :62）加入 ServerStoreTest/SearchViewModelTest 抖动名册——三例全是实时时钟/DataStore I/O 型，测试预算第三轮放宽可作为欠账另批评估。
 
 ### 批v163 M7：导入会话 UX 升级 + 交互卡片全屏查看（499628b→62e059a，rc.7 发版 2026-11-07）
 - 主人拍板六决策（对齐页 2026-11-07 全按推荐）：D1 搜索只做元数据（标题/项目/agent/分支，客户端内存过滤；会话内关键词列 V2 服务端项——ScanSession 无正文字段，竞品 Happy Coder/Omnara/Vibe Kanban/claude-code-webui 均无批量导入范式）；D2 筛选 sheet 多选+组头三态；D3 已导入默认隐藏、开关看全部；D4 fleet 分支发 rc.7；D5 收口→清高危欠账→V2；D6 合并等验收+快链拍板后执行。追加需求：交互卡片（计划审批/权限弹窗）长内容局促 → 右上角展开全屏。
