@@ -246,7 +246,6 @@ fun taskSortMs(task: WorkTaskInfo): Long =
  * Normalize an RFC3339 timestamp to an epoch-millis string so sorting is order-
  * safe regardless of the wire offset (`+08:00` vs `Z`); unparsable → null.
  */
-private fun timestampKey(iso: String?): String? = timestampMs(iso)?.toString()
 
 private fun timestampMs(iso: String?): Long? = iso?.let { raw ->
     runCatching { java.time.Instant.parse(raw).toEpochMilli() }

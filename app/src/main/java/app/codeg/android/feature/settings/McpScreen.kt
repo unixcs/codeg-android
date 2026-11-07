@@ -59,6 +59,7 @@ import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.CodegFilterChip
 import app.codeg.android.core.designsystem.component.CodegTextField
 import app.codeg.android.core.designsystem.component.EmptyState
+import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.AgentType
@@ -78,6 +79,12 @@ fun McpContent(viewModel: McpViewModel = hiltViewModel()) {
             ui.loading && ui.servers.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (ui.servers.isEmpty() && !ui.loading) {
+                    // 批v165 R3 (P1): a failed load used to masquerade as an empty list.
+                    if (ui.error != null) item("load-error") {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            InlineError(Icons.Rounded.Memory, stringResource(R.string.common_load_failed), ui.error ?: "", onRetry = viewModel::load)
+                        }
+                    }
                     item("empty") { Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { EmptyState(Icons.Rounded.Memory, stringResource(R.string.mcp_empty_title), stringResource(R.string.mcp_empty_subtitle)) } }
                 }
                 items(ui.servers, key = { it.id }) { s -> McpRow(s, onEdit = { editor = McpEditorTarget(s) }, onDelete = { viewModel.delete(s) }) }

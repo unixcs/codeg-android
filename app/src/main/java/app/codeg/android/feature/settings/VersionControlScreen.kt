@@ -33,7 +33,6 @@ import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.CodegTextField
 import app.codeg.android.core.designsystem.theme.CodegTheme
 
-private val Ok = androidx.compose.ui.graphics.Color(0xFF85D18F)
 
 @Composable
 fun VersionControlContent(viewModel: VersionControlViewModel = hiltViewModel()) {
@@ -45,7 +44,7 @@ fun VersionControlContent(viewModel: VersionControlViewModel = hiltViewModel()) 
             Text("Git", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textSecondary)
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.bgElevated.copy(alpha = 0.5f)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (ui.detect.installed) Ok else colors.danger))
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(if (ui.detect.installed) colors.success else colors.danger))
                     Text(if (ui.detect.installed) stringResource(R.string.vcs_git_installed) else stringResource(R.string.vcs_git_not_found), fontSize = 14.sp, color = colors.textPrimary)
                     ui.detect.version?.let { Text(it, fontSize = 12.sp, color = colors.textTertiary) }
                 }
@@ -60,7 +59,7 @@ fun VersionControlContent(viewModel: VersionControlViewModel = hiltViewModel()) 
                 val pathLabel = stringResource(R.string.vcs_path_fallback)
                 Text(
                     if (r.installed) stringResource(R.string.vcs_valid_git_at, "${r.path ?: pathLabel}${r.version?.let { " ($it)" } ?: ""}") else stringResource(R.string.vcs_no_git_at_path),
-                    fontSize = 12.sp, color = if (r.installed) Ok else colors.danger,
+                    fontSize = 12.sp, color = if (r.installed) colors.success else colors.danger,
                 )
             }
         }

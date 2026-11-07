@@ -62,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -153,7 +154,16 @@ private sealed interface ChannelEditorTarget {
 fun ChatChannelsContent(viewModel: ChatChannelsViewModel = hiltViewModel()) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
-    var editor by remember { mutableStateOf<ChannelEditorTarget?>(null) }
+    // 批v165 R3 (P1): rotation-proof — the editor is a full-screen dialog over a
+    // half-typed bot token; plain remember dropped ALL of it on rotate. The
+    // target is re-derived from the VM-held channel list each composition.
+    var editorOpen by rememberSaveable { mutableStateOf(false) }
+    var editorChannelId by rememberSaveable { mutableStateOf<Int?>(null) }
+    val editor: ChannelEditorTarget? = when {
+        editorChannelId != null -> ui.channels.firstOrNull { it.id == editorChannelId }?.let { ChannelEditorTarget.Edit(it) }
+        editorOpen -> ChannelEditorTarget.Add
+        else -> null
+    }
     var showGlobal by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<ChatChannelInfo?>(null) }
 
@@ -178,7 +188,7 @@ fun ChatChannelsContent(viewModel: ChatChannelsViewModel = hiltViewModel()) {
                         EmptyState(
                             Icons.Rounded.NotificationsActive, stringResource(R.string.cc_no_chat_channels),
                             stringResource(R.string.cc_empty_subtitle),
-                            actionLabel = stringResource(R.string.cc_add_channel), onAction = { editor = ChannelEditorTarget.Add },
+                            actionLabel = stringResource(R.string.cc_add_channel), onAction = { editorOpen = true; editorChannelId = null },
                         )
                     }
                 } else {
@@ -215,7 +225,7 @@ fun ChatChannelsContent(viewModel: ChatChannelsViewModel = hiltViewModel()) {
 
         // Add FAB.
         FloatingActionButton(
-            onClick = { editor = ChannelEditorTarget.Add },
+            onClick = { editorOpen = true; editorChannelId = null },
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
             containerColor = colors.accent,
             contentColor = colors.onAccent,
@@ -238,7 +248,7 @@ fun ChatChannelsContent(viewModel: ChatChannelsViewModel = hiltViewModel()) {
         if (channel != null) {
             ChatChannelDetailDialog(
                 channel = channel, detail = detail, viewModel = viewModel,
-                onEdit = { editor = ChannelEditorTarget.Edit(channel) },
+                onEdit = { editorChannelId = channel.id; editorOpen = true },
                 onDismiss = { viewModel.closeDetail() },
             )
         }
@@ -250,7 +260,7 @@ fun ChatChannelsContent(viewModel: ChatChannelsViewModel = hiltViewModel()) {
         ChatChannelEditorDialog(
             existing = existing,
             viewModel = viewModel,
-            onDismiss = { editor = null },
+            onDismiss = { editorOpen = false; editorChannelId = null },
         )
     }
 
@@ -332,7 +342,7 @@ private fun ChatChannelDetailDialog(
     onDismiss: () -> Unit,
 ) {
     val colors = CodegTheme.colors
-    var showQR by remember { mutableStateOf(false) }
+    var showQR by rememberSaveable { mutableStateOf(false) }
     var confirmRemoveToken by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -524,9 +534,10 @@ private fun WeixinQRDialog(channelId: Int, viewModel: ChatChannelsViewModel, onC
     val connectedText = stringResource(R.string.cc_connected)
     val qrExpiredText = stringResource(R.string.cc_qr_expired)
     val scannedConfirmText = stringResource(R.string.cc_scanned_confirm)
-    var attempt by remember { mutableStateOf(0) }
-    var phase by remember { mutableStateOf(QrPhase.LOADING) }
-    var statusText by remember { mutableStateOf(loadingQrText) }
+    // 批v165 R3 (P2): survive rotation mid-pairing (the QR image itself re-fetches).
+    var attempt by rememberSaveable { mutableStateOf(0) }
+    var phase by rememberSaveable { mutableStateOf(QrPhase.LOADING) }
+    var statusText by rememberSaveable { mutableStateOf(loadingQrText) }
     var image by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
 
     LaunchedEffect(attempt) {

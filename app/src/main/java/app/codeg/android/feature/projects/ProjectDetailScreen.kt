@@ -115,7 +115,7 @@ fun ProjectDetailScreen(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
                 folder == null ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        InlineError(Icons.Rounded.FolderOpen, stringResource(R.string.projects_load_failed), ui.error ?: "Folder not found", viewModel::load)
+                        InlineError(Icons.Rounded.FolderOpen, stringResource(R.string.projects_load_failed), ui.error ?: stringResource(R.string.projects_folder_not_found), viewModel::load)
                     }
                 else -> Column(Modifier.fillMaxSize()) {
                     Header(

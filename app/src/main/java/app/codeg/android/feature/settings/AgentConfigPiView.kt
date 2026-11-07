@@ -331,7 +331,8 @@ fun AgentConfigPiView(agent: AcpAgentInfo, viewModel: AgentsViewModel) {
                 ExpandableGroup(stringResource(R.string.agents_pi_advanced)) {
                     CodegTextField(configDir, { configDir = it }, stringResource(R.string.agents_pi_config_dir), placeholder = "~/.pi/agent", mono = true)
                     if (configDir.trim().isNotEmpty()) {
-                        Text(stringResource(R.string.agents_pi_config_dir_warning), fontSize = 11.sp, color = Color(0xFFF0A030))
+                        // 批v165 R3 (P1): theme token — the hardcoded amber was 1.9:1 on the light theme.
+                        Text(stringResource(R.string.agents_pi_config_dir_warning), fontSize = 11.sp, color = CodegTheme.colors.warning)
                     }
                     CodegTextField(sessionDir, { sessionDir = it }, stringResource(R.string.agents_pi_session_dir), placeholder = "~/.pi/agent/sessions", mono = true)
                     Caption(stringResource(R.string.agents_pi_dirs_caption))

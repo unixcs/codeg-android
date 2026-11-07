@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.CodegTextField
 import app.codeg.android.core.designsystem.component.EmptyState
+import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.component.SecretField
 import app.codeg.android.core.designsystem.theme.CodegTheme
@@ -65,6 +66,12 @@ fun ModelProvidersContent(viewModel: ModelProvidersViewModel = hiltViewModel()) 
             ui.loading && ui.providers.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (ui.providers.isEmpty() && !ui.loading) {
+                    // 批v165 R3 (P1): a failed load used to masquerade as an empty list.
+                    if (ui.error != null) item("load-error") {
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            InlineError(Icons.Rounded.Memory, stringResource(R.string.common_load_failed), ui.error ?: "", onRetry = viewModel::load)
+                        }
+                    }
                     item("empty") { Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { EmptyState(Icons.Rounded.Memory, stringResource(R.string.providers_empty_title), stringResource(R.string.providers_empty_subtitle)) } }
                 }
                 for (agent in ui.supportedAgents) {

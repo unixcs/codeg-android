@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.AgentAvatar
 import app.codeg.android.core.designsystem.component.EmptyState
+import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.AcpAgentInfo
@@ -48,7 +49,11 @@ fun AgentsContent(onOpen: (AgentType) -> Unit, viewModel: AgentsViewModel = hilt
     Box(Modifier.fillMaxSize()) {
         when {
             ui.loading && ui.agents.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
-            ui.agents.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState(Icons.Rounded.Person, stringResource(R.string.agents_empty_title), ui.error ?: stringResource(R.string.agents_empty_subtitle)) }
+            // 批v165 R3 (P2): an error is not an empty state — retryable error page.
+            ui.agents.isEmpty() && ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                InlineError(Icons.Rounded.Person, stringResource(R.string.common_load_failed), ui.error ?: "", onRetry = { viewModel.load() })
+            }
+            ui.agents.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState(Icons.Rounded.Person, stringResource(R.string.agents_empty_title), stringResource(R.string.agents_empty_subtitle)) }
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 // Per-device group header (v123): everything below is THIS device's
                 // pairing of the two switches, so the label says it out loud.

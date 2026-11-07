@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -24,6 +26,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -37,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -109,6 +114,20 @@ fun AgentMentionSheet(
                 onValueChange = { query = it },
                 placeholder = { Text(stringResource(R.string.mention_sheet_search), color = colors.textTertiary) },
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textSecondary) },
+                // 批v165 R3 (P2): clear affordance + IME action, matching the
+                // SearchScreen composer this field is modeled on.
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = stringResource(R.string.search_clear),
+                                tint = colors.textSecondary,
+                            )
+                        }
+                    }
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
                 colors = TextFieldDefaults.colors(
@@ -136,6 +155,14 @@ fun AgentMentionSheet(
                     TextButton(onClick = { viewModel.loadMentionAgents() }) {
                         Text(stringResource(R.string.mention_sheet_retry), color = colors.accent)
                     }
+                }
+                // 批v165 R3 (P1): the RPC is still in flight — never show the
+                // confident "no agents" empty state over it.
+                ui.mentionLoading && ui.mentionAgents.isEmpty() -> Box(
+                    Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = colors.accent)
                 }
                 ui.mentionAgents.isEmpty() -> Box(
                     Modifier.fillMaxWidth().padding(vertical = 32.dp),
@@ -171,6 +198,9 @@ fun AgentMentionSheet(
                             Row(
                                 Modifier
                                     .fillMaxWidth()
+                                    // 批v165 R3 (P2): rows without a description were
+                                    // ~40dp — below the 48dp touch minimum.
+                                    .heightIn(min = 48.dp)
                                     .clickable { onPick(agent) }
                                     .padding(horizontal = 4.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -182,6 +212,8 @@ fun AgentMentionSheet(
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = colors.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                     if (agent.description.isNotBlank()) {
                                         Text(

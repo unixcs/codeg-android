@@ -361,7 +361,10 @@ fun SessionDetailScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissDelegationGate, enabled = !ui.delegationGateBusy) {
+                // 批v165 R3 (P2): cancel stays live during Enabling… — the VM's
+                // stillOpen guard aborts the replay when the dialog closes. The
+                // back key could already do this; the button used to lie.
+                TextButton(onClick = viewModel::dismissDelegationGate) {
                     Text(stringResource(R.string.common_cancel), color = colors.textSecondary)
                 }
             },

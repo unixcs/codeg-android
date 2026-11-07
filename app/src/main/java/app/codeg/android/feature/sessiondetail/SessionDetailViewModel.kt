@@ -680,9 +680,10 @@ class SessionDetailViewModel @Inject constructor(
         if (c == null) {
             // 批v165 review R2: "no client" must not read as "no agents" — the
             // sheet would show a confident empty state over a broken session.
-            _ui.update { it.copy(mentionLoadFailed = true) }
+            _ui.update { it.copy(mentionLoadFailed = true, mentionLoading = false) }
             return
         }
+        _ui.update { it.copy(mentionLoading = true) }
         viewModelScope.launch {
             val agents = runCatching { c.acpListAgentMentions() }.getOrNull()
             _ui.update {
@@ -692,6 +693,7 @@ class SessionDetailViewModel @Inject constructor(
                     // list before the user could read it.
                     mentionAgents = agents.orEmpty().filter { a -> a.enabled }.distinctBy { a -> a.slug },
                     mentionLoadFailed = agents == null,
+                    mentionLoading = false,
                 )
             }
         }
@@ -3903,6 +3905,10 @@ data class SessionDetailUiState(
     /** The picker's probe died (network/decode) — the sheet offers a retry
      *  instead of an empty list that would read as "no agents". */
     val mentionLoadFailed: Boolean = false,
+    /** 批v165 R3 (P1): the RPC is in flight — an empty list is a RESULT, not a
+     *  loading state; without this the sheet shows a confident "no agents"
+     *  over a slow round trip. */
+    val mentionLoading: Boolean = false,
     /** The delegation gate is up: the draft carries an @ link but the server
      *  reports delegation disabled — sending would deliver inert text (the
      *  HOST_TOOLS=agent tool group strips delegation entirely), never a

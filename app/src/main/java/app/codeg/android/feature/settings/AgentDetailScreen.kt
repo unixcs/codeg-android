@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Warning
@@ -66,6 +67,7 @@ import app.codeg.android.core.designsystem.component.AgentAvatar
 import app.codeg.android.core.designsystem.component.CodegTextField
 import app.codeg.android.core.designsystem.component.CopyButton
 import app.codeg.android.core.designsystem.component.LoadingView
+import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.PrimaryButton
 import app.codeg.android.core.designsystem.component.SecretField
 import app.codeg.android.core.designsystem.theme.CodegColors
@@ -103,12 +105,28 @@ fun AgentDetailContent(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val detail = ui.detail
+    // 批v165 R3: `ui` is a delegated property — capture the error once so it
+    // can be smart-cast into the non-null branch below.
+    val loadError = ui.error
 
     // (Re)build the draft whenever the target agent changes.
     androidx.compose.runtime.LaunchedEffect(agentType) { viewModel.openDetail(agentType) }
 
     if (detail == null || detail.agentType != agentType) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
+        // 批v165 R3 (P1): a failed openDetail used to spin forever (the error
+        // state was never rendered here) — show the retryable error instead.
+        if (loadError != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                InlineError(
+                    Icons.Rounded.Person,
+                    stringResource(R.string.common_load_failed),
+                    loadError,
+                    onRetry = { viewModel.openDetail(agentType) },
+                )
+            }
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
+        }
         return
     }
 

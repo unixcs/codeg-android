@@ -220,7 +220,7 @@ private fun CommitRow(entry: GitLogEntry, onClick: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(entry.author, fontSize = 11.sp, color = colors.textTertiary, maxLines = 1)
                 Text(relativeDate(entry.date), fontSize = 11.sp, color = colors.textTertiary)
-                if (entry.totalAdditions > 0) Text("+${entry.totalAdditions}", fontSize = 11.sp, color = Color_Add)
+                if (entry.totalAdditions > 0) Text("+${entry.totalAdditions}", fontSize = 11.sp, color = colors.success)
                 if (entry.totalDeletions > 0) Text("−${entry.totalDeletions}", fontSize = 11.sp, color = colors.danger)
                 Box(Modifier.weight(1f))
                 Text(entry.hash, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = colors.textTertiary, modifier = Modifier.clip(RoundedCornerShape(50)).background(colors.textPrimary.copy(alpha = 0.06f)).padding(horizontal = 6.dp, vertical = 1.dp))
@@ -275,7 +275,6 @@ private fun CommitDetail(client: CodegClient, rootPath: String, entry: GitLogEnt
     }
 }
 
-private val Color_Add = Color(0xFF85D18F)
 
 private fun relativeDate(iso: String): String =
     runCatching { RelativeTime.compact(OffsetDateTime.parse(iso).toInstant()) }.getOrDefault(iso.take(10))

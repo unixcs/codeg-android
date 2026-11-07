@@ -68,6 +68,8 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MinimumInteractiveComponentSize
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -453,17 +455,30 @@ fun TaskHubScreen(
                     FailedBanner(ui = ui, onRetry = viewModel::retryFailedDevices)
                 }
                 ui.actionError?.let { error ->
-                    Text(
-                        text = stringResource(R.string.task_action_failed) + " · " + error,
-                        color = colors.danger,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
+                    // 批v165 R3 (P2): the whole line was tappable-to-dismiss with
+                    // zero affordance — give it a visible ✕.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp)
                             .clickable { viewModel.clearActionError() },
-                    )
+                    ) {
+                        Text(
+                            text = stringResource(R.string.task_action_failed) + " · " + error,
+                            color = colors.danger,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.common_cancel),
+                            tint = colors.danger,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
                 // Non-error outcome note (e.g. merge queued behind the folder's
                 // serial merge slot): tap to dismiss, same lifecycle as actionError.
@@ -1737,7 +1752,8 @@ private fun TaskAccentTone.composeColor(
 private fun FailedBanner(ui: TaskHubViewModel.UiState, onRetry: () -> Unit) {
     val names = ui.deviceStates
         .filter { it.status == DeviceLoadStatus.FAILED }
-        .joinToString("、") { it.name }
+        // 批v165 R3 (P2): a CJK 、 separator leaked into English locales.
+        .joinToString(", ") { it.name }
     // 批v147 视觉规范：加载失败只允许柔和文字行，严禁红底大卡片。
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2053,7 +2069,11 @@ private fun ConversationCardWeb(
     // "Running" is the server's persisted flag; live is the connection table.
     // Only the pair (flag running, nothing attached) is worth a warning — a
     // completed row is simply not live and must not be called disconnected.
-    val disconnected = conv.status == ConversationStatus.IN_PROGRESS && !entry.live
+    // 批v165 R3 (P2): delegation children are HIDDEN by the pet snapshot while
+    // they work (pet.rs) — an in_progress delegate row with live=false is
+    // normal, and the badge must not cry 已断开 at a healthy sub-session.
+    val disconnected = conv.status == ConversationStatus.IN_PROGRESS &&
+        !entry.live && conv.kind != "delegate"
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2145,20 +2165,29 @@ private fun ConversationCardWeb(
                 }
                 Spacer(Modifier.weight(1f))
                 Box {
+                    // 批v165 R3 (P2): 48dp touch target — the 32dp circle stays the
+                    // VISUAL; the tappable area extends to Material minimum around
+                    // it (this sits next to dense actions on a compact card).
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .border(1.dp, colors.textPrimary.copy(alpha = 0.18f), CircleShape)
+                            .minimumInteractiveComponentSize()
                             .clickable { menuOpen = true },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.Rounded.MoreHoriz,
-                            contentDescription = stringResource(R.string.task_more_actions),
-                            tint = colors.textSecondary,
-                            modifier = Modifier.size(16.dp),
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .border(1.dp, colors.textPrimary.copy(alpha = 0.18f), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Rounded.MoreHoriz,
+                                contentDescription = stringResource(R.string.task_more_actions),
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
@@ -2433,20 +2462,27 @@ private fun TaskCardWeb(
                         // a superset — nothing is lost except the circles).
                         if (actions.secondaries.isNotEmpty() || task.conversationId != null) {
                             if (actions.primary == null) Spacer(Modifier.weight(1f))
+                            // 批v165 R3 (P2): 48dp touch target around the 32dp circle.
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .border(1.dp, colors.textPrimary.copy(alpha = 0.18f), CircleShape)
+                                    .minimumInteractiveComponentSize()
                                     .clickable { menuOpen = true },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(
-                                    Icons.Rounded.MoreHoriz,
-                                    contentDescription = stringResource(R.string.task_more_actions),
-                                    tint = colors.textSecondary,
-                                    modifier = Modifier.size(16.dp),
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .border(1.dp, colors.textPrimary.copy(alpha = 0.18f), CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.MoreHoriz,
+                                        contentDescription = stringResource(R.string.task_more_actions),
+                                        tint = colors.textSecondary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
                     } else if (actions.secondaries.isNotEmpty()) {
@@ -2520,21 +2556,28 @@ private fun CardPrimaryPill(
 private fun CardIconAction(action: CardAction, enabled: Boolean, onClick: () -> Unit) {
     val colors = CodegTheme.colors
     val tint = if (action.danger) colors.danger else colors.textSecondary
+    // 批v165 R3 (P2): 48dp touch target around the 32dp visual circle.
     Box(
         modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .border(1.dp, colors.textPrimary.copy(alpha = 0.18f), CircleShape)
-            .alpha(if (enabled) 1f else 0.38f)
+            .minimumInteractiveComponentSize()
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            action.icon,
-            contentDescription = stringResource(action.labelRes),
-            tint = tint,
-            modifier = Modifier.size(15.dp),
-        )
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .border(1.dp, colors.textPrimary.copy(alpha = 0.18f), CircleShape)
+                .alpha(if (enabled) 1f else 0.38f),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                action.icon,
+                contentDescription = stringResource(action.labelRes),
+                tint = tint,
+                modifier = Modifier.size(15.dp),
+            )
+        }
     }
 }
 

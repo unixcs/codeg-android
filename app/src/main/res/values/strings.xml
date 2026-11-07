@@ -228,6 +228,8 @@
     <!-- Common -->
     <string name="common_retry">Retry</string>
     <string name="common_dismiss">Dismiss</string>
+    <string name="common_load_failed">Couldn\'t load</string>
+    <string name="projects_folder_not_found">Folder not found</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_save">Save</string>
     <string name="common_delete">Delete</string>
