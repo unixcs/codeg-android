@@ -5,8 +5,9 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -18,6 +19,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Batch v136 regression: every store in the app shares ONE Preferences DataStore
@@ -43,22 +46,42 @@ class ServerStoreTest {
     val tmp = TemporaryFolder()
 
     private val scopes = mutableListOf<CoroutineScope>()
+    private val executors = mutableListOf<ExecutorService>()
 
     @After
     fun tearDown() {
         scopes.forEach { it.cancel() }
+        executors.forEach { it.shutdownNow() }
+    }
+
+    /**
+     * 批v165 rc.3: the shared Dispatchers.IO pool arrives poisoned by leaked
+     * coroutines from the VM tests immediately preceding this class in
+     * execution order (SearchViewModelTest's real-dispatcher worlds — 批v163
+     * documented the same flake class as "rotating victims", and no forkEvery
+     * segment can separate alphabetically-adjacent classes). In the rc.3
+     * Verify red the symptom was precisely one of the two `data` collectors
+     * starving for the whole 90s budget while its sibling kept receiving from
+     * the same DataStore. Run this test's DataStore actor AND collectors on a
+     * dedicated 2-thread executor instead of the shared pool — isolation, not
+     * a bigger budget, is what stops the rotation.
+     */
+    private fun testDispatcher(): ExecutorCoroutineDispatcher {
+        val executor = Executors.newFixedThreadPool(2)
+        executors += executor
+        return executor.asCoroutineDispatcher()
     }
 
     private fun newDataStore(): DataStore<Preferences> {
         val dir = tmp.newFolder()
-        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob() + testScopeHandler()).also { scopes += it }
+        val scope = CoroutineScope(testDispatcher() + SupervisorJob() + testScopeHandler()).also { scopes += it }
         return PreferenceDataStoreFactory.create(scope = scope) {
             File(dir, "codeg_prefs.preferences_pb")
         }
     }
 
     private fun collectorScope(): CoroutineScope =
-        CoroutineScope(Dispatchers.IO + SupervisorJob() + testScopeHandler()).also { scopes += it }
+        CoroutineScope(testDispatcher() + SupervisorJob() + testScopeHandler()).also { scopes += it }
 
     /** Teardown noise silencer: after `tearDown` cancels a scope, its coroutines
      *  can still race the TemporaryFolder deletion and throw (e.g. writing to the
