@@ -229,8 +229,16 @@ fun SessionDetailScreen(
     // session, or restored from DataStore) is the user's work, and the old
     // "only fill an empty composer" rule silently ATE the reference whenever a
     // draft happened to exist — the one outcome the gesture must never produce.
+    var seedApplied by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(seedText) {
-        if (seedText.isNullOrEmpty()) return@LaunchedEffect
+        if (seedText.isNullOrEmpty() || seedApplied) return@LaunchedEffect
+        // 批v165 R1 (P1): one-shot per screen instance. `draft` is a plain
+        // remember — on rotation it resets to "", the persisted copy may still
+        // predate the debounced save, and the endsWith guard below then sees
+        // "no seed yet" and appends the reference a second time. A consumed
+        // flag survives rotation (rememberSaveable) and dies with the entry,
+        // so a genuinely new seed (fresh navigation) still lands.
+        seedApplied = true
         val persisted = runCatching { viewModel.loadPersistedDraft() }.getOrDefault("")
         val existing = draft.ifBlank { persisted }
         draft = when {

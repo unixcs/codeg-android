@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -190,6 +191,13 @@ class TokenUsageViewModel @Inject constructor(
                 repository.tasksAll,
             ) { tick, selectedId, allMode -> Triple(tick, selectedId, allMode) }
                 .distinctUntilChanged()
+                .retryWhen { _, attempt ->
+                        // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
+                        // bare collector dying here is the v130 crash class (process kill from a
+                        // screen entry) AND "deaf for life" if it never re-arms.
+                        kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                        true
+                }
                 .collectLatest {
                     // Any distinct emission (entry / refresh / sync / scope
                     // switch) is a full re-slice; collectLatest cancels the
@@ -349,6 +357,9 @@ class TokenUsageViewModel @Inject constructor(
     }
 
     companion object {
-        private const val SYNC_TIMEOUT_MS = 120_000L
+        // 批v165 R1 (P2): 130s — a hair ABOVE the server's 120s sync budget so the
+// client never times out first and turns a slow-but-successful sync into a
+// phantom failure.
+private const val SYNC_TIMEOUT_MS = 130_000L
     }
 }

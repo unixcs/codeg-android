@@ -511,7 +511,11 @@ private fun FileActionSheet(
                     scope.launch {
                         val result = runCatching {
                             withContext(Dispatchers.IO) {
-                                val b64 = client.readWorkspaceFileBase64(rootPath, rel, maxBytes = 100 * 1024 * 1024)
+                                // 批v165 R1 (P1): 10MB, same ceiling as the preview
+                                // path (:readWorkspaceFileBase64 there) — 100MB base64
+                                // (~133MB string + bytes on decode) OOMs the app heap.
+                                // Larger files go through Download, which streams.
+                                val b64 = client.readWorkspaceFileBase64(rootPath, rel, maxBytes = 10 * 1024 * 1024)
                                 val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
                                 val dir = java.io.File(context.cacheDir, "open_with").apply { mkdirs() }
                                 val file = java.io.File(dir, target.name)

@@ -170,6 +170,13 @@ class SessionListViewModel @Inject constructor(
                 // cancelling a healthy in-flight fetch, which used to strand the busy
                 // flags (and silently swallow a pull-to-refresh).
                 .distinctUntilChanged()
+                .retryWhen { _, attempt ->
+                        // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a bare
+                        // collector dying here is the v130 crash class (process kill from a screen
+                        // entry) AND "deaf for life" if it never re-arms.
+                        kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                        true
+                }
                 .collectLatest { input ->
                     val (profile, all, tick) = input
                     // The device SET/signature includes includeInAll (batch v137):

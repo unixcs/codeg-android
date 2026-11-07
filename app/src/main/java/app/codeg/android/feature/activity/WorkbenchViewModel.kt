@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
@@ -310,6 +311,10 @@ class WorkbenchViewModel @Inject constructor(
         repository.profiles
             .map { list -> list.filter { it.visible && it.includeInAll } }
             .distinctUntilChanged()
+            // 批v165 R1 (P2): the FIRST profiles emission (cold-start DataStore
+            // read) is not a change — pollLoop's tick==0 branch already fetches;
+            // the initial bump double-fetched on every screen entry.
+            .drop(1)
             .onEach { _refreshTick.value += 1 }
             .retryWhen { _, attempt ->
                 delay(if (attempt < 3) 1_000 else 5_000)
@@ -335,6 +340,13 @@ class WorkbenchViewModel @Inject constructor(
                 repository.activityAll,
             ) { tick, active, fg, selectedId, allMode ->
                     RoundSignal(tick, active, fg, selectedId, allMode) }
+                .retryWhen { _, attempt ->
+                        // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
+                        // bare collector dying here is the v130 crash class (process kill from a
+                        // screen entry) AND "deaf for life" if it never re-arms.
+                        kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                        true
+                }
                 .collectLatest { signal ->
                     val (tick, active, fg, selectedId, allMode) = signal
                     if (active && fg) {

@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -111,7 +112,15 @@ class SearchViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.selectedProfile.collectLatest { profile ->
+            repository.selectedProfile
+                .retryWhen { _, attempt ->
+                    // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
+                    // bare collector dying here is the v130 crash class (process kill from a
+                    // screen entry) AND "deaf for life" if it never re-arms.
+                    kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                    true
+                }
+                .collectLatest { profile ->
                 // Resolve BEFORE committing any state: repository.client() suspends on
                 // the token read, and a cancellation mid-way (collectLatest) must not
                 // leave a half-switched client or a wiped list behind.
@@ -177,6 +186,13 @@ class SearchViewModel @Inject constructor(
                 repository.searchAll,
                 repository.visibleProfiles.map { it.aggregateDeviceSignature() }.distinctUntilChanged(),
             ) { all, sig -> all to sig }
+                .retryWhen { _, attempt ->
+                        // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
+                        // bare collector dying here is the v130 crash class (process kill from a
+                        // screen entry) AND "deaf for life" if it never re-arms.
+                        kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                        true
+                }
                 .collectLatest { (all, sig) ->
                     val sigChanged = lastSig != null && sig != lastSig
                     val modeChanged = lastAll != null && all != lastAll

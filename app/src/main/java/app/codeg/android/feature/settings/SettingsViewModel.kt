@@ -42,12 +42,16 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val profile = repository.selectedProfile.first()
-            _about.update { it.copy(serverName = profile?.name) }
-            if (profile != null) {
-                val client = repository.client(profile)
-                val version = client?.let { runCatching { it.health().version }.getOrNull() }
-                _about.update { it.copy(serverVersion = version) }
+            // 批v165 R1 (P0): a DataStore read failure here must not kill the
+            // process (v130 class) — degrade to the default About block.
+            runCatching {
+                val profile = repository.selectedProfile.first()
+                _about.update { it.copy(serverName = profile?.name) }
+                if (profile != null) {
+                    val client = repository.client(profile)
+                    val version = client?.let { runCatching { it.health().version }.getOrNull() }
+                    _about.update { it.copy(serverVersion = version) }
+                }
             }
         }
         // Device-local last-crash report (batch v123), shown on the About page.

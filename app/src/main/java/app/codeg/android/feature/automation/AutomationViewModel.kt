@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -173,6 +174,13 @@ class AutomationViewModel @Inject constructor(
                 repository.selectedId,
                 repository.tasksAll,
             ) { tick, active, fg, _, _ -> PollInputs(tick, active, fg) }
+                .retryWhen { _, attempt ->
+                        // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
+                        // bare collector dying here is the v130 crash class (process kill from a
+                        // screen entry) AND "deaf for life" if it never re-arms.
+                        kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                        true
+                }
                 .collectLatest { input ->
                     if (input.tick > 0 && input.tick != lastSeenTick) {
                         lastSeenTick = input.tick

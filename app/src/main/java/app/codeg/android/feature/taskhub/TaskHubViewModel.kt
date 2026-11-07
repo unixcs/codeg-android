@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import app.codeg.android.CodegApplication
 import app.codeg.android.R
 import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
+import app.codeg.android.core.data.LIVE_PROBE_TIMEOUT_MS
 import app.codeg.android.core.data.DeviceLoad
 import app.codeg.android.core.data.DeviceLoadStatus
 import app.codeg.android.core.data.ServerRepository
@@ -395,6 +396,13 @@ class TaskHubViewModel @Inject constructor(
                 repository.selectedId,
                 repository.tasksAll,
             ) { tick, active, fg, _, _ -> PollInputs(tick, active, fg) }
+                .retryWhen { _, attempt ->
+                        // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
+                        // bare collector dying here is the v130 crash class (process kill from a
+                        // screen entry) AND "deaf for life" if it never re-arms.
+                        kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                        true
+                }
                 .collectLatest { input ->
                     // Arm the tick even when off the board: a ledger write that
                     // lands while the board is hidden must NOT trigger a full
@@ -676,11 +684,12 @@ class TaskHubViewModel @Inject constructor(
                         } ?: throw java.util.concurrent.TimeoutException("device timeout")
                     }
                     if (gen != generation) return@launch
-                    // 批v161.3 R4: same per-device ceiling as the list call — the
-                    // live probe rode the raw client with no timeout, so one hung
-                    // device held its slice's update (and the round) hostage.
+                    // 批v161.3 R4 + 批v165 R1: the probe has its own 2s ceiling
+                    // (LIVE_PROBE_TIMEOUT_MS, same budget as Activity) — it is a
+                    // nice-to-have signal and must never hold the round hostage
+                    // the way a hung device rode the raw client pre-v161.3.
                     val liveIds = runCatching {
-                        withTimeoutOrNull(AGG_DEVICE_TIMEOUT_MS) { client.liveConversationIds() }
+                        withTimeoutOrNull(LIVE_PROBE_TIMEOUT_MS) { client.liveConversationIds() }
                     }.getOrNull()
                     result.onSuccess { convs ->
                         val byId = convs.associateBy { it.id }

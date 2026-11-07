@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -35,7 +36,15 @@ class ProjectsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.selectedProfile.collectLatest { profile -> onProfile(profile) }
+            repository.selectedProfile
+                .retryWhen { _, attempt ->
+                    // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
+                    // bare collector dying here is the v130 crash class (process kill from a
+                    // screen entry) AND "deaf for life" if it never re-arms.
+                    kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                    true
+                }
+                .collectLatest { profile -> onProfile(profile) }
         }
         // Refetch when a folder is registered/opened elsewhere (e.g. a worktree
         // created during a session's branch switch).

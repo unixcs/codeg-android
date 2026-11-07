@@ -31,6 +31,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -78,7 +79,15 @@ class AgentsViewModel @Inject constructor(
         // devices toggle together" report = writes landing on the wrong device).
         viewModelScope.launch {
             var lastId: String? = repository.selectedProfile.first()?.id
-            repository.selectedProfile.collect { profile ->
+            repository.selectedProfile
+                .retryWhen { _, attempt ->
+                        // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
+                        // bare collector dying here is the v130 crash class (process kill from a
+                        // screen entry) AND "deaf for life" if it never re-arms.
+                        kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
+                        true
+                }
+                .collect { profile ->
                 val id = profile?.id
                 if (id == lastId) return@collect
                 lastId = id
