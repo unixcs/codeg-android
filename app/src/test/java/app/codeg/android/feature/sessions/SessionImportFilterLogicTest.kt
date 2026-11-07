@@ -137,7 +137,8 @@ class SessionImportFilterLogicTest {
                 ),
             ),
         )
-        fun ids(query: String) = compute(folders, query = query).single().visibleSessions.map { it.externalId }
+        // flatMap 而非 single().visibleSessions：无匹配时组被丢弃、compute 返回空列表
+        fun ids(query: String) = compute(folders, query = query).flatMap { it.visibleSessions }.map { it.externalId }
 
         assertTrue("deploy".contains("ploy", ignoreCase = true)) // sanity of contains semantics
         assertEquals(listOf("t", "g", "x"), ids(""))          // 空词全量
