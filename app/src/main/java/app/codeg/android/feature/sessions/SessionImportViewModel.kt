@@ -260,7 +260,8 @@ class SessionImportViewModel @Inject constructor(
      *  the update, never trusting the UI's captured VisibleFolder: a frame of
      *  recomposition lag (e.g. includeDeleted just toggled off) must not let
      *  a stale group add now-illegal keys to the selection. */
-    fun toggleFolderGroup(group: VisibleFolder) {
+    // internal: VisibleFolder is a file-internal view type; all callers are same-module UI.
+    internal fun toggleFolderGroup(group: VisibleFolder) {
         _ui.update { state ->
             val scan = state.scan ?: return@update state
             val fresh = computeVisibleFolders(scan, state)
