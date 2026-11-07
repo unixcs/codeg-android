@@ -211,25 +211,51 @@ class TaskBoardTest {
         updatedAt = Instant.parse(updatedAt),
     )
 
-    private fun boardConv(id: Int, status: String, messageCount: Int = 4, updatedAt: String = "2026-11-06T10:00:00Z") =
-        BoardConversationEntry(
-            serverId = "s1",
-            serverName = "srv-s1",
-            conversation = conv(id, status, messageCount, updatedAt),
-            live = true,
-            archived = false,
-        )
+    private fun boardConv(
+        id: Int,
+        status: String,
+        messageCount: Int = 4,
+        updatedAt: String = "2026-11-06T10:00:00Z",
+        live: Boolean = true,
+    ) = BoardConversationEntry(
+        serverId = "s1",
+        serverName = "srv-s1",
+        conversation = conv(id, status, messageCount, updatedAt),
+        live = live,
+        archived = false,
+    )
 
-    /** §3.1: a session that exists but has said nothing yet is 待办, not 进行中. */
+    /**
+     * 批v165: the column is `live || started` for in_progress rows — the old
+     * messageCount rule filed every generating native session under 待办
+     * (the server never maintains message_count for native sessions). Started
+     * = updatedAt strictly past createdAt (+ε), i.e. the server bumped it on a
+     * prompt claim at least once.
+     */
     @Test
-    fun `conversation segment maps status and the empty-session rule`() {
-        assertEquals(TaskSegment.TODO, conversationSegmentOf(conv(1, "in_progress", messageCount = 0)))
-        assertEquals(TaskSegment.RUNNING, conversationSegmentOf(conv(1, "in_progress", messageCount = 1)))
-        assertEquals(TaskSegment.ATTENTION, conversationSegmentOf(conv(1, "pending_review")))
-        assertEquals(TaskSegment.DONE, conversationSegmentOf(conv(1, "completed")))
-        assertEquals(TaskSegment.DONE, conversationSegmentOf(conv(1, "cancelled")))
+    fun `conversation segment maps status and the started rule`() {
+        // Never prompted: updatedAt == createdAt (same server clock read), no
+        // live connection → the one true 待办.
+        assertEquals(
+            TaskSegment.TODO,
+            conversationSegmentOf(boardConv(1, "in_progress", live = false, updatedAt = "2026-11-06T09:00:00Z")),
+        )
+        // Prompted but the live probe can't see it (delegation child / idle):
+        // updatedAt moved past createdAt → running, NOT 待办. The v165 bug.
+        assertEquals(
+            TaskSegment.RUNNING,
+            conversationSegmentOf(boardConv(2, "in_progress", live = false, messageCount = 0)),
+        )
+        // Probe sees the connection → running regardless of timestamps.
+        assertEquals(
+            TaskSegment.RUNNING,
+            conversationSegmentOf(boardConv(3, "in_progress", live = true, updatedAt = "2026-11-06T09:00:00Z")),
+        )
+        assertEquals(TaskSegment.ATTENTION, conversationSegmentOf(boardConv(4, "pending_review")))
+        assertEquals(TaskSegment.DONE, conversationSegmentOf(boardConv(5, "completed")))
+        assertEquals(TaskSegment.DONE, conversationSegmentOf(boardConv(6, "cancelled")))
         // Unknown wire values must never vanish: they stay in the running column.
-        assertEquals(TaskSegment.RUNNING, conversationSegmentOf(conv(1, "mystery")))
+        assertEquals(TaskSegment.RUNNING, conversationSegmentOf(boardConv(7, "mystery")))
     }
 
     /** One clock: tasks (scheduled first) and sessions interleave by epoch millis. */

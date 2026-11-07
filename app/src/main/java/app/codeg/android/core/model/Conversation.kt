@@ -20,6 +20,12 @@ data class ConversationSummary(
     val gitBranch: String? = null,
     val externalId: String? = null,
     val messageCount: Int = 0,
+    /** Wire `kind`: "regular" | "chat" | "loop" | "delegate" (Rust
+     *  `ConversationKind`). Null on a hypothetical old server that omits it.
+     *  批v165: `delegate` rows are delegation sub-sessions — the server's pet
+     *  snapshot deliberately EXCLUDES them while they work, so live-probe
+     *  consumers must not treat "not probed" as "not running" for them. */
+    val kind: String? = null,
     @Serializable(with = InstantSerializer::class)
     val createdAt: Instant,
     @Serializable(with = InstantSerializer::class)

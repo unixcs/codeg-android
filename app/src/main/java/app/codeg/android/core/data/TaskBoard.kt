@@ -84,22 +84,53 @@ data class BoardConversationEntry(
     val archived: Boolean,
 )
 
+/** Grace window for the "has this session ever been prompted" heuristic: the
+ *  server stamps `created_at` and `updated_at` with the same clock read at
+ *  create, so equality means untouched; anything a prompt did moves `updated_at`
+ *  a full clock read later. Two seconds absorbs sub-second storage rounding. */
+private const val STARTED_EPSILON_SECONDS = 2L
+
 /**
- * Conversation status → the same four columns the tasks use. `in_progress` is
- * where a freshly created session lives (the server creates every row that way),
- * which is why the card also carries [BoardConversationEntry.live]: the badge,
- * not the column, tells "actually running" from "row exists, nothing attached".
+ * Conversation status → the same four columns the tasks use. 批v165: three
+ * signals, because the row's status alone cannot separate 待办 from running.
+ * Every row is BORN `in_progress` (create_inner) and `message_count` is never
+ * maintained for native sessions (only imports and delegation children ever get
+ * a write), so the old `in_progress && messageCount == 0 → 待办` rule filed
+ * every generating native session under 待办 — the v165 board bug.
+ *
+ * What actually distinguishes "never started":
+ * - [BoardConversationEntry.live] — the device's live connection table. Exact
+ *   but INCOMPLETE: the pet payload deliberately hides delegation sub-agents
+ *   while they work and skips idle connections, so a generating sub-session can
+ *   report live=false. Never the sole gate.
+ * - `updatedAt > createdAt (+ε)` — the server stamps both with one clock read
+ *   at create and bumps `updated_at` on every prompt claim (manager prompt-start
+ *   "WRITE FIRST") and every status transition. Strictly greater == prompted at
+ *   least once, however the session was launched. (A manual rename also bumps
+ *   it — the one benign false "started": a renamed-but-never-prompted session
+ *   sits in 运行中 instead of 待办.)
+ *
+ * TurnComplete moves a finished turn to `pending_review` (→ 待处理), so
+ * `in_progress` + started means genuinely mid-turn or a turn stranded by a
+ * server restart — 运行中 is the least-wrong column for both.
  */
-fun conversationSegmentOf(conversation: ConversationSummary): TaskSegment = when {
-    // A member that never sent a prompt has not started anything, even though
-    // the server row is BORN `in_progress` (create_inner) — §3.1's first row.
-    conversation.status == ConversationStatus.IN_PROGRESS && conversation.messageCount == 0 ->
-        TaskSegment.TODO
-    conversation.status == ConversationStatus.IN_PROGRESS -> TaskSegment.RUNNING
-    conversation.status == ConversationStatus.PENDING_REVIEW -> TaskSegment.ATTENTION
-    conversation.status == ConversationStatus.COMPLETED -> TaskSegment.DONE
-    conversation.status == ConversationStatus.CANCELLED -> TaskSegment.DONE
-    else -> TaskSegment.RUNNING
+fun conversationSegmentOf(entry: BoardConversationEntry): TaskSegment {
+    val conversation = entry.conversation
+    return when {
+        conversation.status == ConversationStatus.PENDING_REVIEW -> TaskSegment.ATTENTION
+        conversation.status == ConversationStatus.COMPLETED -> TaskSegment.DONE
+        conversation.status == ConversationStatus.CANCELLED -> TaskSegment.DONE
+        conversation.status == ConversationStatus.IN_PROGRESS -> when {
+            entry.live -> TaskSegment.RUNNING
+            conversation.updatedAt >
+                conversation.createdAt.plusSeconds(STARTED_EPSILON_SECONDS) -> TaskSegment.RUNNING
+            // A member that never sent a prompt has not started anything, even
+            // though the server row is BORN `in_progress` — §3.1's first row.
+            else -> TaskSegment.TODO
+        }
+        // Unknown wire values must never vanish: they stay in the running column.
+        else -> TaskSegment.RUNNING
+    }
 }
 
 /**
@@ -180,7 +211,7 @@ fun buildBoard(
     // archived filter on — the same rule tasks follow ([isArchivedLike]).
     val convVisible = conversations.filter { showArchived || !it.archived }
     val convGrouped = convVisible.groupBy {
-        if (it.archived) TaskSegment.DONE else conversationSegmentOf(it.conversation)
+        if (it.archived) TaskSegment.DONE else conversationSegmentOf(it)
     }
     val conversationsBySegment = SEGMENT_ORDER.associateWith { column ->
         convGrouped[column].orEmpty().sortedByDescending { it.conversation.updatedAt }

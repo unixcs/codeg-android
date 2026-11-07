@@ -482,8 +482,17 @@ class TaskHubViewModel @Inject constructor(
             )
         }
         loadFolderNames(devices)
-        fetchDevices(ids, devices, gen)
-        fetchTrackedConversations(devices, gen)
+        // 批v165: these two ran SERIALLY — fetchDevices' internal coroutineScope
+        // waits for EVERY device before fetchTrackedConversations even started,
+        // so one slow/timeout device (win, AGG_DEVICE_TIMEOUT_MS = 10s) delayed
+        // the whole conversation slice by its full budget every round. The user
+        // saw this as "added to the board, pulled to refresh, nothing — only
+        // killing the app sometimes showed it". Both fetch paths only touch
+        // disjoint slices of _ui and are gen-guarded, so they race safely.
+        coroutineScope {
+            launch { fetchDevices(ids, devices, gen) }
+            launch { fetchTrackedConversations(devices, gen) }
+        }
         if (gen == generation) _ui.update { it.copy(lastRefreshed = Instant.now(), hasLoaded = true) }
     }
 
@@ -679,7 +688,18 @@ class TaskHubViewModel @Inject constructor(
                                 // Probe failed (old server) → fall back to the status
                                 // flag, never to "not running" (which would dim a
                                 // genuinely live session).
-                                live = liveIds?.contains(conversation.id) ?: conversation.status.isLive,
+                                // 批v165: a probe that ANSWERED still has one blind
+                                // spot — pet deliberately hides delegation children
+                                // while they work (pet.rs), so an in_progress
+                                // delegate row it doesn't list is a working
+                                // sub-session, not an idle one. (The column itself
+                                // no longer depends on this flag; the badge does.)
+                                live = when {
+                                    liveIds == null -> conversation.status.isLive
+                                    conversation.id in liveIds -> true
+                                    conversation.kind == "delegate" && conversation.status.isLive -> true
+                                    else -> false
+                                },
                                 archived = member.archivedAt != null,
                             )
                         }

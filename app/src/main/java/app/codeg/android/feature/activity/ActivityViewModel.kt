@@ -442,11 +442,20 @@ class ActivityViewModel @Inject constructor(
         // a permission. Null (probe failed) keeps the old status-only behavior —
         // never hide a session that may really be running.
         // 批v155 bugfix: the status-only fallback is now age-bounded
-        // ([RUNNING_STATUS_MAX_AGE]). A running turn streams messages, so its
-        // updated_at advances; a frozen row is a turn that died mid-flight (server
-        // powered off — no terminal status write) and must not re-enter 运行中
-        // every time one probe round flakes. When the probe answers, it wins
-        // unchanged — the age bound only guards the degraded round.
+        // ([RUNNING_STATUS_MAX_AGE]). A frozen row is a turn that died mid-flight
+        // (server powered off — no terminal status write) and must not re-enter
+        // 运行中 every time one probe round flakes. When the probe answers, it
+        // wins unchanged — the age bound only guards the degraded round.
+        // 批v165 correction + blind-spot fix: updated_at does NOT advance per
+        // message (server bumps it at prompt-claim and status transitions only —
+        // there is no per-message write), so the age bound is a coarse guard, not
+        // a liveness signal. And an ANSWERING probe still hides delegation
+        // children by design while they work (pet.rs): an in_progress `delegate`
+        // row the probe doesn't list is a working sub-session, not a corpse —
+        // without the clause the 正在运行 section drops it every round. The trade:
+        // a delegate row stranded mid-turn by an unclean server death also shows
+        // until the user completes/cancels it (the desktop sidebar spins the same
+        // way; no server-side reconciliation exists).
         val liveIds = withTimeoutOrNull(LIVE_PROBE_TIMEOUT_MS) { c.liveConversationIds() }
         val fallbackCutoff = Instant.now().minus(RUNNING_STATUS_MAX_AGE)
         return conversations.map { conv ->
@@ -455,9 +464,12 @@ class ActivityViewModel @Inject constructor(
                 serverId = server.id,
                 serverName = server.name,
                 folderName = folders[conv.folderId],
-                live = conv.status.isLive && when (liveIds) {
-                    null -> conv.updatedAt.isAfter(fallbackCutoff)
-                    else -> conv.id in liveIds
+                live = conv.status.isLive && when {
+                    liveIds == null ->
+                        conv.updatedAt.isAfter(fallbackCutoff) || conv.kind == "delegate"
+                    conv.id in liveIds -> true
+                    conv.kind == "delegate" -> true
+                    else -> false
                 },
             )
         }
