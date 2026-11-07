@@ -243,6 +243,10 @@ class CodegClient(
         status: String? = null,
         search: String? = null,
         sortBy: String? = null,
+        /** 批v164: server defaults to HIDING rows with a parent_id (delegation
+         *  sub-sessions). Pass true to include them — the task board's tracked
+         *  members can be sub-sessions joined from the board. */
+        includeChildren: Boolean? = null,
     ): List<ConversationSummary> =
         decode(
             send(
@@ -253,6 +257,7 @@ class CodegClient(
                         search = search,
                         sortBy = sortBy,
                         status = status,
+                        includeChildren = includeChildren,
                     ),
                 ),
             ),

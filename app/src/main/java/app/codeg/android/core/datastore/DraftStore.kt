@@ -110,5 +110,10 @@ class DraftStore @Inject constructor(
          *  and a different project keeps its own draft. */
         fun dispatchKey(serverId: String?, entry: String, folderId: Int): String =
             "${serverId ?: "?"}:dispatch:$entry:$folderId"
+
+        /** 批v164: idea-editor drafts. [entry] separates the two editors ("quick"
+         *  for the ball's 记录想法 sheet, "inbox" for the inbox 新想法 dialog) so
+         *  a half-typed idea in one never surfaces in the other. */
+        fun ideaKey(entry: String): String = "idea:$entry"
     }
 }

@@ -87,6 +87,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,6 +103,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -112,6 +115,7 @@ import app.codeg.android.core.data.DispatchTargets
 import app.codeg.android.core.data.LocalAttachment
 import app.codeg.android.core.datastore.DispatchRef
 import app.codeg.android.core.datastore.DispatchState
+import app.codeg.android.core.datastore.DraftEntry
 import app.codeg.android.core.datastore.IdeaEntry
 import app.codeg.android.core.datastore.INBOX_IDEA_STYLE_CENTER_WIDE
 import app.codeg.android.core.designsystem.component.AgentChipRow
@@ -384,6 +388,10 @@ fun InboxScreen(
             loadTarget = viewModel::loadTarget,
             probeAgentOptions = viewModel::probeAgentOptions,
             onDismiss = { creating = false; editingId = null },
+            // 批v164: draft memory rides along only in new-idea mode — an
+            // existing idea's text lives in its own row, not in a draft slot.
+            loadDraft = if (editing == null) ({ viewModel.loadIdeaDraft() }) else null,
+            saveDraft = if (editing == null) viewModel::saveIdeaDraft else null,
             onSave = { title, desc, attachments ->
                 viewModel.saveIdea(editing?.id, title, desc, source = editing, attachments = attachments)
                 creating = false
@@ -949,6 +957,10 @@ private fun IdeaEditorDialog(
     targets: DispatchTargets,
     loadTarget: (String) -> Unit,
     probeAgentOptions: suspend (String, AgentType, String?) -> AgentOptionsSnapshot?,
+    /** 批v164: 新想法 draft memory. Null in edit mode — an existing idea's text
+     *  lives in its own row, so there is no draft to restore or persist. */
+    loadDraft: (suspend () -> DraftEntry)?,
+    saveDraft: ((String, String) -> Unit)?,
     onDismiss: () -> Unit,
     onSave: (String, String, List<LocalAttachment>) -> Unit,
     /** 批v155 段2: 一键插待办 — create the work task directly (待办, no auto
@@ -958,6 +970,29 @@ private fun IdeaEditorDialog(
 ) {
     var title by rememberSaveable(initial?.id ?: "new") { mutableStateOf(initial?.title.orEmpty()) }
     var description by rememberSaveable(initial?.id ?: "new") { mutableStateOf(initial?.description.orEmpty()) }
+    // 批v164: half-typed 新想法 survives close/reopen — same recipe as the
+    // dispatch form (DispatchForm.kt): restore once from DraftStore, then
+    // debounce-persist every change. The VM clears the slot only after the
+    // idea is durably saved, so a failed save keeps the user's text.
+    var draftRestored by rememberSaveable { mutableStateOf(false) }
+    if (initial == null && loadDraft != null) {
+        LaunchedEffect(Unit) {
+            val stored = runCatching { loadDraft() }.getOrNull() ?: return@LaunchedEffect
+            if (title.isBlank()) title = stored.title
+            if (description.isBlank()) description = stored.text
+            draftRestored = true
+        }
+        LaunchedEffect(draftRestored) {
+            val persist = saveDraft ?: return@LaunchedEffect
+            if (!draftRestored) return@LaunchedEffect
+            snapshotFlow { title to description }
+                .distinctUntilChanged()
+                .collectLatest { (t, d) ->
+                    kotlinx.coroutines.delay(500)
+                    persist(t, d)
+                }
+        }
+    }
     // 批v154: attachments live in app-private storage; the editor owns only the
     // list. Copies staged HERE are deleted on cancel — the idea's own are not.
     val attachments = remember {

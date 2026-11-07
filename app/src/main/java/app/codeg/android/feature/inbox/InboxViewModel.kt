@@ -16,6 +16,7 @@ import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.datastore.DispatchRef
 import app.codeg.android.core.datastore.DispatchState
 import app.codeg.android.core.datastore.DispatchStore
+import app.codeg.android.core.datastore.DraftStore
 import app.codeg.android.core.datastore.IdeaEntry
 import app.codeg.android.core.datastore.IdeaStore
 import app.codeg.android.core.model.AgentType
@@ -225,11 +226,41 @@ class InboxViewModel @Inject constructor(
                 // Only after the row is durable — a failed save must not delete
                 // bytes a still-persisted entry points at.
                 dropped.forEach(attachmentStager::discard)
+                // 批v164: a NEW idea made it to the inbox — its composer draft has
+                // served its purpose. Edit-mode saves don't touch the draft: it
+                // belongs to the next abandoned 新想法, not to this row.
+                if (existing == null) clearIdeaDraft()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
                 _ui.value = _ui.value.copy(dispatchError = "想法保存失败（本地存储异常）")
             }
+        }
+    }
+
+    // ---- 批v164: 新想法 composer draft memory (same recipe as the dispatch
+    // form: DataStore-backed, restored on reopen, persisted on a 500ms debounce,
+    // cleared only once the idea is durably in the inbox) ----
+
+    suspend fun loadIdeaDraft(): app.codeg.android.core.datastore.DraftEntry =
+        runCatching { drafts.draftNow(DraftStore.ideaKey(IDEA_DRAFT_KEY)) }
+            .getOrDefault(app.codeg.android.core.datastore.DraftEntry())
+
+    fun saveIdeaDraft(title: String, description: String) {
+        viewModelScope.launch {
+            runCatching {
+                if (title.isBlank() && description.isBlank()) {
+                    drafts.clearDraft(DraftStore.ideaKey(IDEA_DRAFT_KEY))
+                } else {
+                    drafts.setDraft(DraftStore.ideaKey(IDEA_DRAFT_KEY), title, description)
+                }
+            }
+        }
+    }
+
+    private fun clearIdeaDraft() {
+        viewModelScope.launch {
+            runCatching { drafts.clearDraft(DraftStore.ideaKey(IDEA_DRAFT_KEY)) }
         }
     }
 
@@ -299,6 +330,11 @@ class InboxViewModel @Inject constructor(
             )
             try {
                 ideaStore.upsert(entry)
+                // 批v164: the idea row is durable — the composer draft that fed
+                // it must not resurface in the next 新想法. (The insert may still
+                // end UNKNOWN/HardFailed downstream, but the text is safe in the
+                // inbox either way.)
+                clearIdeaDraft()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -1062,6 +1098,9 @@ class InboxViewModel @Inject constructor(
     private companion object {
         const val PICKER_LIMIT = 60
         const val PICKER_PER_DEVICE = 50
+
+        /** 批v164: the 新想法 dialog's draft key — one slot, new ideas only. */
+        const val IDEA_DRAFT_KEY = "inbox"
     }
 
     // endregion

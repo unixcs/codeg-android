@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.Alignment
@@ -33,6 +34,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
+import app.codeg.android.core.datastore.DraftEntry
+import app.codeg.android.core.datastore.DraftStore
 import app.codeg.android.core.datastore.IdeaEntry
 import app.codeg.android.core.datastore.IdeaStore
 import app.codeg.android.core.designsystem.component.PrimaryButton
@@ -47,6 +50,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -57,6 +62,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class QuickIdeaViewModel @Inject constructor(
     private val ideaStore: IdeaStore,
+    private val drafts: DraftStore,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -71,6 +77,24 @@ class QuickIdeaViewModel @Inject constructor(
 
     // 双击防抖：一次保存只落一条草稿（UUID 各异、内容相同的两条只会添乱）。
     private val saving = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** 批v164: the sheet's half-typed text survives close/reopen (and process
+     *  death) — the sheet's rememberSaveable dies with the composition, the
+     *  DataStore draft does not. The composable restores once and saves through
+     *  [saveDraft] on a debounce; [save] success clears it. */
+    suspend fun loadDraft(): DraftEntry = drafts.draftNow(DraftStore.ideaKey(DRAFT_KEY))
+
+    fun saveDraft(title: String, description: String) {
+        viewModelScope.launch {
+            runCatching {
+                if (title.isBlank() && description.isBlank()) {
+                    drafts.clearDraft(DraftStore.ideaKey(DRAFT_KEY))
+                } else {
+                    drafts.setDraft(DraftStore.ideaKey(DRAFT_KEY), title, description)
+                }
+            }
+        }
+    }
 
     fun save(title: String, description: String) {
         if (title.isBlank() && description.isBlank()) return
@@ -91,6 +115,9 @@ class QuickIdeaViewModel @Inject constructor(
                 )
                 try {
                     ideaStore.upsert(entry)
+                    // A saved idea must not come back as a draft — clear only on
+                    // success so a failed save keeps the user's text.
+                    runCatching { drafts.clearDraft(DraftStore.ideaKey(DRAFT_KEY)) }
                     _savedSeq.value += 1
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -107,6 +134,10 @@ class QuickIdeaViewModel @Inject constructor(
      *  error so a fresh sheet doesn't greet the user with old news. */
     fun clearError() {
         _error.value = null
+    }
+
+    private companion object {
+        const val DRAFT_KEY = "quick"
     }
 }
 
@@ -125,6 +156,26 @@ fun QuickIdeaSheet(
     val error by viewModel.error.collectAsStateWithLifecycle()
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
+    // 批v164 draft memory: restore once on open, then debounce-save every change
+    // (DispatchForm's pattern). rememberSaveable only survives rotation — the
+    // DataStore draft survives close/reopen, which is what users actually mean
+    // by "记了一半回来还在".
+    var draftRestored by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val stored = runCatching { viewModel.loadDraft() }.getOrNull() ?: return@LaunchedEffect
+        if (title.isBlank()) title = stored.title
+        if (description.isBlank()) description = stored.text
+        draftRestored = true
+    }
+    LaunchedEffect(draftRestored) {
+        if (!draftRestored) return@LaunchedEffect
+        snapshotFlow { title to description }
+            .distinctUntilChanged()
+            .collectLatest { (t, d) ->
+                kotlinx.coroutines.delay(500)
+                viewModel.saveDraft(t, d)
+            }
+    }
     val emptyHint = stringResource(R.string.quick_idea_empty_hint)
 
     // 只有「本 sheet 里点了保存」才允许自动关闭：关闭后重开的新 sheet 不会被

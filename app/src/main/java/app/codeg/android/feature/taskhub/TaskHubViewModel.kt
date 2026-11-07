@@ -592,9 +592,12 @@ class TaskHubViewModel @Inject constructor(
     }
 
     /**
-     * P1: refresh the board's conversation slice. One folder-scoped list call per
-     * device that actually has tracked members, plus the live-connection table so
-     * a card can tell "running" from "row exists, nothing attached".
+     * P1: refresh the board's conversation slice. One unfiltered list call per
+     * device that actually has tracked members (批v164: no folder filter — the
+     * ledger's folderId is a join-time snapshot and goes stale the moment the
+     * session moves projects; the byId match is the real filter), plus the
+     * live-connection table so a card can tell "running" from "row exists,
+     * nothing attached".
      *
      * Two pruning rules. Device-level (批v161.3 R2): a member whose OWNING
      * device no longer exists is dropped unconditionally — no fetch can ever
@@ -641,7 +644,19 @@ class TaskHubViewModel @Inject constructor(
                     val client = repository.client(profile) ?: return@launch
                     val result = runCatching {
                         withTimeoutOrNull(AGG_DEVICE_TIMEOUT_MS) {
-                            client.listConversations(folderIds = mine.map { it.folderId }.distinct())
+                            // 批v164: fetch WITHOUT the folder filter. The ledger's
+                            // folderId is a snapshot taken when the user joined the
+                            // session — moving the session to another project
+                            // (「添加到项目」) or a summary carrying a stale id left
+                            // the card permanently unfetchable, and the two-miss
+                            // prune then silently deleted the membership (the add
+                            // toast had already said 成功). list_all without
+                            // folderIds returns every live folder's conversations;
+                            // the byId match below is the precise filter.
+                            // includeChildren: a delegation sub-session joined from
+                            // the board was equally invisible (server hides rows
+                            // with parent_id by default) — same silent prune.
+                            client.listConversations(includeChildren = true)
                         } ?: throw java.util.concurrent.TimeoutException("device timeout")
                     }
                     if (gen != generation) return@launch
