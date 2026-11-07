@@ -760,6 +760,20 @@
     <!-- ===== Session Detail · Composer ===== -->
     <string name="compose_insert">Insert</string>
     <string name="compose_attach_image">Attach image</string>
+    <string name="compose_mention_agent">Mention an agent</string>
+    <!-- 批v165 @智能体: mention picker + delegation gate -->
+    <string name="mention_sheet_title">Mention an agent</string>
+    <string name="mention_sheet_search">Search agents…</string>
+    <string name="mention_sheet_empty">No enabled agents on this server</string>
+    <string name="mention_sheet_no_match">No agents match “%1$s”</string>
+    <string name="mention_sheet_failed">Couldn\'t load the agent list</string>
+    <string name="mention_sheet_retry">Retry</string>
+    <string name="mention_sheet_unavailable">unavailable</string>
+    <string name="mention_gate_title">Delegation is off</string>
+    <string name="mention_gate_body">This message mentions an agent, but delegation is currently disabled on this server — the @ link would arrive as plain text and nothing would run. Enable delegation to let the agent spawn a sub-session?</string>
+    <string name="mention_gate_enable">Enable &amp; send</string>
+    <string name="mention_gate_enabling">Enabling…</string>
+    <string name="mention_delegation_enable_failed">Couldn\'t enable delegation. Enable it manually in Settings → General.</string>
     <string name="compose_message_placeholder">Message</string>
     <string name="compose_stop">Stop</string>
     <string name="compose_send">Send</string>

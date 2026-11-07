@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.OpenInFull
@@ -79,6 +80,10 @@ fun ComposeBar(
     modifier: Modifier = Modifier,
     onPlus: (() -> Unit)? = null,
     onAttach: (() -> Unit)? = null,
+    /** 批v165 @智能体: opens the agent-mention picker; null hides the button.
+     *  The picked agent is inserted as a Markdown link by the caller — the
+     *  composer only carries the trigger. */
+    onMention: (() -> Unit)? = null,
     onTocClick: (() -> Unit)? = null,
     onExpandClick: (() -> Unit)? = null,
     canSendOverride: Boolean = false,
@@ -201,6 +206,11 @@ fun ComposeBar(
                 }
                 if (onAttach != null) {
                     ComposerAction(Icons.Rounded.Image, stringResource(R.string.compose_attach_image), onAttach)
+                }
+                // 批v165 @智能体: the mention trigger, between attach and the
+                // right-aligned cluster so the send/stop morph never moves it.
+                if (onMention != null) {
+                    ComposerAction(Icons.Rounded.AlternateEmail, stringResource(R.string.compose_mention_agent), onMention)
                 }
                 Box(Modifier.weight(1f))
                 // The expand affordance moved INTO the action row (Telegram's compact

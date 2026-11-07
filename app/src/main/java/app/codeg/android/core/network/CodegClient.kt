@@ -118,6 +118,7 @@ import app.codeg.android.core.model.QuickMessageCreateBody
 import app.codeg.android.core.model.QuickMessageReorderBody
 import app.codeg.android.core.model.QuickMessageUpdateBody
 import app.codeg.android.core.model.AcpAgentInfo
+import app.codeg.android.core.model.AgentMention
 import app.codeg.android.core.model.CursorAuthStatus
 import app.codeg.android.core.model.CursorModelsResult
 import app.codeg.android.core.model.CursorStructuredConfig
@@ -200,6 +201,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -1248,6 +1250,34 @@ class CodegClient(
         val text = send("acp_list_agents", encode(EmptyBody))
         return runCatching { decodeAgentList(text) }
             .getOrElse { throw ApiError.Decoding(it.message ?: "Failed to decode response") }
+    }
+
+    /**
+     * 批v165 @智能体: the same `acp_list_agents` table for the composer's mention
+     * picker, hand-decoded so NOTHING is dropped. [acpListAgents] filters rows to
+     * [AgentType] values this build knows — the right behavior for the Agents
+     * screen (enum-keyed LazyColumn), the wrong one here: the @ link
+     * `[@名](codeg://agent/<slug>)` needs only the raw slug, which the server
+     * resolves itself, so unknown / `custom:*` agents must still appear. A row
+     * missing `agent_type` (malformed) is skipped; everything else decodes.
+     */
+    suspend fun acpListAgentMentions(): List<AgentMention> {
+        val text = send("acp_list_agents", encode(EmptyBody))
+        val root = CodegJson.response.parseToJsonElement(text)
+        val rows = root as? JsonArray ?: return emptyList()
+        return rows.mapNotNull { el ->
+            val o = el as? JsonObject ?: return@mapNotNull null
+            fun str(key: String): String? =
+                (o[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val slug = str("agent_type") ?: return@mapNotNull null
+            AgentMention(
+                slug = slug,
+                name = str("name") ?: "",
+                description = str("description") ?: "",
+                available = (o["available"] as? JsonPrimitive)?.booleanOrNull ?: true,
+                enabled = (o["enabled"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            )
+        }
     }
 
     /**

@@ -26,6 +26,7 @@ import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.datastore.filterHiddenAgents
 import app.codeg.android.core.model.AcpEvent
 import app.codeg.android.core.model.AgentOptionsSnapshot
+import app.codeg.android.core.model.AgentMention
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.AvailableCommandInfo
 import app.codeg.android.core.model.ConnectionStatus
@@ -76,8 +77,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import java.io.File
@@ -101,6 +106,12 @@ private const val MODE_KEY = "mode"
 
 /** RPC session snapshot freshness window (see snapshotFor in the VM). */
 private const val SNAPSHOT_TTL_MS = 30_000L
+
+/** 批v165 @智能体: the link scheme the server's prompt preprocessor resolves
+ *  into a delegation route. Its presence in a draft is what arms the
+ *  delegation gate — no parsing beyond `contains`, by design (调研规划 §3.1:
+ *  the app never interprets the token, it only knows it's there). */
+private const val CODEG_AGENT_LINK = "codeg://agent/"
 
 /** M1 turn windowing (web parity): the transcript opens on the last N turns and
  *  older pages join through [SessionDetailViewModel.loadOlderTurns]. Same values
@@ -577,6 +588,113 @@ class SessionDetailViewModel @Inject constructor(
             _ui.update { it.copy(notice = appContext.getString(R.string.send_prompt_too_large)) }
             return
         }
+
+        // 批v165 @智能体 gate: a draft carrying `codeg://agent/` only becomes a
+        // sub-session if the server's delegation is ON. Off (the default) +
+        // HOST_TOOLS stripping on the agent side, the link arrives as inert text
+        // and NOTHING runs — the exact silent failure the 调研规划 forbade
+        // shipping. Check fresh at send time (settings change on the server;
+        // a cached flag gates sends that would work), and only block on a
+        // CONFIRMED `enabled == false`: a failed probe must not block a send
+        // that may be fine. Gate up → park the send; the dialog's primary
+        // action enables delegation and replays it.
+        if (trimmed.contains(CODEG_AGENT_LINK)) {
+            pendingGateSend = { sendNow(text, withAttachments, extraFiles, extraImages) }
+            viewModelScope.launch {
+                val enabled = delegationEnabledNow()
+                if (enabled) {
+                    val proceed = pendingGateSend
+                    pendingGateSend = null
+                    proceed?.invoke()
+                } else {
+                    _ui.update { it.copy(delegationGate = true) }
+                }
+            }
+            return
+        }
+        sendNow(text, withAttachments, extraFiles, extraImages)
+    }
+
+    /** 委派开关的当前值，best-effort。Missing key / failed probe → `true`:
+     *  the gate only ever blocks on a confirmed-off setting (murphy rule: the
+     *  blocker must never fire on our own uncertainty). */
+    private suspend fun delegationEnabledNow(): Boolean {
+        val c = client ?: return true
+        val raw = runCatching { c.getDelegationSettings() }.getOrNull() ?: return true
+        return raw["enabled"]?.jsonPrimitive?.booleanOrNull ?: true
+    }
+
+    /** The parked send the delegation gate is holding (批v165). A lambda so the
+     *  parked request keeps its original arguments verbatim through the
+     *  enable-and-replay round trip. */
+    private var pendingGateSend: (() -> Unit)? = null
+
+    /** 批v165 @智能体: refresh the mention picker's table (every sheet open —
+     *  the agent list is the server's live config, not app state). Enabled rows
+     *  only: a disabled agent can't accept a delegation, so offering it would
+     *  manufacture the same silent failure the gate exists to prevent. */
+    fun loadMentionAgents() {
+        val c = client ?: return
+        viewModelScope.launch {
+            val agents = runCatching { c.acpListAgentMentions() }.getOrNull()
+            _ui.update {
+                it.copy(
+                    // distinctBy slug: the picker's LazyColumn keys on the slug —
+                    // a duplicated wire row (hand-edited config) would crash the
+                    // list before the user could read it.
+                    mentionAgents = agents.orEmpty().filter { a -> a.enabled }.distinctBy { a -> a.slug },
+                    mentionLoadFailed = agents == null,
+                )
+            }
+        }
+    }
+
+    /** The gate dialog's dismiss (取消): drop the parked send, keep the draft. */
+    fun dismissDelegationGate() {
+        pendingGateSend = null
+        _ui.update { it.copy(delegationGate = false) }
+    }
+
+    /** The gate dialog's primary action (开启并发送): patch `enabled=true` into
+     *  the FULL settings object (`set_delegation_settings` replaces the record —
+     *  a partial object would fail the server's non-defaulted `depth_limit`),
+     *  then replay the parked send. A failed patch surfaces a notice and keeps
+     *  the draft; it never sends half-configured. */
+    fun enableDelegationAndSend() {
+        val c = client
+        val proceed = pendingGateSend
+        if (c == null || proceed == null) {
+            dismissDelegationGate()
+            return
+        }
+        _ui.update { it.copy(delegationGateBusy = true) }
+        viewModelScope.launch {
+            val current = runCatching { c.getDelegationSettings() }.getOrNull()
+            val enabled = current != null && current.isNotEmpty() && runCatching {
+                c.setDelegationSettings(JsonObject(current + ("enabled" to JsonPrimitive(true))))
+            }.isSuccess
+            _ui.update { it.copy(delegationGate = false, delegationGateBusy = false) }
+            if (enabled) {
+                pendingGateSend = null
+                proceed()
+            } else {
+                _ui.update { it.copy(notice = appContext.getString(R.string.mention_delegation_enable_failed)) }
+            }
+        }
+    }
+
+    /** The guarded-and-gated send body: everything from the reconcile fold to
+     *  the [runSend] dispatch. Split out of [send] by the 批v165 gate so the
+     *  delegation pre-check can run BEFORE any optimistic state lands. */
+    private fun sendNow(
+        text: String,
+        withAttachments: Boolean,
+        extraFiles: List<FileAttachment>,
+        extraImages: List<Attachment>,
+    ) {
+        val trimmed = text.trim()
+        val attachments = (if (withAttachments) _ui.value.attachments else emptyList()) + extraImages
+        val fileAttachments = (if (withAttachments) _ui.value.fileAttachments else emptyList()) + extraFiles
 
         // Supersede any post-turn reconcile still running for the previous turn so it can't
         // wipe the turn we're about to start (its identity guard is the backstop).
@@ -3660,6 +3778,21 @@ data class SessionDetailUiState(
     val forking: Boolean = false,
     val sendStatus: String? = null,
     val notice: String? = null,
+    // ---- 批v165 @智能体 (M-A) ----
+    /** The mention picker's table: `acp_list_agents`, enabled rows only, RAW
+     *  slugs (unknown agents included — the @ link needs no client knowledge).
+     *  Reloaded on every sheet open. */
+    val mentionAgents: List<AgentMention> = emptyList(),
+    /** The picker's probe died (network/decode) — the sheet offers a retry
+     *  instead of an empty list that would read as "no agents". */
+    val mentionLoadFailed: Boolean = false,
+    /** The delegation gate is up: the draft carries an @ link but the server
+     *  reports delegation disabled — sending would deliver inert text (the
+     *  HOST_TOOLS=agent tool group strips delegation entirely), never a
+     *  sub-session. Explicit blocker, never a silent downgrade (调研规划 §3.3). */
+    val delegationGate: Boolean = false,
+    /** The gate's primary action (enable + replay send) is in flight. */
+    val delegationGateBusy: Boolean = false,
     /** Set when a failed send returns the user's typed text to the composer (consumed once). */
     val restoreDraft: String? = null,
     val error: String? = null,

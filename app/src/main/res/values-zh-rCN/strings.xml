@@ -752,6 +752,20 @@
     <!-- ===== Session Detail · Composer ===== -->
     <string name="compose_insert">插入</string>
     <string name="compose_attach_image">添加图片</string>
+    <string name="compose_mention_agent">@ 智能体</string>
+    <!-- 批v165 @智能体：提及选择弹层 + 委派开关前置拦截 -->
+    <string name="mention_sheet_title">@ 智能体</string>
+    <string name="mention_sheet_search">搜索智能体…</string>
+    <string name="mention_sheet_empty">该服务器没有已启用的智能体</string>
+    <string name="mention_sheet_no_match">没有匹配「%1$s」的智能体</string>
+    <string name="mention_sheet_failed">智能体列表加载失败</string>
+    <string name="mention_sheet_retry">重试</string>
+    <string name="mention_sheet_unavailable">不可用</string>
+    <string name="mention_gate_title">委派未开启</string>
+    <string name="mention_gate_body">这条消息里有 @ 智能体，但当前服务器的委派功能未开启——@ 链接会以普通文本送达，不会真正派发子任务。开启委派后即可派发，是否开启并发送？</string>
+    <string name="mention_gate_enable">开启并发送</string>
+    <string name="mention_gate_enabling">开启中…</string>
+    <string name="mention_delegation_enable_failed">开启委派失败，请到「设置 → 通用」手动开启。</string>
     <string name="compose_message_placeholder">输入消息</string>
     <string name="compose_stop">停止</string>
     <string name="compose_send">发送</string>

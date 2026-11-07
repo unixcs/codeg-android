@@ -232,6 +232,27 @@ data class AcpAgentInfo(
 )
 
 /**
+ * 批v165 @智能体: one row of the composer's agent-mention picker — the RAW
+ * `acp_list_agents` table WITHOUT the [AgentType] typing [AcpAgentInfo] carries.
+ * The typed decode deliberately DROPS agents this build doesn't know (the Agents
+ * screen keys its LazyColumn by the enum, so a collision would crash it); the
+ * mention picker must do the opposite — the whole @ contract is the raw slug
+ * inside `[@名](codeg://agent/<slug>)`, which the server's prompt preprocessor
+ * resolves without any client-side knowledge of the agent. Unknown and
+ * `custom:*` slugs therefore pass through verbatim, and a server that adds a new
+ * agent shows up here with zero app changes (调研规划 §3.2). Hand-decoded, not
+ * `@Serializable`: only five of the wire struct's ~20 fields matter here.
+ */
+data class AgentMention(
+    /** Raw wire `agent_type` — the link's slug, never re-interpreted client-side. */
+    val slug: String,
+    val name: String = "",
+    val description: String = "",
+    val available: Boolean = true,
+    val enabled: Boolean = false,
+)
+
+/**
  * Parsed scalar keys from `~/.grok/config.toml` backing the Grok panel's structured
  * controls (`null` = the key is absent). The server serializes these snake_case
  * (`permission_mode` / `default_reasoning_effort`); [CodegJson]'s response

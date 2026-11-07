@@ -55,6 +55,7 @@ import androidx.compose.material.icons.rounded.FolderSpecial
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -64,6 +65,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -238,6 +240,7 @@ fun SessionDetailScreen(
         }
     }
     var showInsert by remember { mutableStateOf(false) }
+    var showAgentMention by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     var showContextUsage by remember { mutableStateOf(false) }
     var showSessionDetails by remember { mutableStateOf(false) }
@@ -303,6 +306,57 @@ fun SessionDetailScreen(
                 viewModel.saveDraft(next)
             },
             onDismiss = { showInsert = false },
+        )
+    }
+
+    // 批v165 @智能体: the composer's @ button opens the picker; picking inserts
+    // the `[@名](codeg://agent/<slug>)` Markdown link at the END of the draft
+    // (plain-String composer state until M-B's TextFieldValue chip work — no
+    // cursor to honor). A space pads the seam so the link never glues onto the
+    // previous word (a glued token wouldn't parse as a Markdown link).
+    if (showAgentMention) {
+        AgentMentionSheet(
+            viewModel = viewModel,
+            onPick = { agent ->
+                showAgentMention = false
+                val seam = when {
+                    draft.isEmpty() -> ""
+                    draft.last().isWhitespace() -> ""
+                    else -> " "
+                }
+                val next = draft + seam + agentMentionMarkdown(agent) + " "
+                draft = next
+                viewModel.saveDraft(next)
+            },
+            onDismiss = { showAgentMention = false },
+        )
+    }
+
+    // 批v165: the delegation gate — the draft carries an @ link but the server
+    // confirmed delegation is off, so the send was parked before any optimistic
+    // state landed. Primary action enables delegation and replays the send.
+    if (ui.delegationGate) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDelegationGate,
+            title = { Text(stringResource(R.string.mention_gate_title)) },
+            text = { Text(stringResource(R.string.mention_gate_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = viewModel::enableDelegationAndSend,
+                    enabled = !ui.delegationGateBusy,
+                ) {
+                    Text(
+                        if (ui.delegationGateBusy) stringResource(R.string.mention_gate_enabling)
+                        else stringResource(R.string.mention_gate_enable),
+                        color = colors.accent,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::dismissDelegationGate, enabled = !ui.delegationGateBusy) {
+                    Text(stringResource(R.string.common_cancel), color = colors.textSecondary)
+                }
+            },
         )
     }
 
@@ -548,6 +602,7 @@ fun SessionDetailScreen(
                     },
                     onPlus = { showInsert = true },
                     onAttach = { pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onMention = { showAgentMention = true },
                     onTocClick = if (tocEntries.isNotEmpty()) ({ showToc = true }) else null,
                     onExpandClick = { showFullscreenEditor = true },
                     canSendOverride = ui.attachments.isNotEmpty() || ui.fileAttachments.isNotEmpty(),
