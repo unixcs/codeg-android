@@ -683,7 +683,9 @@ class SessionDetailViewModel @Inject constructor(
             _ui.update { it.copy(mentionLoadFailed = true, mentionLoading = false) }
             return
         }
-        _ui.update { it.copy(mentionLoading = true) }
+        // 批v165 R5: clear the stale failure so the sheet's loading branch
+        // (which sits after `failed` in the when) actually shows on a retry.
+        _ui.update { it.copy(mentionLoading = true, mentionLoadFailed = false) }
         viewModelScope.launch {
             val agents = runCatching { c.acpListAgentMentions() }.getOrNull()
             _ui.update {
@@ -707,8 +709,11 @@ class SessionDetailViewModel @Inject constructor(
     fun dismissDelegationGate() {
         // 批v165 R2 (P1): the queue-flush parks carry restoreText = null —
         // firstOrNull() used to grab one of those and drop the composer draft
-        // sitting behind it. Restore the first TEXT draft.
-        val restore = pendingGateSends.firstOrNull { it.restoreText != null }?.restoreText
+        // sitting behind it. 批v165 R5: several TEXT drafts can be parked while
+        // one probe is in flight — hand back all of them, not just the first.
+        val restore = pendingGateSends.mapNotNull { it.restoreText }
+            .joinToString("\n\n")
+            .ifEmpty { null }
         pendingGateSends.clear()
         _ui.update { it.copy(delegationGate = false, restoreDraft = restore) }
     }
@@ -2055,7 +2060,14 @@ class SessionDetailViewModel @Inject constructor(
                 // parked replay targets THIS head (the row stays queued and
                 // visible while the dialog is up), and after enabling, the
                 // normal flush loop resumes on its own hooks for BUSY/FAILED.
-                if (head.text.contains(CODEG_AGENT_LINK)) {
+                // 批v165 R5 (P1): probe BEFORE parking the gate. This branch
+                // used to pop the dialog unconditionally — lying "delegation is
+                // off" on servers where it is ON, and dead-locking the queue
+                // forever on old servers without get_delegation_settings (the
+                // enable path's isNotEmpty() check can never pass there). Same
+                // contract as send(): only a CONFIRMED-off setting gates; a
+                // failed probe sends as-is.
+                if (head.text.contains(CODEG_AGENT_LINK) && !delegationEnabledNow()) {
                     pendingGateSends += ParkedGateSend(
                         restoreText = null,
                         replay = {

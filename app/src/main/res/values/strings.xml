@@ -229,6 +229,7 @@
     <string name="common_retry">Retry</string>
     <string name="common_dismiss">Dismiss</string>
     <string name="common_load_failed">Couldn\'t load</string>
+    <string name="board_ledger_failed">Couldn\'t update the task board</string>
     <string name="projects_folder_not_found">Folder not found</string>
     <string name="common_cancel">Cancel</string>
     <string name="common_save">Save</string>

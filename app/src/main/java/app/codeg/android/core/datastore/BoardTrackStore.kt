@@ -60,12 +60,17 @@ class BoardTrackStore @Inject constructor(
     /** 加入看板；已存在则保留原 addedAt（幂等，重复点不重置时间），但**清掉归档
      *  标记**——重新加入一条归档过的会话，卡片必须回到列里；否则点了没反应，
      *  看起来像按钮坏了。 */
-    suspend fun track(serverId: String, conversationId: Int, folderId: Int) {
+    suspend fun track(serverId: String, conversationId: Int, folderId: Int): Boolean {
+        // 批v165 R5: a decode failure skips the edit (R2 rule) — report it so
+        // the caller can surface it instead of a silent no-op. An idempotent
+        // re-add (already tracked, not archived) legitimately writes nothing
+        // and still reports true.
+        var decodeFailed = false
         dataStore.edit { prefs ->
             // 批v165 R2 (P2): all four writers are read-modify-write over the
             // whole list — a decode failure used to read as empty and REWRITE
             // the ledger as empty (silent wipe). Skip the edit instead.
-            val list = decodeOrNull(prefs[TRACKED]) ?: return@edit
+            val list = decodeOrNull(prefs[TRACKED]) ?: run { decodeFailed = true; return@edit }
             val index = list.indexOfFirst {
                 it.serverId == serverId && it.conversationId == conversationId
             }
@@ -86,18 +91,22 @@ class BoardTrackStore @Inject constructor(
                 ),
             )
         }
+        return !decodeFailed
     }
 
     /** 移出看板（手动清理，以及剪枝用）。 */
-    suspend fun untrack(serverId: String, conversationId: Int) {
+    suspend fun untrack(serverId: String, conversationId: Int): Boolean {
+        // 批v165 R5: decode failure is reported, not silent (see [track]).
+        var decodeFailed = false
         dataStore.edit { prefs ->
-            val list = decodeOrNull(prefs[TRACKED]) ?: return@edit
+            val list = decodeOrNull(prefs[TRACKED]) ?: run { decodeFailed = true; return@edit }
             prefs[TRACKED] = encode(
                 list.filterNot {
                     it.serverId == serverId && it.conversationId == conversationId
                 },
             )
         }
+        return !decodeFailed
     }
 
     /** 看板上的「归档 / 取消归档」——本地标记，不改服务端会话状态。 */

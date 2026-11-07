@@ -131,6 +131,7 @@ import app.codeg.android.core.data.TaskBoardData
 import app.codeg.android.core.data.TaskBoardEntry
 import app.codeg.android.core.data.TaskBoardRow
 import app.codeg.android.core.data.TaskSegment
+import app.codeg.android.core.data.conversationSegmentOf
 import app.codeg.android.core.data.archiveAllCandidates
 import app.codeg.android.core.data.initialKanbanPage
 import app.codeg.android.core.data.mergeBoardRows
@@ -2071,8 +2072,12 @@ private fun ConversationCardWeb(
     // 批v165 R3 (P2): delegation children are HIDDEN by the pet snapshot while
     // they work (pet.rs) — an in_progress delegate row with live=false is
     // normal, and the badge must not cry 已断开 at a healthy sub-session.
+    // 批v165 R5: a never-prompted row is BORN in_progress but sits in 待办 by
+    // derivation — it is not a disconnect, don't badge it. Only a card in the
+    // running column can claim the warning.
     val disconnected = conv.status == ConversationStatus.IN_PROGRESS &&
-        !entry.live && conv.kind != "delegate"
+        !entry.live && conv.kind != "delegate" &&
+        conversationSegmentOf(entry) == TaskSegment.RUNNING
     Column(
         modifier = Modifier
             .fillMaxWidth()

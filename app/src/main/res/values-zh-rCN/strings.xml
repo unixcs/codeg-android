@@ -229,6 +229,7 @@
     <string name="common_retry">重试</string>
     <string name="common_dismiss">关闭</string>
     <string name="common_load_failed">加载失败</string>
+    <string name="board_ledger_failed">任务板账本写入失败</string>
     <string name="projects_folder_not_found">找不到项目文件夹</string>
     <string name="common_cancel">取消</string>
     <string name="common_save">保存</string>

@@ -60,7 +60,9 @@ private fun inlineImageCacheKey(data: String): String =
 fun InlineImage(image: ImageData, caption: String?, modifier: Modifier = Modifier) {
     val colors = CodegTheme.colors
     val bitmap by produceState<ImageBitmap?>(null, image.data) {
-        val key = inlineImageCacheKey(image.data)
+        // 批v165 R5: digesting up to 4 MB of base64 is main-thread work —
+        // hash on Default (the LruCache itself is thread-safe).
+        val key = withContext(Dispatchers.Default) { inlineImageCacheKey(image.data) }
         INLINE_IMAGE_CACHE.get(key)?.let { value = it } ?: run {
             value = withContext(Dispatchers.Default) {
                 runCatching {

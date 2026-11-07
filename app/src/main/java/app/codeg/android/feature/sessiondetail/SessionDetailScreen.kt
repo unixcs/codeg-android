@@ -268,6 +268,14 @@ fun SessionDetailScreen(
             viewModel.consumeRestoredDraft(applied)
         }
     }
+    // 批v165 R5: the gate is the only path where the persisted draft survives
+    // its own send (clearPersistedDraft runs in runSend, after the park). A
+    // rotation re-hydrates that draft into the composer, and after Enable&send
+    // it would sit there as a duplicate-send trap — clear it while the gate is
+    // up; the cancel path restores through restoreDraft above.
+    LaunchedEffect(ui.delegationGate) {
+        if (ui.delegationGate) draft = ""
+    }
 
     if (showOptions) AgentOptionsSheet(
         viewModel = viewModel,

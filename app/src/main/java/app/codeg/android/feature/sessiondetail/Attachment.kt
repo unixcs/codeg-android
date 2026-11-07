@@ -133,7 +133,12 @@ object AttachmentPrep {
             },
         ) ?: return null
         val longest = max(bitmap.width, bitmap.height)
-        return when (val start = prepRoute(bytes.size, longest, targetBytes)) {
+        // 批v165 R5: route on the ORIGINAL dimensions — integer sampling can
+        // floor a 3136-px original to exactly 1568, which read as "within the
+        // cap" and shipped the raw bytes (route -1) at double the limit. The
+        // ladder below still scales from the sampled bitmap's own longest.
+        val routedLongest = max(bounds.outWidth, bounds.outHeight)
+        return when (val start = prepRoute(bytes.size, routedLongest, targetBytes)) {
             -1 -> Attachment(
                 id = UUID.randomUUID().toString(),
                 base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),

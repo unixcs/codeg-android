@@ -303,6 +303,10 @@ class WorkbenchViewModel @Inject constructor(
     private var lastSeenTick = -1
     private var lastSeenScope: Pair<String?, Boolean>? = null
     private var wasVisible = false
+    // 批v165 R5: last-seen profiles for the tick bump — must live outside the
+    // subscription (the old drop(1) reset per resubscribe and could eat the
+    // first real change after a recovery).
+    private var lastProfiles: List<ServerProfile>? = null
 
     init {
         viewModelScope.launch { pollLoop() }
@@ -311,11 +315,14 @@ class WorkbenchViewModel @Inject constructor(
         repository.profiles
             .map { list -> list.filter { it.visible && it.includeInAll } }
             .distinctUntilChanged()
-            // 批v165 R1 (P2): the FIRST profiles emission (cold-start DataStore
-            // read) is not a change — pollLoop's tick==0 branch already fetches;
-            // the initial bump double-fetched on every screen entry.
-            .drop(1)
-            .onEach { _refreshTick.value += 1 }
+            // 批v165 R5: bump on a real change versus the last value this VM
+            // saw (cold-start replay included). The old drop(1) counted per
+            // subscription — a retryWhen resubscribe reset it and could eat
+            // the first real change after a recovery.
+            .onEach { list ->
+                if (lastProfiles != null && list != lastProfiles) _refreshTick.value += 1
+                lastProfiles = list
+            }
             .retryWhen { _, attempt ->
                 delay(if (attempt < 3) 1_000 else 5_000)
                 true

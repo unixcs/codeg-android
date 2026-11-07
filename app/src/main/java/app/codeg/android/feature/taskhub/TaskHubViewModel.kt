@@ -16,6 +16,7 @@ import app.codeg.android.core.data.BoardConversationEntry
 import app.codeg.android.core.data.TaskBoardData
 import app.codeg.android.core.data.TaskBoardEntry
 import app.codeg.android.core.data.TaskSegment
+import app.codeg.android.core.data.conversationSegmentOf
 import app.codeg.android.core.data.archiveAllCandidates
 import app.codeg.android.core.data.buildBoard
 import app.codeg.android.core.data.taskSegmentOf
@@ -158,6 +159,17 @@ class TaskHubViewModel @Inject constructor(
      *  combine re-emits on every active/foreground toggle, and without this
      *  each one would redo the tick>0 refetch forever. */
     private var lastSeenTick = -1
+    // 批v165 R5: last-seen markers for the two tick-bump collectors — they must
+    // live OUTSIDE any subscription: drop(1) reset per resubscribe and could
+    // swallow the first real change after a recovery.
+    private var lastProfiles: List<ServerProfile>? = null
+    private var lastTracked: List<app.codeg.android.core.datastore.TrackedConversation>? = null
+    // 批v165 R5: the tick==0 cold-start branch re-ran on EVERY emission while
+    // the tick stayed 0 (no ledger write yet) — each fg flip or scope switch
+    // refetched the whole board in the background, including on the way INTO
+    // background. One fetch per process; board entry still fetches via the
+    // entered edge.
+    private var coldFetchDone = false
     /** Bumped by post(): in-flight loadDetail rounds from before an action must
      * not repopulate the dropped (pre-action) detail afterwards. */
     private var detailEpoch = 0
@@ -311,12 +323,15 @@ class TaskHubViewModel @Inject constructor(
         repository.profiles
             .map { list -> list.filter { it.visible && it.includeInAll } }
             .distinctUntilChanged()
-            // drop(1) (批v161.3 R2): the FIRST profiles emission (cold-start
-            // DataStore read) is not a change — pollLoop's tick==0 branch
-            // already fetches once, and the initial bump would double-fetch.
-            // Only a REAL device-set change (add/remove/visibility) may bump.
-            .drop(1)
-            .onEach { _refreshTick.value += 1 }
+            // 批v165 R5: bump on a REAL device-set change versus the last value
+            // this VM saw (the cold-start replay is "no last value" → no bump).
+            // The old drop(1) counted per subscription — a retryWhen
+            // resubscribe reset it and swallowed the first real change that
+            // landed inside a failure window.
+            .onEach { list ->
+                if (lastProfiles != null && list != lastProfiles) _refreshTick.value += 1
+                lastProfiles = list
+            }
             // DataStore failure on the profiles read must not kill the process
             // (bare init coroutine = crash from the Activity tab, v130 class).
             // retryWhen (not .catch) so the collection survives and the next
@@ -339,9 +354,14 @@ class TaskHubViewModel @Inject constructor(
         // DataStore failure must resubscribe — a dead collection here would
         // silence the "just added" bump for the VM's whole life.
         boardTrack.tracked
-            .drop(1)
             .distinctUntilChanged()
-            .onEach { _refreshTick.value += 1 }
+            // 批v165 R5: same last-seen comparison as the profiles collector —
+            // drop(1) reset per resubscribe and could eat the first real
+            // "just added" bump after a recovery.
+            .onEach { list ->
+                if (lastTracked != null && list != lastTracked) _refreshTick.value += 1
+                lastTracked = list
+            }
             .retryWhen { _, attempt ->
                 kotlinx.coroutines.delay(if (attempt < 3) 1_000 else 5_000)
                 true
@@ -436,10 +456,15 @@ class TaskHubViewModel @Inject constructor(
                                 fetchAll()
                             }
                         }
-                        // Cold start (board never opened): one fetch so the
+                        // Cold start (board never opened): ONE fetch so the
                         // first entry has data; later off-board ticks only arm
-                        // lastSeenTick above.
-                        input.tick == 0 -> fetchAll()
+                        // lastSeenTick above (批v165 R5: flag-guarded — tick
+                        // stays 0 until the first ledger write, so every fg/scope
+                        // emission re-entered this branch and refetched).
+                        input.tick == 0 && !coldFetchDone -> {
+                            coldFetchDone = true
+                            fetchAll()
+                        }
                     }
                 }
         }
@@ -789,7 +814,18 @@ class TaskHubViewModel @Inject constructor(
                                 }
                             }
                         }
-                        if (stale.isNotEmpty()) runCatching { boardTrack.prune(stale) }
+                        if (stale.isNotEmpty()) {
+                            // 批v165 R5: a member re-added between this round's
+                            // ledger read and this prune must not be deleted by
+                            // a stale set computed from the OLD read — re-check
+                            // right before pruning; an unreadable ledger skips.
+                            val still = runCatching { boardTrack.trackedNow() }.getOrNull()
+                            if (still != null) {
+                                val liveKeys = still.map { it.key }.toSet()
+                                val toPrune = stale.filterNot { it in liveKeys }
+                                if (toPrune.isNotEmpty()) runCatching { boardTrack.prune(toPrune) }
+                            }
+                        }
                     }.onFailure { e ->
                         if (e is CancellationException) throw e
                         // Keep the last slice on screen (same rule as tasks).
@@ -814,7 +850,13 @@ class TaskHubViewModel @Inject constructor(
     /** P1: add / remove a conversation from the board (long-press entry points). */
     fun trackConversation(serverId: String, conversationId: Int, folderId: Int) {
         viewModelScope.launch {
-            runCatching { boardTrack.track(serverId, conversationId, folderId) }
+            // 批v165 R5: a corrupt ledger skips the write — surface it instead
+            // of the silent "clicked, nothing happened" the store's own KDoc
+            // warns about.
+            val ok = runCatching { boardTrack.track(serverId, conversationId, folderId) }.getOrDefault(false)
+            if (!ok) {
+                _ui.update { it.copy(actionError = appContext.getString(R.string.board_ledger_failed)) }
+            }
             _refreshTick.value += 1
         }
     }
@@ -834,7 +876,12 @@ class TaskHubViewModel @Inject constructor(
         // missed round instead of two.
         conversationMissRounds.remove("$serverId:$conversationId")
         viewModelScope.launch {
-            runCatching { boardTrack.untrack(serverId, conversationId) }
+            // 批v165 R5: a failed write leaves the row in the ledger — the card
+            // would resurrect on the next poll; say so instead of silence.
+            val ok = runCatching { boardTrack.untrack(serverId, conversationId) }.getOrDefault(false)
+            if (!ok) {
+                _ui.update { it.copy(actionError = appContext.getString(R.string.board_ledger_failed)) }
+            }
         }
     }
 
@@ -845,15 +892,38 @@ class TaskHubViewModel @Inject constructor(
      * a card parked in the wrong column is worse than a failed tap.
      */
     fun setConversationStatus(serverId: String, conversationId: Int, status: ConversationStatus) {
-        val before = _ui.value.conversations
-            .firstOrNull { it.serverId == serverId && it.conversation.id == conversationId }
-            ?.conversation?.status ?: return
-        if (before == status) return
+        val entry = _ui.value.conversations
+            .firstOrNull { it.serverId == serverId && it.conversation.id == conversationId } ?: return
+        val before = entry.conversation.status
+        // 批v165 R5: the column is DERIVED (批v165 M1), so an equal wire status
+        // is not automatically a no-op — a never-prompted row is BORN
+        // in_progress but sits in 待办, and its radio already shows 运行中.
+        // Skip only when the card actually sits in the column the picked
+        // status maps to.
+        if (before == status) {
+            val inTargetColumn = when (status) {
+                ConversationStatus.PENDING_REVIEW ->
+                    conversationSegmentOf(entry) == TaskSegment.ATTENTION
+                ConversationStatus.COMPLETED, ConversationStatus.CANCELLED ->
+                    conversationSegmentOf(entry) == TaskSegment.DONE
+                else -> conversationSegmentOf(entry) == TaskSegment.RUNNING
+            }
+            if (inTargetColumn) return
+        }
         _ui.update { state ->
             state.copy(
                 conversations = state.conversations.map {
                     if (it.serverId == serverId && it.conversation.id == conversationId) {
-                        it.copy(conversation = it.conversation.copy(status = status))
+                        // Same-value write (never-started → 运行中): the server's
+                        // updated_at bump may short-circuit on an unchanged
+                        // status, so cross the start epsilon locally — the card
+                        // must move on tap, not on the next real prompt.
+                        val conv = if (before == status) {
+                            it.conversation.copy(status = status, updatedAt = Instant.now())
+                        } else {
+                            it.conversation.copy(status = status)
+                        }
+                        it.copy(conversation = conv)
                     } else {
                         it
                     }
