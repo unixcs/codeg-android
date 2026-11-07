@@ -822,7 +822,7 @@ class TaskHubViewModel @Inject constructor(
                             val still = runCatching { boardTrack.trackedNow() }.getOrNull()
                             if (still != null) {
                                 val liveKeys = still.map { it.key }.toSet()
-                                val toPrune = stale.filterNot { it in liveKeys }
+                                val toPrune = stale.filterNot { it in liveKeys }.toSet()
                                 if (toPrune.isNotEmpty()) runCatching { boardTrack.prune(toPrune) }
                             }
                         }
