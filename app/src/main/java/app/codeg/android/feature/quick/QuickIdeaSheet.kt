@@ -78,13 +78,27 @@ class QuickIdeaViewModel @Inject constructor(
     // 双击防抖：一次保存只落一条草稿（UUID 各异、内容相同的两条只会添乱）。
     private val saving = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /** 批v164 审查R3: set once save() has durably stored the idea and cleared
+     *  the draft — every later debounced [saveDraft] is stale. */
+    private var draftSuperseded = false
+
     /** 批v164: the sheet's half-typed text survives close/reopen (and process
      *  death) — the sheet's rememberSaveable dies with the composition, the
      *  DataStore draft does not. The composable restores once and saves through
-     *  [saveDraft] on a debounce; [save] success clears it. */
-    suspend fun loadDraft(): DraftEntry = drafts.draftNow(DraftStore.ideaKey(DRAFT_KEY))
+     *  [saveDraft] on a debounce; [save] success clears it. Never throws: a
+     *  failed read only means "no prefill", never a dead saver. */
+    suspend fun loadDraft(): DraftEntry {
+        // A fresh sheet session may write drafts again.
+        draftSuperseded = false
+        return runCatching { drafts.draftNow(DraftStore.ideaKey(DRAFT_KEY)) }
+            .getOrDefault(DraftEntry())
+    }
 
     fun saveDraft(title: String, description: String) {
+        // 批v164 审查R3: after save() the draft is retired — a debounced write
+        // still in flight (the VM outlives the sheet) must not resurrect the
+        // just-saved idea as a draft.
+        if (draftSuperseded) return
         viewModelScope.launch {
             runCatching {
                 if (title.isBlank() && description.isBlank()) {
@@ -118,6 +132,7 @@ class QuickIdeaViewModel @Inject constructor(
                     // A saved idea must not come back as a draft — clear only on
                     // success so a failed save keeps the user's text.
                     runCatching { drafts.clearDraft(DraftStore.ideaKey(DRAFT_KEY)) }
+                    draftSuperseded = true
                     _savedSeq.value += 1
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -162,7 +177,9 @@ fun QuickIdeaSheet(
     // by "记了一半回来还在".
     var draftRestored by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        val stored = runCatching { viewModel.loadDraft() }.getOrNull() ?: return@LaunchedEffect
+        // loadDraft never throws (批v164 审查R4): a failed read only means no
+        // prefill — the saver below must still come up.
+        val stored = viewModel.loadDraft()
         if (title.isBlank()) title = stored.title
         if (description.isBlank()) description = stored.text
         draftRestored = true

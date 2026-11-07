@@ -242,11 +242,23 @@ class InboxViewModel @Inject constructor(
     // form: DataStore-backed, restored on reopen, persisted on a 500ms debounce,
     // cleared only once the idea is durably in the inbox) ----
 
-    suspend fun loadIdeaDraft(): app.codeg.android.core.datastore.DraftEntry =
-        runCatching { drafts.draftNow(DraftStore.ideaKey(IDEA_DRAFT_KEY)) }
+    /** 批v164 审查R2: once the idea from the CURRENT editor session is durably
+     *  saved (保存 or 一键插待办), further debounced writes are stale — the
+     *  dialog can stay open for minutes on an UNKNOWN dispatch, and a late
+     *  keystroke or a rotation-restarted saver would otherwise resurrect the
+     *  cleared draft as the NEXT 新想法's prefill. DispatchForm's draftClosed
+     *  gate, VM-side so the composable can't forget it. */
+    private var ideaDraftSuperseded = false
+
+    suspend fun loadIdeaDraft(): app.codeg.android.core.datastore.DraftEntry {
+        // A fresh editor session may write drafts again.
+        ideaDraftSuperseded = false
+        return runCatching { drafts.draftNow(DraftStore.ideaKey(IDEA_DRAFT_KEY)) }
             .getOrDefault(app.codeg.android.core.datastore.DraftEntry())
+    }
 
     fun saveIdeaDraft(title: String, description: String) {
+        if (ideaDraftSuperseded) return
         viewModelScope.launch {
             runCatching {
                 if (title.isBlank() && description.isBlank()) {
@@ -259,6 +271,7 @@ class InboxViewModel @Inject constructor(
     }
 
     private fun clearIdeaDraft() {
+        ideaDraftSuperseded = true
         viewModelScope.launch {
             runCatching { drafts.clearDraft(DraftStore.ideaKey(IDEA_DRAFT_KEY)) }
         }
@@ -295,6 +308,10 @@ class InboxViewModel @Inject constructor(
         folderName: String,
         agentType: AgentType?,
         modeId: String?,
+        /** 批v164 审查R1: only a NEW idea's composer draft is retired by an
+         *  insert. Editing an existing idea and inserting it must not wipe the
+         *  unrelated half-typed 新想法 draft. */
+        clearComposerDraft: Boolean,
         onDone: (DispatchRef) -> Unit,
     ) {
         if (_ui.value.dispatching) {
@@ -334,7 +351,7 @@ class InboxViewModel @Inject constructor(
                 // it must not resurface in the next 新想法. (The insert may still
                 // end UNKNOWN/HardFailed downstream, but the text is safe in the
                 // inbox either way.)
-                clearIdeaDraft()
+                if (clearComposerDraft) clearIdeaDraft()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {

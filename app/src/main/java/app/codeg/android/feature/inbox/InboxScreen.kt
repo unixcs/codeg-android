@@ -408,6 +408,8 @@ fun InboxScreen(
                     folderName = payload.folderName,
                     agentType = payload.agentType,
                     modeId = payload.modeId,
+                    // 批v164 审查R1: only a NEW idea retires the composer draft.
+                    clearComposerDraft = editing == null,
                     onDone = { ref ->
                         creating = false
                         editingId = null
@@ -977,9 +979,15 @@ private fun IdeaEditorDialog(
     var draftRestored by rememberSaveable { mutableStateOf(false) }
     if (initial == null && loadDraft != null) {
         LaunchedEffect(Unit) {
-            val stored = runCatching { loadDraft() }.getOrNull() ?: return@LaunchedEffect
-            if (title.isBlank()) title = stored.title
-            if (description.isBlank()) description = stored.text
+            // 批v164 审查R4: a failed draft READ must only downgrade this
+            // session to no-prefill — returning before draftRestored would
+            // leave the saver permanently off, silently dropping everything
+            // the user types from then on.
+            val stored = runCatching { loadDraft() }.getOrNull()
+            if (stored != null) {
+                if (title.isBlank()) title = stored.title
+                if (description.isBlank()) description = stored.text
+            }
             draftRestored = true
         }
         LaunchedEffect(draftRestored) {
