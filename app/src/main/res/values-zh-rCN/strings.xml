@@ -110,6 +110,7 @@
     <string name="queue_insert_now">快速插入</string>
     <string name="queue_edit">撤回编辑</string>
     <string name="queue_delete">删除</string>
+    <string name="queue_insert_agent_unsupported">排队中的 @智能体 消息无法注入运行中的会话，稍后会由队列自动发送</string>
     <string name="queue_insert_unsupported">当前会话不支持中途插入（需 Claude Code，或在 codeg 设置里开启实时反馈）——消息已保留排队。</string>
     <string name="queue_flush_failed">排队消息发送失败，已留在队列。</string>
     <string name="sessions_pinned">已置顶</string>

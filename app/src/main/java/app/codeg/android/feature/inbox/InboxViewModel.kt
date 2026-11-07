@@ -952,7 +952,7 @@ class InboxViewModel @Inject constructor(
             val profiles = runCatching { repository.visibleProfiles.first() }.getOrDefault(emptyList())
             // 看板成员账本一次读：读坏了「仅看板」退化为空集（筛不出东西），不拖死选择器。
             val trackedKeys = runCatching {
-                boardTrackStore.trackedNow().filter { it.archivedAt == null }.map { it.key }.toSet()
+                boardTrackStore.trackedNow().orEmpty().filter { it.archivedAt == null }.map { it.key }.toSet()
             }.getOrDefault(emptySet())
             if (seq != pickerSeq) return@launch
             val merged = mutableListOf<SessionPickerRow>()

@@ -52,15 +52,20 @@ class BoardTrackStore @Inject constructor(
     val tracked: Flow<List<TrackedConversation>> =
         dataStore.data.map { decode(it[TRACKED]) }
 
-    /** 一次性读取（VM 拉取时用）——不订阅上游，DataStore 抖动不卡协程。 */
-    suspend fun trackedNow(): List<TrackedConversation> = tracked.first()
+    /** 一次性读取（VM 拉取层用）——不订阅上游，DataStore 抖动不卡协程。
+     *  批v165 R2 (P2): JSON 解码失败返回 null（≠ 空表）——拉取层据此跳过本轮，
+     *  而不是把「读不了」当成「没有成员」把看板切片清空。 */
+    suspend fun trackedNow(): List<TrackedConversation>? = dataStore.data.first().let { decodeOrNull(it[TRACKED]) }
 
     /** 加入看板；已存在则保留原 addedAt（幂等，重复点不重置时间），但**清掉归档
      *  标记**——重新加入一条归档过的会话，卡片必须回到列里；否则点了没反应，
      *  看起来像按钮坏了。 */
     suspend fun track(serverId: String, conversationId: Int, folderId: Int) {
         dataStore.edit { prefs ->
-            val list = decode(prefs[TRACKED])
+            // 批v165 R2 (P2): all four writers are read-modify-write over the
+            // whole list — a decode failure used to read as empty and REWRITE
+            // the ledger as empty (silent wipe). Skip the edit instead.
+            val list = decodeOrNull(prefs[TRACKED]) ?: return@edit
             val index = list.indexOfFirst {
                 it.serverId == serverId && it.conversationId == conversationId
             }
@@ -86,8 +91,9 @@ class BoardTrackStore @Inject constructor(
     /** 移出看板（手动清理，以及剪枝用）。 */
     suspend fun untrack(serverId: String, conversationId: Int) {
         dataStore.edit { prefs ->
+            val list = decodeOrNull(prefs[TRACKED]) ?: return@edit
             prefs[TRACKED] = encode(
-                decode(prefs[TRACKED]).filterNot {
+                list.filterNot {
                     it.serverId == serverId && it.conversationId == conversationId
                 },
             )
@@ -98,8 +104,9 @@ class BoardTrackStore @Inject constructor(
     suspend fun setArchived(serverId: String, conversationId: Int, archived: Boolean) {
         dataStore.edit { prefs ->
             val now = System.currentTimeMillis()
+            val list = decodeOrNull(prefs[TRACKED]) ?: return@edit
             prefs[TRACKED] = encode(
-                decode(prefs[TRACKED]).map {
+                list.map {
                     if (it.serverId == serverId && it.conversationId == conversationId) {
                         it.copy(archivedAt = if (archived) (it.archivedAt ?: now) else null)
                     } else {
@@ -114,14 +121,20 @@ class BoardTrackStore @Inject constructor(
     suspend fun prune(keys: Set<String>) {
         if (keys.isEmpty()) return
         dataStore.edit { prefs ->
-            prefs[TRACKED] = encode(decode(prefs[TRACKED]).filterNot { it.key in keys })
+            // 批v165 R2 (P2): a corrupt ledger must not be "pruned" into an
+            // empty one — bail and leave the bytes alone.
+            val list = decodeOrNull(prefs[TRACKED]) ?: return@edit
+            prefs[TRACKED] = encode(list.filterNot { it.key in keys })
         }
     }
 
-    private fun decode(raw: String?): List<TrackedConversation> {
+    private fun decodeOrNull(raw: String?): List<TrackedConversation>? {
         if (raw.isNullOrBlank()) return emptyList()
-        return runCatching { json.decodeFromString(SERIAL, raw) }.getOrDefault(emptyList())
+        return runCatching { json.decodeFromString(SERIAL, raw) }.getOrNull()
     }
+
+    private fun decode(raw: String?): List<TrackedConversation> =
+        decodeOrNull(raw) ?: emptyList()
 
     private fun encode(list: List<TrackedConversation>): String = json.encodeToString(SERIAL, list)
 

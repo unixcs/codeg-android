@@ -603,23 +603,56 @@ class SessionDetailViewModel @Inject constructor(
             // wide enough for a second gated send — overwriting a single slot
             // silently dropped the first draft (already cleared from the
             // composer). Replays run in park order.
+            // 批v165 R2 (P2): the attachment lists are SNAPSHOTTED here — a
+            // replay that re-read _ui.value would steal whatever the user
+            // staged for a LATER message in the meantime.
             pendingGateSends += ParkedGateSend(
                 restoreText = trimmed,
-                replay = { sendNow(text, withAttachments, extraFiles, extraImages) },
+                replay = { sendNow(text, attachments, fileAttachments, clearDraft = withAttachments) },
             )
-            viewModelScope.launch {
+            // 批v165 R2 (P2): appScope, not viewModelScope — a back-navigation
+            // during the probe used to cancel it and silently drop the parked
+            // send (the composer was already cleared). Same reasoning as the
+            // sendJob relocation below.
+            appScope.launch(Dispatchers.Main.immediate) {
                 val enabled = delegationEnabledNow()
-                if (enabled) {
-                    val parked = pendingGateSends.toList()
-                    pendingGateSends.clear()
-                    parked.forEach { it.replay() }
-                } else {
-                    _ui.update { it.copy(delegationGate = true) }
+                if (!enabled) {
+                    // Only raise the gate while something is actually parked —
+                    // a concurrent dismiss may have emptied the list between
+                    // park and probe (批v165 R2: an empty-list dialog is a
+                    // dead end with no buttons that make sense).
+                    if (pendingGateSends.isNotEmpty()) {
+                        _ui.update { it.copy(delegationGate = true) }
+                    }
+                } else if (!_ui.value.delegationGate) {
+                    // Gate already showing (another probe lost the race): the
+                    // DIALOG owns these sends now — its enable/cancel actions
+                    // replay or restore the whole list. Auto-replaying here
+                    // too would double-send them.
+                    replayParkedSends()
                 }
             }
             return
         }
-        sendNow(text, withAttachments, extraFiles, extraImages)
+        sendNow(text, attachments, fileAttachments, clearDraft = withAttachments)
+    }
+
+    /** 批v165 R2 (P0): drain the parked sends. A replay that hits sendNow's
+     *  isInFlight guard used to be SILENTLY DROPPED — composer and parked list
+     *  were both already cleared, so the text existed nowhere. A busy session
+     *  routes the draft into the queue instead, where the flush hooks deliver
+     *  it after the running turn (queue parks carry no text and just replay —
+     *  sendQueued folds BUSY into "row stays queued" on its own). */
+    private fun replayParkedSends() {
+        val parked = pendingGateSends.toList()
+        pendingGateSends.clear()
+        parked.forEach { entry ->
+            if (_ui.value.isInFlight || _ui.value.forking) {
+                entry.restoreText?.let { enqueueDraft(it) }
+            } else {
+                entry.replay()
+            }
+        }
     }
 
     /** 委派开关的当前值，best-effort。Missing key / failed probe → `true`:
@@ -670,7 +703,10 @@ class SessionDetailViewModel @Inject constructor(
      *  (批v165 review R2). The queue-flush parks carry no restore text; their
      *  rows simply stay queued. */
     fun dismissDelegationGate() {
-        val restore = pendingGateSends.firstOrNull()?.restoreText
+        // 批v165 R2 (P1): the queue-flush parks carry restoreText = null —
+        // firstOrNull() used to grab one of those and drop the composer draft
+        // sitting behind it. Restore the first TEXT draft.
+        val restore = pendingGateSends.firstOrNull { it.restoreText != null }?.restoreText
         pendingGateSends.clear()
         _ui.update { it.copy(delegationGate = false, restoreDraft = restore) }
     }
@@ -692,16 +728,29 @@ class SessionDetailViewModel @Inject constructor(
             return
         }
         _ui.update { it.copy(delegationGateBusy = true) }
-        viewModelScope.launch {
+        // 批v165 R2 (P2): appScope — a back-navigation mid-patch cancels the
+        // coroutine but the user's intent (enable delegation) still lands on
+        // the server. The replay below is guarded by the gate being open, so
+        // a cancelled dialog never sends.
+        appScope.launch(Dispatchers.Main.immediate) {
             val current = runCatching { c.getDelegationSettings() }.getOrNull()
             val enabled = current != null && current.isNotEmpty() && runCatching {
                 c.setDelegationSettings(JsonObject(current + ("enabled" to JsonPrimitive(true))))
             }.isSuccess
-            _ui.update { it.copy(delegationGate = false, delegationGateBusy = false) }
-            if (enabled) {
-                pendingGateSends.clear()
-                parked.forEach { it.replay() }
-            } else {
+            // 批v165 R2 (P1): the user may have backed out (返回键) while the
+            // patch was in flight — delegationGate is false and the parked
+            // list is gone. A patch landing then must NOT replay the
+            // cancelled drafts.
+            val stillOpen = _ui.value.delegationGate
+            _ui.update { it.copy(delegationGateBusy = false) }
+            if (enabled && stillOpen) {
+                replayParkedSends()
+                _ui.update { it.copy(delegationGate = false) }
+            } else if (!enabled && stillOpen) {
+                // 批v165 R2 (P1): a failed patch used to CLOSE the dialog while
+                // keeping the parked list — the stale sends then "revived" on
+                // the next unrelated successful probe. Keep the dialog open:
+                // the button re-arms for a retry, cancel restores the drafts.
                 _ui.update { it.copy(notice = appContext.getString(R.string.mention_delegation_enable_failed)) }
             }
         }
@@ -712,18 +761,21 @@ class SessionDetailViewModel @Inject constructor(
      *  delegation pre-check can run BEFORE any optimistic state lands. */
     private fun sendNow(
         text: String,
-        withAttachments: Boolean,
-        extraFiles: List<FileAttachment>,
-        extraImages: List<Attachment>,
+        /** 批v165 R2 (P2): the RESOLVED lists, snapshotted by the caller at
+         *  park/send time — sendNow no longer re-reads _ui.value, so a late
+         *  replay can neither steal a later message's staged attachments nor
+         *  miss the ones this message was sent with. */
+        attachments: List<Attachment>,
+        fileAttachments: List<FileAttachment>,
+        clearDraft: Boolean,
     ) {
         val trimmed = text.trim()
-        val attachments = (if (withAttachments) _ui.value.attachments else emptyList()) + extraImages
-        val fileAttachments = (if (withAttachments) _ui.value.fileAttachments else emptyList()) + extraFiles
 
         // 批v165 review R2: the gate REPLAY path can reach here long after send()'s
         // entry guards ran — another turn may have started (a plan follow-up, the
         // queue flush) or a fork may be re-pointing the row. The guards must hold
-        // at replay time too, not just park time.
+        // at replay time too, not just park time. (replayParkedSends routes busy
+        // replays to the queue instead of dropping them — 批v165 R2 P0.)
         if (_ui.value.isInFlight || _ui.value.forking) return
 
         // Supersede any post-turn reconcile still running for the previous turn so it can't
@@ -763,8 +815,8 @@ class SessionDetailViewModel @Inject constructor(
                 sendStatus = "Connecting…",
                 notice = null,
                 restoreDraft = null,
-                attachments = if (withAttachments) emptyList() else it.attachments,
-                fileAttachments = if (withAttachments) emptyList() else it.fileAttachments,
+                attachments = if (clearDraft) emptyList() else it.attachments,
+                fileAttachments = if (clearDraft) emptyList() else it.fileAttachments,
                 isDraftEditable = false,
             )
         }
@@ -774,7 +826,7 @@ class SessionDetailViewModel @Inject constructor(
         // POST landed — the optimistic bubble, the cleared draft and the server turns all
         // ended up empty. The send outlives the screen now.
         sendJob = appScope.launch(Dispatchers.Main.immediate) {
-            runSend(trimmed, userTurn, attachments, fileAttachments, wasNew, clearDraft = withAttachments)
+            runSend(trimmed, userTurn, attachments, fileAttachments, wasNew, clearDraft = clearDraft)
         }
     }
 
@@ -1941,6 +1993,14 @@ class SessionDetailViewModel @Inject constructor(
      */
     fun insertQueuedNow(id: String) {
         val item = _ui.value.queue.firstOrNull { it.id == id } ?: return
+        // 批v165 R2 (P2): the steering channel doesn't parse agent mentions —
+        // injecting an @-link lands it as inert text, the exact silent failure
+        // the delegation gate exists to prevent. The queue FLUSH path gates
+        // properly; steer the user there.
+        if (item.text.contains(CODEG_AGENT_LINK)) {
+            _ui.update { it.copy(notice = appContext.getString(R.string.queue_insert_agent_unsupported)) }
+            return
+        }
         val c = client ?: return
         val conn = connectionId
         if (conn == null) {

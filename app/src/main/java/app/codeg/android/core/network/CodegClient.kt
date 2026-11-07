@@ -1270,6 +1270,12 @@ class CodegClient(
             fun str(key: String): String? =
                 (o[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
             val slug = str("agent_type") ?: return@mapNotNull null
+            // 批v165 R2 (P2): the slug is spliced into a markdown link
+            // ([$label](codeg://agent/$slug)) — a slug with ')'/whitespace
+            // breaks the token and the mention arrives as inert text, the
+            // silent failure the gate exists to prevent. Drop such rows the
+            // same way a missing agent_type is dropped.
+            if (!AGENT_SLUG_RE.matches(slug)) return@mapNotNull null
             AgentMention(
                 slug = slug,
                 name = str("name") ?: "",
@@ -1749,6 +1755,8 @@ class CodegClient(
     // endregion
 
     companion object {
+        /** 批v165 R2: agent_type values safe to splice into a markdown link. */
+        private val AGENT_SLUG_RE = Regex("[A-Za-z0-9._:-]+")
         /** token_usage_sync 的专用读上限——服务端同步跑完才回包，首台大库
          *  存量机器解析全部会话可能远超共享引擎的 30s readTimeout。 */
         const val SYNC_HTTP_TIMEOUT_MS = 120_000L

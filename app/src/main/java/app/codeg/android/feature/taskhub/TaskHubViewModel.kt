@@ -8,6 +8,7 @@ import app.codeg.android.CodegApplication
 import app.codeg.android.R
 import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
 import app.codeg.android.core.data.LIVE_PROBE_TIMEOUT_MS
+import app.codeg.android.core.data.RUNNING_STATUS_MAX_AGE
 import app.codeg.android.core.data.DeviceLoad
 import app.codeg.android.core.data.DeviceLoadStatus
 import app.codeg.android.core.data.ServerRepository
@@ -380,6 +381,12 @@ class TaskHubViewModel @Inject constructor(
         // re-entry edge (entered) is only detectable if lastActive remembers
         // the previous state. Declared OUTSIDE the collectLatest lambda.
         var lastActive = false
+        // 批v165 R2 (P1): the scope (device bar) and foreground edges must
+        // trigger an immediate round too — combine re-emits on both, but the
+        // old PollInputs dropped them, so a device switch or app resume waited
+        // out the full 25s beat despite the doc above promising otherwise.
+        var lastScope: Pair<String?, Boolean>? = null
+        var lastFg = false
         viewModelScope.launch {
             // Global device scope feeds the poll: switching the bar re-runs the
             // round immediately (collectLatest cancels any round in flight).
@@ -395,7 +402,9 @@ class TaskHubViewModel @Inject constructor(
                 foreground,
                 repository.selectedId,
                 repository.tasksAll,
-            ) { tick, active, fg, _, _ -> PollInputs(tick, active, fg) }
+            ) { tick, active, fg, selectedId, allMode ->
+                PollInputs(tick, active, fg, selectedId to allMode)
+            }
                 .retryWhen { _, attempt ->
                         // 批v165 R1 (P0): a DataStore read failure upstream must resubscribe — a
                         // bare collector dying here is the v130 crash class (process kill from a
@@ -411,13 +420,17 @@ class TaskHubViewModel @Inject constructor(
                     val tickNew = input.tick > 0 && input.tick != lastSeenTick
                     if (tickNew) lastSeenTick = input.tick
                     val entered = input.active && !lastActive
+                    val fgEdge = input.fg && !lastFg
+                    val scopeChanged = input.scope != lastScope
                     lastActive = input.active
+                    lastFg = input.fg
+                    lastScope = input.scope
                     when {
-                        // Board shown and app foreground: refresh on the two
+                        // Board shown and app foreground: refresh on the four
                         // edges, then hold the 25s beat (a one-shot
                         // `tick>0 -> return` would kill the loop forever, v139 H1).
                         input.active && input.fg -> {
-                            if (tickNew || entered) fetchAll()
+                            if (tickNew || entered || fgEdge || scopeChanged) fetchAll()
                             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                                 delay(25_000)
                                 fetchAll()
@@ -432,7 +445,12 @@ class TaskHubViewModel @Inject constructor(
         }
     }
 
-    private data class PollInputs(val tick: Int, val active: Boolean, val fg: Boolean)
+    private data class PollInputs(
+        val tick: Int,
+        val active: Boolean,
+        val fg: Boolean,
+        val scope: Pair<String?, Boolean>,
+    )
 
     private suspend fun fetchAll() {
         // Top-level guard: this runs from bare init/poll coroutines, and a
@@ -634,7 +652,14 @@ class TaskHubViewModel @Inject constructor(
         // a round. Skip this round untouched; the next one retries.
         val tracked = runCatching { boardTrack.trackedNow() }.getOrNull() ?: return
         if (tracked.isEmpty()) {
-            _ui.update { it.copy(conversations = emptyList()) }
+            // 批v165 R2 (P2): only a genuinely empty ledger wipes the slice,
+            // and only on a current round. A ledger DECODE failure now returns
+            // null (the store distinguishes it from empty) and skips the round
+            // entirely — it used to read as "no members" and blank the board
+            // on every round, permanently.
+            if (gen == generation) {
+                _ui.update { it.copy(conversations = emptyList()) }
+            }
             return
         }
         // 批v161.3 R2: ledger entries for DELETED devices can never be served —
@@ -692,9 +717,24 @@ class TaskHubViewModel @Inject constructor(
                         withTimeoutOrNull(LIVE_PROBE_TIMEOUT_MS) { client.liveConversationIds() }
                     }.getOrNull()
                     result.onSuccess { convs ->
+                        // 批v165 R2 (P1): the gen check used to sit BEFORE the
+                        // 2s probe — between it and this write-back a user
+                        // action (移出看板 / 归档 / 改状态) could land and get
+                        // silently rolled back by this stale round (an
+                        // untracked card resurrected for up to a full 25s
+                        // beat). Re-check the generation AND re-read the
+                        // ledger now: only members still tracked, with their
+                        // CURRENT archived flag, may be written back or
+                        // miss-counted. (The residual race window is the
+                        // DataStore read itself — milliseconds, same order as
+                        // fetchDevices' pre-write checks.)
+                        if (gen != generation) return@launch
+                        val freshMine = runCatching { boardTrack.trackedNow() }.getOrNull()
+                            ?.filter { it.serverId == profile.id }
+                            ?: return@launch
                         val byId = convs.associateBy { it.id }
                         val present = mutableSetOf<String>()
-                        val rows = mine.mapNotNull { member ->
+                        val rows = freshMine.mapNotNull { member ->
                             val conversation = byId[member.conversationId] ?: return@mapNotNull null
                             present += member.key
                             BoardConversationEntry(
@@ -710,8 +750,18 @@ class TaskHubViewModel @Inject constructor(
                                 // delegate row it doesn't list is a working
                                 // sub-session, not an idle one. (The column itself
                                 // no longer depends on this flag; the badge does.)
+                                // 批v165 R2 (P1): the probe-failed fallback is now
+                                // AGE-BOUNDED, mirroring ActivityViewModel — the
+                                // bare status fallback marked every never-prompted
+                                // tracked session RUNNING for the whole round, and
+                                // on the slow devices this batch's latency fix
+                                // targets the probe times out almost every round.
                                 live = when {
-                                    liveIds == null -> conversation.status.isLive
+                                    liveIds == null -> conversation.status.isLive && (
+                                        conversation.updatedAt.isAfter(
+                                            Instant.now().minus(RUNNING_STATUS_MAX_AGE),
+                                        ) || conversation.kind == "delegate"
+                                        )
                                     conversation.id in liveIds -> true
                                     conversation.kind == "delegate" && conversation.status.isLive -> true
                                     else -> false
@@ -726,7 +776,7 @@ class TaskHubViewModel @Inject constructor(
                             )
                         }
                         val stale = mutableSetOf<String>()
-                        mine.forEach { member ->
+                        freshMine.forEach { member ->
                             if (member.key in present) {
                                 conversationMissRounds.remove(member.key)
                             } else {
@@ -833,8 +883,12 @@ class TaskHubViewModel @Inject constructor(
             }
             result.onSuccess {
                 repository.notifyConversationsChanged()
-                generation += 1
-                fetchDevices(setOf(serverId))
+                // 批v165 R2 (P2): the generation bump + fetchDevices here ran
+                // outside the busy-slot discipline — it could invalidate a
+                // concurrently landing action refresh (and be invalidated by
+                // the next gen bump in turn). A tick rides the poll loop's
+                // normal full round instead.
+                _refreshTick.value += 1
             }
         }
     }
