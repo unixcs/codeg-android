@@ -599,13 +599,20 @@ class SessionDetailViewModel @Inject constructor(
         // that may be fine. Gate up → park the send; the dialog's primary
         // action enables delegation and replays it.
         if (trimmed.contains(CODEG_AGENT_LINK)) {
-            pendingGateSend = { sendNow(text, withAttachments, extraFiles, extraImages) }
+            // A list, not a single slot (批v165 review R2): the probe window is
+            // wide enough for a second gated send — overwriting a single slot
+            // silently dropped the first draft (already cleared from the
+            // composer). Replays run in park order.
+            pendingGateSends += ParkedGateSend(
+                restoreText = trimmed,
+                replay = { sendNow(text, withAttachments, extraFiles, extraImages) },
+            )
             viewModelScope.launch {
                 val enabled = delegationEnabledNow()
                 if (enabled) {
-                    val proceed = pendingGateSend
-                    pendingGateSend = null
-                    proceed?.invoke()
+                    val parked = pendingGateSends.toList()
+                    pendingGateSends.clear()
+                    parked.forEach { it.replay() }
                 } else {
                     _ui.update { it.copy(delegationGate = true) }
                 }
@@ -624,17 +631,25 @@ class SessionDetailViewModel @Inject constructor(
         return raw["enabled"]?.jsonPrimitive?.booleanOrNull ?: true
     }
 
-    /** The parked send the delegation gate is holding (批v165). A lambda so the
-     *  parked request keeps its original arguments verbatim through the
-     *  enable-and-replay round trip. */
-    private var pendingGateSend: (() -> Unit)? = null
+    /** A send the delegation gate parked (批v165). [restoreText] is the composer
+     *  draft to hand back on dismiss (the screen cleared it on send); the queue
+     *  flush parks with null — its row is still visible in the queue bar. */
+    private class ParkedGateSend(val restoreText: String?, val replay: () -> Unit)
+
+    private val pendingGateSends = mutableListOf<ParkedGateSend>()
 
     /** 批v165 @智能体: refresh the mention picker's table (every sheet open —
      *  the agent list is the server's live config, not app state). Enabled rows
      *  only: a disabled agent can't accept a delegation, so offering it would
      *  manufacture the same silent failure the gate exists to prevent. */
     fun loadMentionAgents() {
-        val c = client ?: return
+        val c = client
+        if (c == null) {
+            // 批v165 review R2: "no client" must not read as "no agents" — the
+            // sheet would show a confident empty state over a broken session.
+            _ui.update { it.copy(mentionLoadFailed = true) }
+            return
+        }
         viewModelScope.launch {
             val agents = runCatching { c.acpListAgentMentions() }.getOrNull()
             _ui.update {
@@ -649,21 +664,30 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
-    /** The gate dialog's dismiss (取消): drop the parked send, keep the draft. */
+    /** The gate dialog's dismiss (取消): drop the parked sends and hand the
+     *  composer draft back via [SessionDetailUiState.restoreDraft] — the screen
+     *  cleared it on send, and an un-restored cancel would read as data loss
+     *  (批v165 review R2). The queue-flush parks carry no restore text; their
+     *  rows simply stay queued. */
     fun dismissDelegationGate() {
-        pendingGateSend = null
-        _ui.update { it.copy(delegationGate = false) }
+        val restore = pendingGateSends.firstOrNull()?.restoreText
+        pendingGateSends.clear()
+        _ui.update { it.copy(delegationGate = false, restoreDraft = restore) }
     }
 
     /** The gate dialog's primary action (开启并发送): patch `enabled=true` into
      *  the FULL settings object (`set_delegation_settings` replaces the record —
      *  a partial object would fail the server's non-defaulted `depth_limit`),
-     *  then replay the parked send. A failed patch surfaces a notice and keeps
-     *  the draft; it never sends half-configured. */
+     *  then replay the parked sends in park order. A failed patch surfaces a
+     *  notice and keeps everything parked; it never sends half-configured. */
     fun enableDelegationAndSend() {
+        // 批v165 review R2: the confirm button's enabled state rides
+        // recomposition — a double-tap in the same frame gets here twice, each
+        // holding its own `parked` copy, and both replays would send.
+        if (_ui.value.delegationGateBusy) return
         val c = client
-        val proceed = pendingGateSend
-        if (c == null || proceed == null) {
+        val parked = pendingGateSends.toList()
+        if (c == null || parked.isEmpty()) {
             dismissDelegationGate()
             return
         }
@@ -675,8 +699,8 @@ class SessionDetailViewModel @Inject constructor(
             }.isSuccess
             _ui.update { it.copy(delegationGate = false, delegationGateBusy = false) }
             if (enabled) {
-                pendingGateSend = null
-                proceed()
+                pendingGateSends.clear()
+                parked.forEach { it.replay() }
             } else {
                 _ui.update { it.copy(notice = appContext.getString(R.string.mention_delegation_enable_failed)) }
             }
@@ -695,6 +719,12 @@ class SessionDetailViewModel @Inject constructor(
         val trimmed = text.trim()
         val attachments = (if (withAttachments) _ui.value.attachments else emptyList()) + extraImages
         val fileAttachments = (if (withAttachments) _ui.value.fileAttachments else emptyList()) + extraFiles
+
+        // 批v165 review R2: the gate REPLAY path can reach here long after send()'s
+        // entry guards ran — another turn may have started (a plan follow-up, the
+        // queue flush) or a fork may be re-pointing the row. The guards must hold
+        // at replay time too, not just park time.
+        if (_ui.value.isInFlight || _ui.value.forking) return
 
         // Supersede any post-turn reconcile still running for the previous turn so it can't
         // wipe the turn we're about to start (its identity guard is the backstop).
@@ -1956,6 +1986,33 @@ class SessionDetailViewModel @Inject constructor(
                 // it lands (the reload flushes again on the new session).
                 if (_ui.value.forking) return@launch
                 val head = _ui.value.queue.firstOrNull() ?: return@launch
+                // 批v165 review R1 (P1): the flush used to bypass send()'s
+                // delegation gate entirely — an @-mention draft queued while a
+                // turn ran would flush as inert text, the exact silent failure
+                // the gate exists to prevent. Route it through the gate: the
+                // parked replay targets THIS head (the row stays queued and
+                // visible while the dialog is up), and after enabling, the
+                // normal flush loop resumes on its own hooks for BUSY/FAILED.
+                if (head.text.contains(CODEG_AGENT_LINK)) {
+                    pendingGateSends += ParkedGateSend(
+                        restoreText = null,
+                        replay = {
+                            val cid = conversationId
+                            val cc = client
+                            if (cid != null && cc != null) {
+                                viewModelScope.launch {
+                                    if (sendQueued(cc, cid, head.text) == SendOutcome.SENT) {
+                                        removeQueued(head.id)
+                                    }
+                                    // BUSY/FAILED: leave the row queued —
+                                    // reconcileAfterTurn's flush hook retries.
+                                }
+                            }
+                        },
+                    )
+                    _ui.update { it.copy(delegationGate = true) }
+                    return@launch
+                }
                 when (sendQueued(c, id, head.text)) {
                     SendOutcome.SENT -> {
                         removeQueued(head.id)

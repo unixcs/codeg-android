@@ -616,7 +616,9 @@ class TaskHubViewModel @Inject constructor(
      * nothing. A member is dropped only after TWO consecutive COMPLETE rounds
      * (no timeout, no error) failed to list it.
      */
-    private val conversationMissRounds = mutableMapOf<String, Int>()
+    // ConcurrentHashMap (批v165 review R2): the parallel fetch round races one
+    // map across per-device coroutines; a plain LinkedHashMap could corrupt.
+    private val conversationMissRounds = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private suspend fun fetchTrackedConversations(devices: List<ServerProfile>, gen: Int) {
         // 批v161.3 R5: a DataStore read failure is NOT "no members" — wiping
@@ -650,7 +652,12 @@ class TaskHubViewModel @Inject constructor(
             devices.forEach { profile ->
                 val mine = byServer[profile.id] ?: return@forEach
                 launch {
-                    val client = repository.client(profile) ?: return@launch
+                    // 批v165 review R2: this sits OUTSIDE the runCatching below —
+                    // a DataStore/URL failure here would propagate out of the
+                    // coroutineScope and cancel the PARALLEL fetchDevices launch
+                    // mid-round, leaving every device card LOADING until the next
+                    // 25s beat. Degrade to "no slice this round" instead.
+                    val client = runCatching { repository.client(profile) }.getOrNull() ?: return@launch
                     val result = runCatching {
                         withTimeoutOrNull(AGG_DEVICE_TIMEOUT_MS) {
                             // 批v164: fetch WITHOUT the folder filter. The ledger's
