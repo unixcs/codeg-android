@@ -32,6 +32,18 @@ jobs:
         # Two workers: four variants compiling at once OOMs the runner.
         run: ./gradlew :app:check :app:assembleDebug :app:assembleRelease --no-daemon --max-workers=2
 
+      - name: Upload test reports on failure
+        # 批v165 rc.3: the rotating-victim TCE flake (批v163) needs the full
+        # stack + "Timed out waiting for N ms" message to pin its timer — the
+        # console log only carries two frames. XML reports hold both.
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-reports-${{ github.run_id }}
+          path: app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Assert both release packages were produced
         run: |
           # No signing key in CI, so the release APKs are the `-unsigned` variants.
