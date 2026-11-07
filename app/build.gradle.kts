@@ -115,7 +115,10 @@ android {
             // a row at forkEvery=100; rc.6 flared again (5-red streak, reruns no
             // longer rescuing) so the segment shrinks further. The extra forks cost
             // ~30s of JVM startup per test task — cheap vs a red Verify.
-            it.setForkEvery(50)
+            // 批v165 rc.3: flared at 50 too — ServerStoreTest died twice inside ONE
+            // run window (Debug green attempt 1, Release red, Debug red on rerun;
+            // rotating victims again, no production code touched). Halve again.
+            it.setForkEvery(25)
             it.maxParallelForks = 1
         }
     }
