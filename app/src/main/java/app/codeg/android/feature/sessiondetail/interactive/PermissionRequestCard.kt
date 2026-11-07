@@ -21,10 +21,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.GppMaybe
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,6 +58,9 @@ fun PermissionRequestCard(
     options: List<PermissionOption>,
     onRespond: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /** Non-null renders the header expand button — only the plan branch passes
+     *  it (a long plan is unreadable under the 300dp strip cap). */
+    onExpandFullscreen: (() -> Unit)? = null,
 ) {
     val colors = CodegTheme.colors
     var submitting by remember(parsed.jsonPreview) { mutableStateOf<String?>(null) }
@@ -100,6 +105,16 @@ fun PermissionRequestCard(
                         .background(colors.textPrimary.copy(alpha = 0.06f))
                         .padding(horizontal = 7.dp, vertical = 2.dp),
                 )
+            }
+            onExpandFullscreen?.let { onExpand ->
+                IconButton(onClick = onExpand, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Rounded.OpenInFull,
+                        contentDescription = stringResource(R.string.interactive_expand_fullscreen),
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
 

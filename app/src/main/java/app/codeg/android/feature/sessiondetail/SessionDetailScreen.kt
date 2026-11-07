@@ -123,8 +123,10 @@ import app.codeg.android.feature.handoff.HandoffSheet
 import app.codeg.android.feature.handoff.HandoffViewModel
 import app.codeg.android.feature.sessions.AddToProjectSheet
 import app.codeg.android.feature.sessiondetail.interactive.AskQuestionCard
+import app.codeg.android.feature.sessiondetail.interactive.FullscreenPlanUi
 import app.codeg.android.feature.sessiondetail.interactive.PermissionRequestCard
 import app.codeg.android.feature.sessiondetail.interactive.PlanApprovalCard
+import app.codeg.android.feature.sessiondetail.interactive.PlanFullscreenDialog
 import app.codeg.android.core.designsystem.component.DocPreviewDialog
 import app.codeg.android.core.designsystem.markdown.LocalPathOpener
 import app.codeg.android.feature.sessiondetail.timeline.LocalSessionContext
@@ -458,6 +460,12 @@ fun SessionDetailScreen(
                     val stripMax = with(androidx.compose.ui.platform.LocalConfiguration.current) {
                         (screenHeightDp * 0.6f).dp
                     }
+                    // Fullscreen plan reading (M7): the strip's 300/320dp cap is
+                    // fine for options but crushes a long plan — the cards' header
+                    // expand button swaps in PlanFullscreenDialog, read-only.
+                    var fullscreenPlan by remember { mutableStateOf<FullscreenPlanUi?>(null) }
+                    val permFallbackTitle = stringResource(R.string.perm_request_title)
+                    val planApprovalTitle = stringResource(R.string.plan_approval_title)
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -470,6 +478,9 @@ fun SessionDetailScreen(
                                 parsed = p.parsed,
                                 options = p.options,
                                 onRespond = viewModel::respondPermission,
+                                onExpandFullscreen = p.parsed.planMarkdown
+                                    ?.takeIf { p.parsed.isPlan && it.isNotBlank() }
+                                    ?.let { md -> { fullscreenPlan = FullscreenPlanUi(p.parsed.title.ifBlank { permFallbackTitle }, md) } },
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
                         }
@@ -485,9 +496,19 @@ fun SessionDetailScreen(
                             PlanApprovalCard(
                                 planMarkdown = p.planMarkdown,
                                 onAnswer = viewModel::answerPlanApproval,
+                                onExpandFullscreen = p.planMarkdown.trim()
+                                    .takeIf { it.isNotBlank() }
+                                    ?.let { md -> { fullscreenPlan = FullscreenPlanUi(planApprovalTitle, md) } },
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             )
                         }
+                    }
+                    fullscreenPlan?.let { plan ->
+                        PlanFullscreenDialog(
+                            title = plan.title,
+                            markdown = plan.markdown,
+                            onDismiss = { fullscreenPlan = null },
+                        )
                     }
                 }
                 // Keep the last shown message so the exit animation has content to fade.

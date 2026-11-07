@@ -17,10 +17,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +64,9 @@ fun PlanApprovalCard(
     planMarkdown: String,
     onAnswer: (PlanApprovalDecision, String?) -> Unit,
     modifier: Modifier = Modifier,
+    /** Non-null renders the header expand button; the caller only passes it
+     *  when the plan has body text worth reading fullscreen. */
+    onExpandFullscreen: (() -> Unit)? = null,
 ) {
     val colors = CodegTheme.colors
     val plan = planMarkdown.trim()
@@ -93,6 +98,16 @@ fun PlanApprovalCard(
                     fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary,
                 )
                 Text(stringResource(R.string.plan_approval_subtitle), fontSize = 12.sp, color = colors.textSecondary)
+            }
+            onExpandFullscreen?.let { onExpand ->
+                IconButton(onClick = onExpand, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Rounded.OpenInFull,
+                        contentDescription = stringResource(R.string.interactive_expand_fullscreen),
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
 

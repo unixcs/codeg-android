@@ -788,6 +788,8 @@
     <string name="ask_other_placeholder">Type your answer…</string>
     <string name="perm_plan_subtitle">The agent wants to proceed with this plan.</string>
     <string name="perm_permission_subtitle">The agent needs permission to continue.</string>
+    <string name="interactive_expand_fullscreen">View fullscreen</string>
+    <string name="interactive_collapse_fullscreen">Back to card</string>
     <string name="toolcall_failed_count">%1$d failed</string>
     <string name="tool_error_output">Error output</string>
     <string name="liveplan_title">Plan</string>
@@ -1695,6 +1697,24 @@
     <string name="session_import_receipt">Done: %1$d imported · %2$d updated · %3$d restored</string>
     <string name="session_import_receipt_issue">Skipped %1$d · not found %2$d · failed %3$d</string>
     <string name="session_import_done">Close</string>
+    <string name="session_import_search">Search titles, agents, projects…</string>
+    <string name="session_import_search_clear">Clear search</string>
+    <string name="session_import_filter">Filter</string>
+    <string name="session_import_filter_title">Filter</string>
+    <string name="session_import_filter_show_all">Show all</string>
+    <string name="session_import_filter_hide_all">Hide all</string>
+    <string name="session_import_filter_folders">Project folders</string>
+    <string name="session_import_filter_agents">Agents</string>
+    <string name="session_import_filter_status">Status</string>
+    <string name="session_import_show_imported">Show imported</string>
+    <string name="session_import_select_all">Select all</string>
+    <string name="session_import_select_none">Deselect all</string>
+    <string name="session_import_selected_count">%1$d selected</string>
+    <string name="session_import_no_results">No sessions match “%1$s”</string>
+    <string name="session_import_no_results_hint">Try a different keyword, or clear the search.</string>
+    <string name="session_import_all_hidden_title">Everything is filtered out</string>
+    <string name="session_import_all_hidden_hint">Adjust the filter, or show everything again.</string>
+    <string name="session_import_folder_toggle">Toggle all sessions in %1$s</string>
     <string name="workbench_stat_usage">Today\'s tokens</string>
     <string name="workbench_stat_usage_action">View usage</string>
 </resources>
