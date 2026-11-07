@@ -218,12 +218,18 @@ private fun TodoInputBody(input: String) {
  *  json / diff / markdown / log. */
 @Composable
 private fun ToolOutputSection(vm: ToolCallVM) {
-    // Codex wraps every MCP result in `{result: <CallToolResult>, error: null}` on its
-    // live wire; unwrap to the text the tool actually returned before classifying, or
-    // the card renders the envelope's raw JSON.
-    val out = ToolOutputFormat.mcpResultText(vm.trimmedOutput) ?: vm.trimmedOutput
+    // 批v165 R4 (P1): streaming re-composes the live turn at ~20 Hz and every
+    // visible card re-ran classify/pretty-print/diff parse (Regex + JSON over
+    // up to 128 KB of output) each frame. Keyed on (id, output) — the pair only
+    // changes when this card's result actually does.
+    val out = remember(vm.id, vm.trimmedOutput) {
+        // Codex wraps every MCP result in `{result: <CallToolResult>, error: null}`
+        // on its live wire; unwrap to the text the tool actually returned before
+        // classifying, or the card renders the envelope's raw JSON.
+        ToolOutputFormat.mcpResultText(vm.trimmedOutput) ?: vm.trimmedOutput
+    }
     if (vm.bucket == ToolKindBucket.READ && !vm.isError) {
-        val file = ReadOutputFormat.parse(out)
+        val file = remember(vm.id, out) { ReadOutputFormat.parse(out) }
         if (file != null && file.content.isNotBlank()) {
             FileBodyView(file)
             return
@@ -232,14 +238,18 @@ private fun ToolOutputSection(vm: ToolCallVM) {
     when {
         vm.isError -> ToolErrorOutput(out)
         vm.isCommand -> {
-            val clean = ToolOutputFormat.cleanCommandOutput(out)
+            val clean = remember(vm.id, out) { ToolOutputFormat.cleanCommandOutput(out) }
             if (clean.isNotEmpty()) CodeBlock(code = clean, language = "console")
         }
-        else -> when (ToolOutputFormat.classify(out)) {
-            ToolOutputFormat.Kind.JSON -> CodeBlock(code = prettyPrintJsonString(out) ?: out, language = "json")
+        else -> when (val kind = remember(vm.id, out) { ToolOutputFormat.classify(out) }) {
+            ToolOutputFormat.Kind.JSON -> CodeBlock(
+                code = remember(vm.id, out) { prettyPrintJsonString(out) ?: out },
+                language = "json",
+            )
             ToolOutputFormat.Kind.DIFF ->
-                if (UnifiedDiff.looksLikeDiff(out)) {
-                    UnifiedDiff.parse(out)?.let { DiffView(it) } ?: CodeBlock(code = out, language = "diff")
+                if (remember(vm.id, out) { UnifiedDiff.looksLikeDiff(out) }) {
+                    remember(vm.id, out) { UnifiedDiff.parse(out) }?.let { DiffView(it) }
+                        ?: CodeBlock(code = out, language = "diff")
                 } else {
                     CodeBlock(code = out, language = "diff")
                 }

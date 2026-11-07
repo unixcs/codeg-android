@@ -700,7 +700,8 @@ class CodegClient(
         return decodeUploadResponse(response.status.value, response.bodyAsText())
     }
 
-    private fun decodeUploadResponse(status: Int, text: String): WorkspaceUploadResult {
+    // 批v165 R4: decode is suspend now (off-main JSON parse) — this helper rides along.
+    private suspend fun decodeUploadResponse(status: Int, text: String): WorkspaceUploadResult {
         if (status !in 200..299) {
             if (status == 401) throw ApiError.Unauthorized
             val parsed = runCatching {
@@ -781,9 +782,11 @@ class CodegClient(
 
 
     /** Decode a camelCase-wire response (e.g. `list_directory_with_files`). */
-    private fun <T> decodeCamel(text: String, deserializer: DeserializationStrategy<T>): T =
-        runCatching { camelJson.decodeFromString(deserializer, text) }
-            .getOrElse { throw ApiError.Decoding(it.message ?: "Failed to decode response") }
+    private suspend fun <T> decodeCamel(text: String, deserializer: DeserializationStrategy<T>): T =
+        withContext(Dispatchers.Default) {
+            runCatching { camelJson.decodeFromString(deserializer, text) }
+                .getOrElse { throw ApiError.Decoding(it.message ?: "Failed to decode response") }
+        }
 
     // endregion
 
@@ -1748,9 +1751,14 @@ class CodegClient(
     private inline fun <reified T> encode(body: T): String =
         CodegJson.request.encodeToString(body)
 
-    private fun <T> decode(text: String, deserializer: DeserializationStrategy<T>): T =
-        runCatching { CodegJson.response.decodeFromString(deserializer, text) }
-            .getOrElse { throw ApiError.Decoding(it.message ?: "Failed to decode response") }
+    // 批v165 R4 (P1): every VM caller runs on Dispatchers.Main.immediate, so the
+    // response JSON (a full board list, a multi-MB transcript) was parsed on the
+    // main thread. One hop to Default here covers every endpoint in the client.
+    private suspend fun <T> decode(text: String, deserializer: DeserializationStrategy<T>): T =
+        withContext(Dispatchers.Default) {
+            runCatching { CodegJson.response.decodeFromString(deserializer, text) }
+                .getOrElse { throw ApiError.Decoding(it.message ?: "Failed to decode response") }
+        }
 
     // endregion
 

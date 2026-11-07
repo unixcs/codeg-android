@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
  * Config sync leaf (batch v142): export = password → AES-256-GCM ciphertext →
@@ -41,7 +42,7 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
  */
 @Composable
 fun ConfigSyncContent(viewModel: ConfigSyncViewModel) {
-    val ui by viewModel.ui.collectAsState()
+    val ui by viewModel.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showExportDialog by rememberSaveable { mutableStateOf(false) }
     var showImportDialog by rememberSaveable { mutableStateOf(false) }

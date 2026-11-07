@@ -111,7 +111,27 @@ object AttachmentPrep {
 
     /** [fromUri]/[fromLocalFile] 共用的解码+降采样+编码核心（CPU 密集，调用方已在 Default 上）。 */
     private fun decodeAndEncode(bytes: ByteArray, targetBytes: Int): Attachment? {
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        // 批v165 R4 (P0): a bare decodeByteArray memory-maps the FULL image — a
+        // 48 MP camera photo is ~200 MB of ARGB_8888, and that OOM is an Error
+        // that escapes every caller's runCatching (process kill from picking
+        // one big photo). Two-pass sampling first, same shape as
+        // ImageViewerDialog.decodeForViewer: the ladder tops out at
+        // MAX_DIMENSION, so anything wider decodes at sample size with
+        // identical ladder output.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / sample >= MAX_DIMENSION * 2 || bounds.outHeight / sample >= MAX_DIMENSION * 2) {
+            sample *= 2
+        }
+        val bitmap = BitmapFactory.decodeByteArray(
+            bytes, 0, bytes.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            },
+        ) ?: return null
         val longest = max(bitmap.width, bitmap.height)
         return when (val start = prepRoute(bytes.size, longest, targetBytes)) {
             -1 -> Attachment(

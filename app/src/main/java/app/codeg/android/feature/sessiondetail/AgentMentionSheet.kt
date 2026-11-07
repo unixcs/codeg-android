@@ -51,6 +51,10 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.component.sheetContentScrollLock
 import app.codeg.android.core.model.AgentMention
 
+// 批v165 R4: were compiled per rendered mention row.
+private val WS_RUN_RE = Regex("\\s*[\\r\\n]+\\s*")
+private val MD_ESCAPE_RE = Regex("[\\\\`*_~\\[\\]()<>]")
+
 /**
  * The @-mention label escape — the web composer's `escapeMarkdownText`
  * convention, the same rule the session reference badge applies
@@ -59,7 +63,7 @@ import app.codeg.android.core.model.AgentMention
  * never inject Markdown structure or break out of the link token.
  */
 private fun escapeMentionLabel(label: String): String =
-    label.replace(Regex("\\s*[\\r\\n]+\\s*"), " ").replace(Regex("[\\\\`*_~\\[\\]()<>]")) { "\\$it" }
+    label.replace(WS_RUN_RE, " ").replace(MD_ESCAPE_RE) { "\\$it" }
 
 /**
  * The @ contract (批v165 M-A): a native Markdown link

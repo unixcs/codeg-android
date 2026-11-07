@@ -52,6 +52,10 @@ import app.codeg.android.core.data.isLiveFresh
 import app.codeg.android.core.model.ConversationSummary
 import androidx.compose.ui.res.stringResource
 
+// 批v165 R4: were compiled per rendered row inside referenceBadge().
+private val WS_RUN_RE = Regex("\\s*[\\r\\n]+\\s*")
+private val MD_ESCAPE_RE = Regex("[\\\\`*_~\\[\\]()<>]")
+
 /**
  * One conversation row in the Chats / Activity / Search lists: a single
  * borderless line. The agent's brand avatar (with a status-tinted dot) anchors
@@ -112,7 +116,7 @@ fun SessionRow(
     // crafted title can't inject Markdown structure or break the link token.
     fun referenceBadge(): String {
         val label = conversation.trimmedTitle?.takeIf { it.isNotBlank() } ?: "#${conversation.id}"
-        val safe = label.replace(Regex("\\s*[\\r\\n]+\\s*"), " ").replace(Regex("[\\\\`*_~\\[\\]()<>]")) { "\\$it" }
+        val safe = label.replace(WS_RUN_RE, " ").replace(MD_ESCAPE_RE) { "\\$it" }
         return "[$safe](codeg://session/${conversation.id})"
     }
 

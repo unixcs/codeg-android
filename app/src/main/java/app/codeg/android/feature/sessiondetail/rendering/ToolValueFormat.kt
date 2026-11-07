@@ -104,6 +104,17 @@ private val hiddenFields = setOf("dangerouslyDisableSandbox")
  *  and classifies its kind. Mirrors the web `ToolOutput` pipeline. */
 object ToolOutputFormat {
 
+    // 批v165 R4: these compiled per call — a visible tool card re-classifies its
+    // output at ~20 Hz during streaming (live snapshots merge at ~50 ms), paying
+    // up to 11 Regex compilations per frame per card. Hoisted to one-time vals.
+    private val LEADING_FENCE_RE = Regex("^\\s*```[\\w-]*\\s*\\n?")
+    private val TRAILING_FENCE_RE = Regex("\\n?\\s*```\\s*$")
+    private val DIFF_HUNK_RE = Regex("(?m)^@@ ")
+    private val MARKDOWN_SIGNAL_RES = listOf(
+        "(?m)^#{1,6}\\s", "(?m)^\\s*[-*+]\\s", "(?m)^\\s*\\d+\\.\\s",
+        "\\*\\*[^*]+\\*\\*", "\\[[^\\]]+\\]\\([^)]+\\)", "```", "(?m)^>\\s", "(?m)^\\|.+\\|$",
+    ).map { Regex(it) }
+
     enum class Kind { JSON, DIFF, MARKDOWN, LOG }
 
     /** Pull human-readable text out of a JSON command-result envelope
@@ -177,8 +188,8 @@ object ToolOutputFormat {
     /** Remove a single leading / trailing Markdown code fence (```sh … ```). */
     fun stripMarkdownFence(text: String): String {
         var result = text
-        Regex("^\\s*```[\\w-]*\\s*\\n?").find(result)?.let { result = result.removeRange(it.range) }
-        Regex("\\n?\\s*```\\s*$").find(result)?.let { result = result.removeRange(it.range) }
+        LEADING_FENCE_RE.find(result)?.let { result = result.removeRange(it.range) }
+        TRAILING_FENCE_RE.find(result)?.let { result = result.removeRange(it.range) }
         return result
     }
 
@@ -194,19 +205,15 @@ object ToolOutputFormat {
     fun classify(output: String): Kind {
         val trimmed = output.trim()
         if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && parseAny(trimmed) != null) return Kind.JSON
-        if (trimmed.contains("diff --git") || Regex("(?m)^@@ ").containsMatchIn(trimmed)) return Kind.DIFF
+        if (trimmed.contains("diff --git") || DIFF_HUNK_RE.containsMatchIn(trimmed)) return Kind.DIFF
         return if (looksLikeMarkdown(output)) Kind.MARKDOWN else Kind.LOG
     }
 
     /** ≥2 markdown signals → render the output as markdown (iOS heuristic). */
     fun looksLikeMarkdown(s: String): Boolean {
         var count = 0
-        val patterns = listOf(
-            "(?m)^#{1,6}\\s", "(?m)^\\s*[-*+]\\s", "(?m)^\\s*\\d+\\.\\s",
-            "\\*\\*[^*]+\\*\\*", "\\[[^\\]]+\\]\\([^)]+\\)", "```", "(?m)^>\\s", "(?m)^\\|.+\\|$",
-        )
-        for (p in patterns) {
-            if (Regex(p).containsMatchIn(s)) count++
+        for (re in MARKDOWN_SIGNAL_RES) {
+            if (re.containsMatchIn(s)) count++
             if (count >= 2) return true
         }
         return false

@@ -30,6 +30,19 @@ import app.codeg.android.core.model.ImageData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+// 批v165 R4 (P2): scrolling back through a screenshot-heavy chat re-decoded the
+// same base64 payload (multi-MB text → BitmapFactory) every time an item
+// re-entered composition. Small process-level LRU keyed on a payload digest.
+private val INLINE_IMAGE_CACHE = object : android.util.LruCache<String, ImageBitmap>(24 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+}
+
+private fun inlineImageCacheKey(data: String): String =
+    runCatching {
+        java.security.MessageDigest.getInstance("MD5").digest(data.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+    }.getOrDefault(data.length.toString() + ":" + data.hashCode())
+
 /**
  * Decodes a base64 [ImageData] and renders it (max height 320dp), with an
  * optional caption. 批v155 段3: a tap opens the fullscreen viewer — the dialog
@@ -47,10 +60,14 @@ import kotlinx.coroutines.withContext
 fun InlineImage(image: ImageData, caption: String?, modifier: Modifier = Modifier) {
     val colors = CodegTheme.colors
     val bitmap by produceState<ImageBitmap?>(null, image.data) {
-        value = withContext(Dispatchers.Default) {
-            runCatching {
-                decodeForViewer(ImageViewerSource.Base64(image.data), maxDim = 1440)
-            }.getOrNull()
+        val key = inlineImageCacheKey(image.data)
+        INLINE_IMAGE_CACHE.get(key)?.let { value = it } ?: run {
+            value = withContext(Dispatchers.Default) {
+                runCatching {
+                    decodeForViewer(ImageViewerSource.Base64(image.data), maxDim = 1440)
+                }.getOrNull()
+            }
+            value?.let { INLINE_IMAGE_CACHE.put(key, it) }
         }
     }
     // rememberSaveable: rotation/proc-death used to silently close the viewer.

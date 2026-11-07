@@ -116,6 +116,13 @@ fun ActivityScreen(
         workbench.setActive(true)
         onDispose { workbench.setActive(false) }
     }
+    // 批v165 R4: same rule for the feed's own 25s poll — the VM survives
+    // bottom-bar tab switches, so one visit must not arm an all-device
+    // refetch loop for the rest of the foreground session.
+    DisposableEffect(viewModel) {
+        viewModel.setActive(true)
+        onDispose { viewModel.setActive(false) }
+    }
     var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var pendingDelete by remember { mutableStateOf<ActivityRow?>(null) }
     var pendingRename by remember { mutableStateOf<ActivityRow?>(null) }

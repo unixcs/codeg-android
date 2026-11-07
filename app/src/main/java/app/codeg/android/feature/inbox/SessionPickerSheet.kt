@@ -58,6 +58,9 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+// 批v165 R4: was compiled per rendered row (every >24h stamp).
+private val PICKER_DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd")
+
 /**
  * 批v162 反向快链的目标选择器（想法卡 →「追加到已有会话」）。数据由
  * [InboxViewModel.loadPickerSessions] 一次性拉取（每台可见设备一轮
@@ -409,7 +412,7 @@ fun relativeStamp(
         minutes < 1 -> RelativeStamp.JustNow
         minutes < 60 -> RelativeStamp.Minutes(minutes)
         age.toHours() < 24 -> RelativeStamp.Hours(age.toHours())
-        else -> RelativeStamp.Dated(DateTimeFormatter.ofPattern("MM-dd").format(updatedAt.atZone(zone)))
+        else -> RelativeStamp.Dated(PICKER_DAY_FORMAT.format(updatedAt.atZone(zone)))
     }
 }
 

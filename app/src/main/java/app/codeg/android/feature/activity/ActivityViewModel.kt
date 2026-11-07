@@ -91,6 +91,14 @@ class ActivityViewModel @Inject constructor(
     /** App foreground signal (batch v130) — gates the 25s poll while backgrounded. */
     private val foreground = (appContext as app.codeg.android.CodegApplication).appForeground
 
+    /** 批v165 R4: tab-visibility gate. Bottom-bar navigation keeps this VM alive
+     *  (saveState/restoreState), so a single visit armed the 25s all-device
+     *  fan-out for the rest of the foreground session — the exact leak TaskHub
+     *  and Automation already closed with this same shape. Activity was the
+     *  last holdout. */
+    private val _active = MutableStateFlow(false)
+    fun setActive(active: Boolean) { _active.value = active }
+
     /**
      * The Running / Last-24h sections the feed renders, sorted and with the folder tag
      * pre-resolved — computed on [Dispatchers.Default] and recomputed only when the
@@ -261,6 +269,7 @@ class ActivityViewModel @Inject constructor(
             while (true) {
                 // Foreground gate (batch v130): on resume the loop resumes and fetches
                 // immediately, which is the post-background refetch.
+                if (!_active.value) _active.first { it }
                 if (!foreground.value) foreground.first { it }
                 val manual = manualOnce
                 manualOnce = false

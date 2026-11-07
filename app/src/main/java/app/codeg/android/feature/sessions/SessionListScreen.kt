@@ -148,7 +148,7 @@ fun SessionListScreen(
     val displayStore = remember { viewModel.chatListDisplayStore }
     val display by remember(selectedId) {
         displayStore.display(selectedId ?: "")
-    }.collectAsState(initial = ChatListDisplayDefaults)
+    }.collectAsStateWithLifecycle(initialValue = ChatListDisplayDefaults)
     val scope = rememberCoroutineScope()
     // 批v162 P1: one subscription for the whole list; conversation ids are
     // server-local so the owning `selectedId` is part of every toggle.

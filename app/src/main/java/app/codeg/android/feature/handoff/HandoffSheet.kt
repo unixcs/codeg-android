@@ -61,7 +61,7 @@ fun HandoffSheet(
     viewModel: HandoffViewModel,
     onClose: () -> Unit,
 ) {
-    val ui by viewModel.ui.collectAsState()
+    val ui by viewModel.ui.collectAsStateWithLifecycle()
     var device by rememberSaveable { mutableStateOf<String?>(null) }
     var folderId by rememberSaveable { mutableStateOf<Int?>(null) }
     var agent by rememberSaveable { mutableStateOf<AgentType?>(null) }
