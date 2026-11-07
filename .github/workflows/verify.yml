@@ -3,7 +3,9 @@ name: Verify
 on:
   pull_request:
   push:
-    branches: [main, feat/fleet-v1]
+    # 批v164: feat/** — batch branches are per-batch now (feat/fleet-v1 was
+    # retired with the v1 closeout; a hardcoded list strands the next batch).
+    branches: [main, "feat/**"]
   workflow_dispatch:
 
 permissions:
