@@ -6,6 +6,7 @@ import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.TokenUsageFilter
+import app.codeg.android.core.model.TokenUsageHeatCell
 import app.codeg.android.core.model.TokenUsageReport
 import app.codeg.android.core.model.TokenUsageSyncStatus
 import app.codeg.android.core.network.ApiError
@@ -31,19 +32,21 @@ import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-enum class UsagePeriod { TODAY, WEEK }
+/** 批v169 对齐 web：今日/近 7 天/近 30 天/近 90 天四档。 */
+enum class UsagePeriod(val backDays: Int) { TODAY(0), WEEK(6), MONTH(29), QUARTER(89) }
+
+/** 用量分布子视角（RankedBarList 的三个数据面）。 */
+enum class UsageBreakdownMode { FOLDER, AGENT, MODEL }
 
 /**
  * Build the report filter for a period. Bucket granularity is always `day`
- * (轻量版只有今日/7 天切换); the range is [local midnight … now) in the
- * device viewer's timezone — the server buckets by the reported offset, the
- * client never converts timestamps itself.
+ * (趋势柱状图按天); the range is [local midnight … now) in the device viewer's
+ * timezone — the server buckets by the reported offset, the client never
+ * converts timestamps itself. 批v169 起 comparePrevious=true：服务端回填
+ * 上一周期 totals，Hero 卡渲染涨跌徽标（previous 全零时 UI 自行隐藏）。
  */
 fun usageFilter(period: UsagePeriod, now: LocalDate = LocalDate.now(), zone: ZoneId = ZoneId.systemDefault()): TokenUsageFilter {
-    val startDay = when (period) {
-        UsagePeriod.TODAY -> now
-        UsagePeriod.WEEK -> now.minusDays(6)
-    }
+    val startDay = if (period == UsagePeriod.TODAY) now else now.minusDays(period.backDays)
     val start = startDay.atStartOfDay(zone).toInstant().toString()
     val offsetMinutes = zone.rules.getOffset(Instant.now()).totalSeconds / 60
     return TokenUsageFilter(
@@ -51,15 +54,54 @@ fun usageFilter(period: UsagePeriod, now: LocalDate = LocalDate.now(), zone: Zon
         end = null,
         bucket = "day",
         tzOffsetMinutes = offsetMinutes,
-        comparePrevious = false,
+        comparePrevious = true,
     )
 }
 
 /** K/M compact token counts — Locale.ROOT so digits stay ASCII everywhere. */
 fun formatTokenCount(n: Long): String = when {
+    n >= 1_000_000_000 -> String.format(java.util.Locale.ROOT, "%.2fB", n / 1_000_000_000.0)
     n >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1fM", n / 1_000_000.0)
     n >= 1_000 -> String.format(java.util.Locale.ROOT, "%.1fK", n / 1_000.0)
     else -> n.toString()
+}
+
+/** 缓存命中率 = cache read / total（0 除保护：无用量时 0）。
+ *  口径与 web「缓存读取 1380.3M 95.1%」一致——分母是全部四类 token 之和。 */
+fun cacheHitRate(t: TokenUsageTotals): Float {
+    val total = t.totalTokens
+    if (total <= 0) return 0f
+    return (t.cacheReadTokens.toFloat() / total).coerceIn(0f, 1f)
+}
+
+/** 夜猫子占比：作息热力图里 22:00–05:59 的 token 占比（0–1；无数据 0）。
+ *  语义对齐 web 深夜码农徽标「45% 的 Token 烧在天黑之后」。 */
+fun nightOwlFraction(cells: List<TokenUsageHeatCell>): Float {
+    val total = cells.sumOf { it.totalTokens }
+    if (total <= 0) return 0f
+    val night = cells.filter { it.hour >= 22 || it.hour < 6 }.sumOf { it.totalTokens }
+    return (night.toFloat() / total).coerceIn(0f, 1f)
+}
+
+/** 周期环比：本周期相对上一周期的涨跌比例（1.0 = +100%）。
+ *  previous 缺失或全零返回 null——UI 隐藏徽标而不是渲染 +∞。 */
+fun deltaPercent(current: Long, previous: Long): Float? {
+    if (previous <= 0) return null
+    return (current - previous).toFloat() / previous
+}
+
+/** 「生成时长 100h 24m」紧凑口径。 */
+fun formatDuration(ms: Long): String {
+    val totalMinutes = ms / 60_000
+    val h = totalMinutes / 60
+    val m = totalMinutes % 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
+}
+
+/** 作息峰值时段（token 最高的 hour，24 小时制整数；空数据 null）。 */
+fun peakHour(cells: List<TokenUsageHeatCell>): Int? {
+    val best = cells.maxByOrNull { it.totalTokens } ?: return null
+    return if (best.totalTokens <= 0) null else best.hour
 }
 
 /**
@@ -91,6 +133,9 @@ class TokenUsageViewModel @Inject constructor(
     data class UiState(
         val devices: List<DeviceUsage> = emptyList(),
         val period: UsagePeriod = UsagePeriod.TODAY,
+        // 批v169: 用量分布的子视角，全局一份（所有设备卡同一视角，避免
+        // 每卡各记一个的错位感）。
+        val breakdownMode: UsageBreakdownMode = UsageBreakdownMode.FOLDER,
         val lastRefreshed: Instant? = null,
         val hasLoaded: Boolean = false,
         val syncing: Boolean = false,
@@ -117,6 +162,11 @@ class TokenUsageViewModel @Inject constructor(
         if (_ui.value.period == period) return
         _ui.update { it.copy(period = period, lastRefreshed = null) }
         refresh()
+    }
+
+    /** 纯本地视角切换——数据本来就三面全回，不触发网络刷新。 */
+    fun setBreakdownMode(mode: UsageBreakdownMode) {
+        _ui.update { it.copy(breakdownMode = mode) }
     }
 
     fun clearActionNote() { _ui.update { it.copy(actionNote = null, actionError = null) } }
