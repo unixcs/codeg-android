@@ -62,9 +62,10 @@ class FloatingBallCatalogTest {
         }
         // v150 appended the four quick-center actions; v151 the five quick-shell
         // ones (tabInbox/tabTasks/quickNewSession/toggleAllDevices/refreshActivity);
-        // v160 added cycleSessionCustom. The count guard stays so an accidental
-        // catalog change is caught in CI.
-        assertEquals(31, FloatingBallCatalog.ACTIONS.size)
+        // v160 added cycleSessionCustom; v171 the two swipe-binding cycles
+        // (cycleSwipeLeft/cycleSwipeRight). The count guard stays so an
+        // accidental catalog change is caught in CI.
+        assertEquals(33, FloatingBallCatalog.ACTIONS.size)
         assertEquals("recentSession1", FloatingBallCatalog.DEFAULT_BINDINGS["upThenRight"])
         assertEquals("recentSession2", FloatingBallCatalog.DEFAULT_BINDINGS["upRightThenDown"])
         assertEquals("recentSession3", FloatingBallCatalog.DEFAULT_BINDINGS["upLeftThenRight"])
