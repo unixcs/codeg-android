@@ -1551,7 +1551,7 @@
     <string name="task_new_unknown_title">Result unknown</string>
     <string name="task_new_unknown_msg">The device did not confirm the result. Check the dispatch records in the inbox — do not simply resend.</string>
     <string name="task_edit_title">Edit task</string>
-    <string name="task_edit_note">Saving overwrites the title and description on the device; other settings are kept.</string>
+    <string name="task_edit_note">Saving overwrites the title and description on the device; the model and reasoning effort below are saved as picked; other settings are kept.</string>
     <string name="task_edit_save">Save</string>
     <!-- 批v160 W5: web-parity card/detail (task-card.tsx / task-detail-sheet.tsx) -->
     <string name="task_status_interrupted">Interrupted</string>

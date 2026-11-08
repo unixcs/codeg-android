@@ -33,8 +33,25 @@ class HandoffViewModel @Inject constructor(
     private val dispatchService: DispatchService,
     private val targetLoader: DispatchTargetLoader,
     private val repository: app.codeg.android.core.data.ServerRepository,
+    private val agentOptionsProber: app.codeg.android.core.data.AgentOptionsProber,
     appSettingsStore: app.codeg.android.core.datastore.AppSettingsStore,
 ) : ViewModel() {
+
+    /** 批v166: the model/effort rows' probe + provider catalog (shared rows
+     *  component). Cache-first on the prober; never throws. */
+    suspend fun probeAgentOptions(
+        serverId: String,
+        agentType: AgentType,
+        workingDir: String?,
+        configValues: Map<String, String> = emptyMap(),
+    ): app.codeg.android.core.model.AgentOptionsSnapshot? =
+        agentOptionsProber.probe(serverId, agentType, workingDir, configValues)
+
+    suspend fun modelProviderEntries(
+        serverId: String,
+        agentType: AgentType,
+    ): List<app.codeg.android.core.model.ModelProviderInfo> =
+        agentOptionsProber.modelProviderEntries(serverId, agentType)
 
     /** App-wide settings — the handoff sheet reads its preselected defaults
      *  (device/project/agent) from this flow. */
@@ -169,7 +186,15 @@ class HandoffViewModel @Inject constructor(
         )
     }
 
-    fun dispatch(source: HandoffSource, targetServerId: String, folderId: Int, folderName: String, agentType: AgentType?) {
+    fun dispatch(
+        source: HandoffSource,
+        targetServerId: String,
+        folderId: Int,
+        folderName: String,
+        agentType: AgentType?,
+        /** 批v166: pinned model/effort picks from the shared rows (config_values). */
+        configValues: Map<String, String> = emptyMap(),
+    ) {
         val pkg = _ui.value.pkg ?: return
         if (_ui.value.dispatching) {
             _ui.value = _ui.value.copy(error = "正在派发，请稍候")
@@ -221,6 +246,9 @@ class HandoffViewModel @Inject constructor(
                         title = title,
                         description = pkg.toTaskDescription(gitNote),
                         agentTypeWire = agentType?.wire,
+                        // 批v166: the handoff task runs with the picked model
+                        // instead of silently falling back to the agent default.
+                        configValues = configValues,
                         // Handoff: starting the task is the receiving side's
                         // decision — never auto-start from the sender.
                         autoStart = false,

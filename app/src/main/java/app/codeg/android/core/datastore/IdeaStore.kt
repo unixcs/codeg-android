@@ -136,6 +136,12 @@ data class DispatchRef(
      *  Persisted on the ledger (not just the request) so a create resolved by
      *  the UNKNOWN probe lands on the board exactly like a direct success. */
     val addToBoard: Boolean = false,
+    /** 批v166: the pinned permission mode + config picks (model / reasoning
+     *  effort) the request carried. Without them a re-dispatch silently
+     *  reverted the task (or session) to the agent default model. Defaults
+     *  keep pre-field ledger rows decoding unchanged. */
+    val modeId: String? = null,
+    val configValues: Map<String, String> = emptyMap(),
 )
 
 @Singleton

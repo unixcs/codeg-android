@@ -202,6 +202,10 @@ class DispatchService @Inject constructor(
             sessionMode = req.sessionMode,
             attachments = req.attachments,
             addToBoard = req.addToBoard && req.sessionMode,
+            // 批v166: the model/effort picks ride the ledger so a re-dispatch
+            // re-sends them (the probe resolver replays them for sessions too).
+            modeId = req.modeId,
+            configValues = req.configValues,
         )
         if (client == null) {
             restoreOnHardFail(req.restoreOnHardFail)
@@ -300,16 +304,7 @@ class DispatchService @Inject constructor(
                                 // created for (it can't ride create_conversation — the
                                 // server row has no model field). The first connect
                                 // replays these via acp_connect preferred values.
-                                runCatching {
-                                    req.modeId?.let {
-                                        conversationSelector.saveMode(req.serverId, remoteId, sessionAgent, it)
-                                    }
-                                    req.configValues.forEach { (id, value) ->
-                                        conversationSelector.saveConfig(
-                                            req.serverId, remoteId, sessionAgent, id, value,
-                                        )
-                                    }
-                                }
+                                replaySessionSelectors(anchored, remoteId)
                                 sessionAutoStart.arm(
                                     req.serverId, remoteId, req.description, uploaded, inlineImages,
                                 )
@@ -542,6 +537,29 @@ class DispatchService @Inject constructor(
         return DispatchOutcome.Confirmed(ref, scheduleNote)
     }
 
+    /**
+     * 批v166: replay the ledger ref's pinned mode + config picks onto the
+     * conversation selector so the first acp_connect reconnects with them (the
+     * server conversation row has no model field). Shared by the direct create
+     * and BOTH probe-confirm paths — a create resolved by the ambiguity probe
+     * must land with the model the user picked, or the "never silently revert"
+     * guarantee leaks on exactly that path.
+     */
+    suspend fun replaySessionSelectors(request: DispatchRef, conversationId: Int) {
+        val agent = request.agentTypeWire
+            ?.let { app.codeg.android.core.model.AgentType.fromWire(it) }
+            ?.takeIf { it != app.codeg.android.core.model.AgentType.UNKNOWN }
+            ?: app.codeg.android.core.model.AgentType.CLAUDE_CODE
+        runCatching {
+            request.modeId?.let {
+                conversationSelector.saveMode(request.serverId, conversationId, agent, it)
+            }
+            request.configValues.forEach { (id, value) ->
+                conversationSelector.saveConfig(request.serverId, conversationId, agent, id, value)
+            }
+        }
+    }
+
     private suspend fun markUnknown(request: DispatchRef): DispatchOutcome {
         dispatchStore.put(request.copy(state = DispatchState.UNKNOWN))
         return DispatchOutcome.Unknown(request)
@@ -604,8 +622,11 @@ class DispatchService @Inject constructor(
                     // too — the UI's jump may already be gone (this path runs after
                     // an ambiguous send), so the armed slot can linger; the
                     // staleness window in take() bounds it.
+                    // 批v166: the ref's pinned mode/model picks replay here too —
+                    // a probe-confirmed conversation must not open on the default.
                     return confirm(request, id, profile, null, false).also { outcome ->
                         if (outcome is DispatchOutcome.Confirmed) {
+                            replaySessionSelectors(request, id)
                             sessionAutoStart.arm(
                                 request.serverId, id, request.description, uploaded, inlineImages,
                             )

@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,6 +67,9 @@ fun HandoffSheet(
     var folderId by rememberSaveable { mutableStateOf<Int?>(null) }
     var agent by rememberSaveable { mutableStateOf<AgentType?>(null) }
     var folderSheet by rememberSaveable { mutableStateOf(false) }
+    // 批v166: 模型/推理强度 rows (shared component) — a handoff task no longer
+    // silently runs on the agent default model.
+    val optionsState = remember { app.codeg.android.feature.dispatch.AgentOptionsRowsState() }
 
     androidx.compose.runtime.LaunchedEffect(source.conversationId) {
         viewModel.generate(source)
@@ -277,6 +281,17 @@ fun HandoffSheet(
                     ),
                     onClick = { if (targets.folders.isNotEmpty()) folderSheet = true },
                 )
+                // 批v166: probe the EFFECTIVE agent (explicit pick, else the
+                // project default) — same rule as the dispatch form.
+                app.codeg.android.feature.dispatch.AgentOptionsRows(
+                    state = optionsState,
+                    serverId = device,
+                    agent = agent ?: targets.folders.firstOrNull { it.id == folderId }
+                        ?.defaultAgentType?.takeIf { it != AgentType.UNKNOWN },
+                    workingDir = targets.folders.firstOrNull { it.id == folderId }?.path,
+                    probe = viewModel::probeAgentOptions,
+                    providerModels = viewModel::modelProviderEntries,
+                )
                 ui.error?.let {
                     Text(it, color = CodegTheme.colors.danger, style = MaterialTheme.typography.bodySmall)
                 }
@@ -284,7 +299,12 @@ fun HandoffSheet(
                     onClick = {
                         val dev = device ?: return@TextButton
                         val fid = folderId ?: return@TextButton
-                        viewModel.dispatch(source, dev, fid, targets.folders.firstOrNull { it.id == fid }?.name.orEmpty(), agent)
+                        viewModel.dispatch(
+                            source, dev, fid,
+                            targets.folders.firstOrNull { it.id == fid }?.name.orEmpty(),
+                            agent,
+                            configValues = optionsState.picksSnapshot(),
+                        )
                     },
                     enabled = device != null && folderId != null && !ui.dispatching && ui.unknownRef == null &&
                         (pkg.goal.isNotBlank() || pkg.nextSteps.isNotBlank()),

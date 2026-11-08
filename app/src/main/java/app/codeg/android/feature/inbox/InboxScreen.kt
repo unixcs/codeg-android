@@ -50,7 +50,6 @@ import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.OpenInFull
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -137,7 +136,9 @@ import app.codeg.android.core.designsystem.component.rememberSheetDragLock
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.AgentOptionsSnapshot
 import app.codeg.android.core.model.AgentType
-import app.codeg.android.core.model.SessionModeInfo
+import app.codeg.android.core.model.ModelProviderInfo
+import app.codeg.android.feature.dispatch.AgentOptionsRows
+import app.codeg.android.feature.dispatch.AgentOptionsRowsState
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -387,6 +388,7 @@ fun InboxScreen(
             targets = targets,
             loadTarget = viewModel::loadTarget,
             probeAgentOptions = viewModel::probeAgentOptions,
+            modelProviderEntries = viewModel::modelProviderEntries,
             onDismiss = { creating = false; editingId = null },
             // 批v164: draft memory rides along only in new-idea mode — an
             // existing idea's text lives in its own row, not in a draft slot.
@@ -408,6 +410,7 @@ fun InboxScreen(
                     folderName = payload.folderName,
                     agentType = payload.agentType,
                     modeId = payload.modeId,
+                    configValues = payload.configValues,
                     // 批v164 审查R1: only a NEW idea retires the composer draft.
                     clearComposerDraft = editing == null,
                     onDone = { ref ->
@@ -958,7 +961,9 @@ private fun IdeaEditorDialog(
     dispatchError: String?,
     targets: DispatchTargets,
     loadTarget: (String) -> Unit,
-    probeAgentOptions: suspend (String, AgentType, String?) -> AgentOptionsSnapshot?,
+    probeAgentOptions: suspend (String, AgentType, String?, Map<String, String>) -> AgentOptionsSnapshot?,
+    /** 批v166: server truth for the 模型 row's provider merge (DispatchForm M1). */
+    modelProviderEntries: suspend (String, AgentType) -> List<ModelProviderInfo>,
     /** 批v164: 新想法 draft memory. Null in edit mode — an existing idea's text
      *  lives in its own row, so there is no draft to restore or persist. */
     loadDraft: (suspend () -> DraftEntry)?,
@@ -1193,6 +1198,7 @@ private fun IdeaEditorDialog(
                             seedIdeaId = initial?.id,
                             loadTarget = loadTarget,
                             probeAgentOptions = probeAgentOptions,
+                            modelProviderEntries = modelProviderEntries,
                             onInsert = { payload ->
                                 // Ownership of locally staged copies moves to the
                                 // dispatch pipeline (same rule as 保存): a confirmed
@@ -1280,14 +1286,18 @@ private data class IdeaInsertPayload(
     val folderName: String,
     val agentType: AgentType?,
     val modeId: String?,
+    /** 批v166: 模型/推理强度 picks (config_values) — the old form had no way
+     *  to pick a model, and the row it did have sent permission modes. */
+    val configValues: Map<String, String>,
 )
 
 /**
  * 批v155 段2: the idea editor's 一键插待办. Collapsed it is one entry row;
  * expanded it reveals the dispatch form's target selectors — 设备 chips →
- * Agent chips → 项目 PickerField → 模型 PickerField (cache-first probe, same
- * semantics as [app.codeg.android.feature.dispatch.DispatchForm]) — and a
- * submit button. The task is created in 待办 (autoStart=false); the local
+ * Agent chips → 项目 PickerField → 权限模式/模型/推理强度 rows (批v166: the
+ * shared [AgentOptionsRows], same probe/merge contract as
+ * [app.codeg.android.feature.dispatch.DispatchForm]) — and a submit button.
+ * The task is created in 待办 (autoStart=false); the local
  * draft is upserted first by the VM so an UNKNOWN ledger ref always binds to
  * a persisted idea.
  *
@@ -1316,7 +1326,8 @@ private fun InsertTodoSection(
     /** The edited draft's id, or null for a brand-new idea. */
     seedIdeaId: String?,
     loadTarget: (String) -> Unit,
-    probeAgentOptions: suspend (String, AgentType, String?) -> AgentOptionsSnapshot?,
+    probeAgentOptions: suspend (String, AgentType, String?, Map<String, String>) -> AgentOptionsSnapshot?,
+    modelProviderEntries: suspend (String, AgentType) -> List<ModelProviderInfo>,
     onInsert: (IdeaInsertPayload) -> Unit,
 ) {
     val colors = CodegTheme.colors
@@ -1324,13 +1335,10 @@ private fun InsertTodoSection(
     var device by rememberSaveable { mutableStateOf<String?>(null) }
     var folderId by rememberSaveable { mutableStateOf<Int?>(null) }
     var agent by rememberSaveable { mutableStateOf<AgentType?>(null) }
-    // 模型 row states — same contract as DispatchForm: the picked id survives
-    // restore, the option list does not; an unvalidated id never rides a submit.
-    var modelId by rememberSaveable { mutableStateOf<String?>(null) }
-    var modelOptions by remember { mutableStateOf<List<SessionModeInfo>>(emptyList()) }
-    var modelLoading by remember { mutableStateOf(false) }
-    var modelFailed by remember { mutableStateOf(false) }
-    var modelSheet by remember { mutableStateOf(false) }
+    // 批v166: 权限模式 + 模型 + 推理强度 ride the shared rows component —
+    // same probe/merge/re-probe contract as DispatchForm (the old inline row
+    // mislabeled the permission-mode list as 模型 and hid entirely under 自动).
+    val optionsState = remember { AgentOptionsRowsState() }
     var folderSheet by remember { mutableStateOf(false) }
     val ideaId = remember { seedIdeaId ?: java.util.UUID.randomUUID().toString() }
 
@@ -1352,37 +1360,6 @@ private fun InsertTodoSection(
         val fid = folderId
         if (fid != null && targets.folders.isNotEmpty() && targets.folders.none { it.id == fid }) {
             folderId = null
-        }
-    }
-    // 模型探测 — task-only + concrete agent on a picked device+project. Cache-first
-    // on the prober, so a re-opened editor answers instantly; a key change resets
-    // the picked id (a fresh list may differ) and re-resolves. Cancellation-safe:
-    // the store keeps the probe running, only the await is cancelled.
-    LaunchedEffect(device, agent, folder?.path) {
-        modelId = null
-        modelOptions = emptyList()
-        modelLoading = false
-        modelFailed = false
-        val d = device
-        val a = agent
-        val f = folder
-        if (d == null || a == null || f == null) return@LaunchedEffect
-        modelLoading = true
-        val snapshot = try {
-            probeAgentOptions(d, a, f.path)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
-        modelLoading = false
-        if (snapshot == null) {
-            modelFailed = true
-        } else {
-            modelOptions = snapshot.modes?.availableModes.orEmpty()
-            snapshot.modes?.currentModeId
-                ?.takeIf { current -> modelOptions.any { it.id == current } }
-                ?.let { modelId = it }
         }
     }
 
@@ -1476,35 +1453,19 @@ private fun InsertTodoSection(
                 onClick = { folderSheet = true },
                 enabled = targets.folders.isNotEmpty(),
             )
-            // 模型（仅具体 Agent）— 自动 can't be probed (no concrete CLI), so the
-            // row hides; an agent without modes inserts mode-less.
-            if (agent != null) {
-                PickerField(
-                    icon = Icons.Rounded.Tune,
-                    label = stringResource(R.string.dispatch_model),
-                    value = modelOptions.firstOrNull { it.id == modelId }
-                        ?.let { it.name.ifBlank { it.id } },
-                    placeholder = stringResource(
-                        when {
-                            modelLoading -> R.string.dispatch_model_loading
-                            modelFailed -> R.string.dispatch_model_failed
-                            // R3 P3-6: no project selected → the probe hasn't
-                            // run; "无模型" reads as a verdict, not a pending state.
-                            folder == null -> R.string.dispatch_model_pending
-                            else -> R.string.dispatch_model_none
-                        },
-                    ),
-                    onClick = { modelSheet = true },
-                    enabled = modelOptions.isNotEmpty(),
-                )
-                if (modelFailed && !modelLoading) {
-                    Text(
-                        stringResource(R.string.dispatch_model_failed_note),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.textTertiary,
-                    )
-                }
-            }
+            // 批v166: 权限模式 + 模型 + 推理强度 — the shared rows. Probe the
+            // EFFECTIVE agent (explicit pick, else the project default) exactly
+            // like DispatchForm, so 自动 with a project default still offers a
+            // model; without one the row explains itself instead of hiding.
+            AgentOptionsRows(
+                state = optionsState,
+                serverId = device,
+                agent = agent ?: folder?.defaultAgentType?.takeIf { it != AgentType.UNKNOWN },
+                workingDir = folder?.path,
+                probe = probeAgentOptions,
+                providerModels = modelProviderEntries,
+                showPermissionMode = true,
+            )
             dispatchError?.let { error ->
                 Text(error, color = colors.danger, style = MaterialTheme.typography.bodySmall)
             }
@@ -1524,7 +1485,8 @@ private fun InsertTodoSection(
                                 folderId = f.id,
                                 folderName = f.name,
                                 agentType = agent,
-                                modeId = modelOptions.firstOrNull { it.id == modelId }?.id,
+                                modeId = optionsState.modeId,
+                                configValues = optionsState.picksSnapshot(),
                             ),
                         )
                     }
@@ -1543,15 +1505,6 @@ private fun InsertTodoSection(
             selectedId = folderId?.toString(),
             onSelect = { option -> folderId = option.id.toIntOrNull() },
             onDismiss = { folderSheet = false },
-        )
-    }
-    if (modelSheet) {
-        OptionListSheet(
-            title = stringResource(R.string.dispatch_model),
-            options = modelOptions.map { PickerOption(id = it.id, label = it.name.ifBlank { it.id }) },
-            selectedId = modelId,
-            onSelect = { option -> modelId = option.id },
-            onDismiss = { modelSheet = false },
         )
     }
 }

@@ -308,6 +308,8 @@ class InboxViewModel @Inject constructor(
         folderName: String,
         agentType: AgentType?,
         modeId: String?,
+        /** 批v166: 模型/推理强度 picks — rides config_values (the shared rows). */
+        configValues: Map<String, String> = emptyMap(),
         /** 批v164 审查R1: only a NEW idea's composer draft is retired by an
          *  insert. Editing an existing idea and inserting it must not wipe the
          *  unrelated half-typed 新想法 draft. */
@@ -368,6 +370,7 @@ class InboxViewModel @Inject constructor(
                 description = entry.description,
                 baseBranch = null,
                 modeId = modeId,
+                configValues = configValues,
                 scheduleLocalMillis = null,
                 onDone = onDone,
                 autoStart = false,
@@ -774,6 +777,9 @@ class InboxViewModel @Inject constructor(
                             // 批v155(R2C#2): the uploaded remote paths ride the
                             // ledger ref — arm WITHOUT them and the first prompt
                             // never mentions files that are already on the device.
+                            // 批v166: the ref's pinned mode/model picks replay too
+                            // (shared with DispatchService's two confirm paths).
+                            dispatchService.replaySessionSelectors(ref, matchId)
                             sessionAutoStart.arm(
                                 ref.serverId,
                                 matchId,
@@ -896,6 +902,11 @@ class InboxViewModel @Inject constructor(
                 scheduleLocalMillis = ref.scheduleLocalMillis
                     ?.takeIf { it > System.currentTimeMillis() }
                     ?: scheduleLocalMillis,
+                // 批v166: the ledger snapshot now carries the pinned mode + model
+                // picks — re-sending without them would silently revert the task
+                // (or session) to the agent default model.
+                modeId = ref.modeId,
+                configValues = ref.configValues,
                 // 会话型未知单重派必须仍是会话——否则一条"可能已建会话"的
                 // 记录会在任务板上再落一个任务（跨模式重复创建）。
                 sessionMode = ref.sessionMode,

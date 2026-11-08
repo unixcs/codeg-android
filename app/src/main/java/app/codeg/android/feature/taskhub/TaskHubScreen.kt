@@ -170,6 +170,8 @@ import app.codeg.android.core.model.ConversationStatus
 import app.codeg.android.core.model.WorkTaskChangedFile
 import app.codeg.android.core.model.WorkTaskEvent
 import app.codeg.android.core.model.WorkTaskInfo
+import app.codeg.android.feature.dispatch.AgentOptionsRows
+import app.codeg.android.feature.dispatch.AgentOptionsRowsState
 import app.codeg.android.feature.dispatch.DispatchForm
 import java.time.Instant
 import java.time.LocalDate
@@ -3805,6 +3807,14 @@ private fun EditTaskSheet(
     // keying by it.name would never preselect and would write "CLAUDE_CODE"
     // back into the config on save.
     var agentWire by rememberSaveable(key = "edit-agent-${task.id}") { mutableStateOf(task.configAgentType.orEmpty()) }
+    // 批v166: 模型/推理强度 rows — prefilled from the task's pinned config so an
+    // untouched save re-sends it byte-identical; a pick overrides the base key
+    // at merge time. The probe uses the EFFECTIVE agent (explicit pick, else
+    // the project default), the same rule the dispatch form applies.
+    val optionsState = remember(task.id) { AgentOptionsRowsState(task.configValues) }
+    val editFolder = targets.folders.firstOrNull { it.id == task.folderId }
+    val probeAgent = AgentType.fromWire(agentWire).takeIf { it != AgentType.UNKNOWN }
+        ?: editFolder?.defaultAgentType?.takeIf { it != AgentType.UNKNOWN }
     // R1B #8 / R4 P2-1: also re-run when a previous load FAILED (the sheet is
     // the only surface that can recover the agent list from here). The error
     // clause used to gate the retry out of existence — error != null is exactly
@@ -3890,6 +3900,18 @@ private fun EditTaskSheet(
                 selectedId = agentWire.ifBlank { null },
                 onSelect = { wire -> agentWire = wire ?: "" },
             )
+            // 批v166: the model/reasoning rows the create form has — an edit can
+            // finally re-pin the model instead of silently keeping (or, after a
+            // redispatch, losing) the old one. Permission mode stays untouched
+            // (mode_id passes through; it is not editable here).
+            AgentOptionsRows(
+                state = optionsState,
+                serverId = entry.serverId,
+                agent = probeAgent,
+                workingDir = editFolder?.path,
+                probe = viewModel::probeAgentOptions,
+                providerModels = viewModel::modelProviderEntries,
+            )
             Text(
                 stringResource(R.string.task_edit_note),
                 style = MaterialTheme.typography.labelSmall,
@@ -3933,7 +3955,13 @@ private fun EditTaskSheet(
                             agentTypeWire = agent,
                             modeId = task.configModeId,
                             baseBranch = task.configBaseBranch,
-                            configValues = task.configValues,
+                            // 批v166: picks win over the pinned config per key; an
+                            // untouched sheet re-sends the base values unchanged.
+                            // Edge kept from v155: after an agent switch the row
+                            // shows the new agent's current value but an un-picked
+                            // old model key still passes through — pick explicitly
+                            // to override it.
+                            configValues = task.configValues + optionsState.picksSnapshot(),
                         )
                         viewModel.updateTask(
                             entry.serverId,
