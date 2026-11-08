@@ -1590,6 +1590,31 @@
     <string name="general_swipe_left_title">Swipe-left action</string>
     <string name="general_swipe_right_title">Swipe-right action</string>
     <string name="swipe_action_none">No action</string>
+    <!-- 批v171: swipe extensions (inbox bindings + master switches), floating-ball
+         cycle actions, settings IA leaves, and the classic-look switch. -->
+    <string name="inbox_count">%1$d ideas</string>
+    <string name="ball_action_cycle_swipe_left">Cycle session swipe-left binding</string>
+    <string name="ball_action_cycle_swipe_right">Cycle session swipe-right binding</string>
+    <string name="ball_swipe_left_toast">Session swipe-left → %1$s</string>
+    <string name="ball_swipe_right_toast">Session swipe-right → %1$s</string>
+    <string name="settings_leaf_hands">Gestures &amp; swipe</string>
+    <string name="settings_leaf_notify">Notifications</string>
+    <string name="settings_leaf_dispatch">Tasks &amp; dispatch</string>
+    <string name="hands_gesture_section">Horizontal swipes</string>
+    <string name="swipe_session_section">Session list swipe</string>
+    <string name="swipe_inbox_section">Inbox swipe</string>
+    <string name="session_swipe_enabled_title">Session swipe actions</string>
+    <string name="session_swipe_enabled_subtitle">Turn off to ignore left/right swipes on session rows.</string>
+    <string name="inbox_swipe_enabled_title">Inbox swipe actions</string>
+    <string name="inbox_swipe_enabled_subtitle">Turn off to ignore left/right swipes on idea cards.</string>
+    <string name="inbox_swipe_left_title">Inbox swipe-left action</string>
+    <string name="inbox_swipe_right_title">Inbox swipe-right action</string>
+    <string name="inbox_swipe_action_dispatch">Dispatch</string>
+    <string name="inbox_swipe_action_edit">Edit</string>
+    <string name="inbox_swipe_action_copy">Copy text</string>
+    <string name="inbox_swipe_action_append">Append to session</string>
+    <string name="classic_look_title">Classic look</string>
+    <string name="classic_look_subtitle">Filled accent selection style — the pre-v169 look.</string>
     <!-- 批v161: task board layout + per-layout column count -->
     <string name="general_task_layout_title">Task board layout</string>
     <string name="general_task_layout_subtitle">Kanban keeps the web board look; list stacks one status at a time and suits long task names.</string>

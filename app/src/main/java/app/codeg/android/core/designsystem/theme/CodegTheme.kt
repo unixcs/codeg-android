@@ -33,6 +33,7 @@ fun CodegTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     accentId: String = AccentPalette.DEFAULT.id,
     fontScaleFactor: Float = 1f,
+    classicLook: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val isDark = when (themeMode) {
@@ -41,7 +42,7 @@ fun CodegTheme(
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
     val palette = AccentPalette.from(accentId)
-    val colors = remember(isDark, palette) { codegColors(isDark, palette) }
+    val colors = remember(isDark, palette, classicLook) { codegColors(isDark, palette, classicLook) }
     val material = remember(colors) { colors.toMaterialScheme() }
 
     // Drive the system bar icon contrast from the *resolved* appearance rather than the
@@ -87,6 +88,22 @@ object CodegTheme {
         @Composable @ReadOnlyComposable get() = LocalCodegColors.current
     val dimens: CodegDimens
         @Composable @ReadOnlyComposable get() = LocalCodegDimens.current
+}
+
+/**
+ * 批v171 N3e: the board/inbox cards' dense fixed layouts were tuned at the
+ * default font scale — a 115%/130% user pref blows them out (clipped text,
+ * wrapped pills, two-column cards showing almost nothing). Clamping the card
+ * CONTENT's fontScale to ≤1.0 keeps the card geometry stable; text outside
+ * the cards still scales normally with the user's preference.
+ */
+@Composable
+fun CardFontClamp(content: @Composable () -> Unit) {
+    val d = LocalDensity.current
+    CompositionLocalProvider(
+        LocalDensity provides Density(d.density, d.fontScale.coerceAtMost(1f)),
+        content = content,
+    )
 }
 
 private fun CodegColors.toMaterialScheme() =

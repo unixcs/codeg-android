@@ -1328,14 +1328,15 @@ private fun ModeCard(
     Row(
         modifier
             .clip(shape)
-            // 批v170 克制化：选中=浅灰低透明底+细边框+浅色 CheckCircle（shadcn）。
+            // 批v170 克制化 → 批v171 角色化：选中态走 selectedBg/selectedBorder
+            // 四角色（classic 皮肤下=accent 实心，restrained=浅灰低透明）。
             .background(
-                if (selected) colors.textPrimary.copy(alpha = 0.06f) else colors.bg.copy(alpha = 0.42f),
+                if (selected) colors.selectedBg else colors.bg.copy(alpha = 0.42f),
                 shape,
             )
             .border(
                 width = if (selected) 0.75.dp else 1.dp,
-                color = colors.surfaceStroke,
+                color = if (selected) colors.selectedBorder else colors.surfaceStroke,
                 shape = shape,
             )
             // R3-A P2: selectable (not bare clickable) carries the selected state

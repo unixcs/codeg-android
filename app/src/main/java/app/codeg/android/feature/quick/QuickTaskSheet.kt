@@ -1,6 +1,7 @@
 package app.codeg.android.feature.quick
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -50,6 +51,9 @@ fun QuickTaskSheet(
         Column(
             Modifier
                 .fillMaxWidth()
+                // 批v171 N1：skipPartiallyExpanded 全屏展开时标题顶进状态栏
+                // （截图中「快速创建」与系统时钟重叠）——补避让。
+                .statusBarsPadding()
                 // v151 sheet contract: the form scrolls internally (it has its
                 // own scroll column); the lock eats all bidirectional content
                 // leftover, so drag-to-close lives on the fixed title above —

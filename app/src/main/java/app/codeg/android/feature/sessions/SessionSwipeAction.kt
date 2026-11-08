@@ -1,5 +1,8 @@
 package app.codeg.android.feature.sessions
 
+import androidx.annotation.StringRes
+import app.codeg.android.R
+
 /**
  * 批v168: an action bindable to a session row's horizontal swipe (Settings →
  * General → 左滑/右滑动作). The catalog mirrors the long-press menu's items —
@@ -40,5 +43,23 @@ enum class SessionSwipeAction(val id: String) {
 
         /** Single read-side resolver: unknown / blank / "none" → null. */
         fun from(id: String?): SessionSwipeAction? = entries.firstOrNull { it.id == id }
+
+        /** The persisted ring order used by 「悬浮球循环切绑定」 and the settings
+         *  picker: "none" first, then the catalog order. */
+        val RING: List<String> = listOf(NONE_ID) + entries.map { it.id }
     }
+}
+
+/** 批v171: shared action→string-res map — the settings picker and the floating
+ *  ball's cycle toast speak the same names (was a private fn in GeneralScreen). */
+@StringRes
+fun swipeActionLabelRes(actionId: String): Int? = when (SessionSwipeAction.from(actionId)) {
+    null -> R.string.swipe_action_none
+    SessionSwipeAction.BOARD -> R.string.board_conv_add
+    SessionSwipeAction.COPY -> R.string.session_copy_reference
+    SessionSwipeAction.PIN -> R.string.session_pin
+    SessionSwipeAction.HANDOFF -> R.string.session_add_to_session
+    SessionSwipeAction.RENAME -> R.string.session_rename
+    SessionSwipeAction.ADD_PROJECT -> R.string.session_add_project
+    SessionSwipeAction.DELETE -> R.string.common_delete
 }

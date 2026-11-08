@@ -247,6 +247,27 @@ class GeneralViewModel @Inject constructor(
         appSettingsStore.setSessionSwipeRightAction(action)
     }
 
+    // 批v171 N7: the swipe master switches + the inbox bindings; N3: classic look.
+    fun setSessionSwipeEnabled(enabled: Boolean) = launchPersist {
+        appSettingsStore.setSessionSwipeEnabled(enabled)
+    }
+
+    fun setInboxSwipeLeft(action: String) = launchPersist {
+        appSettingsStore.setInboxSwipeLeftAction(action)
+    }
+
+    fun setInboxSwipeRight(action: String) = launchPersist {
+        appSettingsStore.setInboxSwipeRightAction(action)
+    }
+
+    fun setInboxSwipeEnabled(enabled: Boolean) = launchPersist {
+        appSettingsStore.setInboxSwipeEnabled(enabled)
+    }
+
+    fun setClassicLook(enabled: Boolean) = launchPersist {
+        appSettingsStore.setClassicLook(enabled)
+    }
+
     // ---- 批v161: task-board shape + per-layout column count ----
 
     /** "kanban" (web-parity board) or "list" (four status tabs + one list). */

@@ -31,7 +31,12 @@ fun CodegApp(appViewModel: AppViewModel = hiltViewModel()) {
     val settings by appViewModel.settings.collectAsStateWithLifecycle()
     val settingsLoaded by appViewModel.settingsLoaded.collectAsStateWithLifecycle()
 
-    CodegTheme(themeMode = settings.themeMode, accentId = settings.accentId, fontScaleFactor = settings.fontScale) {
+    CodegTheme(
+        themeMode = settings.themeMode,
+        accentId = settings.accentId,
+        fontScaleFactor = settings.fontScale,
+        classicLook = settings.classicLook,
+    ) {
         CodegBackground {
             val servers by appViewModel.servers.collectAsStateWithLifecycle()
             val allServers by appViewModel.allServers.collectAsStateWithLifecycle()

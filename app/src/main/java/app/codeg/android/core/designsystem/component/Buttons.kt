@@ -90,9 +90,9 @@ fun CodegSegmented(
                 // 批v170 克制化：选中态=浅灰低透明底+细边框（shadcn 口径），
                 // 蓝色选中块退役——10% accent 额度让给每屏唯一主 CTA。
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.textPrimary.copy(alpha = 0.10f),
-                    activeContentColor = colors.textPrimary,
-                    activeBorderColor = colors.surfaceStroke,
+                    activeContainerColor = colors.selectedBg,
+                    activeContentColor = colors.selectedText,
+                    activeBorderColor = colors.selectedBorder,
                     inactiveContainerColor = Color.Transparent,
                     inactiveContentColor = colors.textSecondary,
                     inactiveBorderColor = colors.surfaceStroke,
@@ -134,15 +134,15 @@ fun CodegFilterChip(
         colors = FilterChipDefaults.filterChipColors(
             labelColor = colors.textSecondary,
             iconColor = colors.textSecondary,
-            selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
-            selectedLabelColor = colors.textPrimary,
-            selectedLeadingIconColor = colors.textPrimary,
+            selectedContainerColor = colors.selectedBg,
+            selectedLabelColor = colors.selectedText,
+            selectedLeadingIconColor = colors.selectedText,
         ),
         border = FilterChipDefaults.filterChipBorder(
             enabled = enabled,
             selected = selected,
             borderColor = colors.surfaceStroke,
-            selectedBorderColor = colors.surfaceStroke,
+            selectedBorderColor = colors.selectedBorder,
         ),
     )
 }

@@ -404,23 +404,23 @@ private fun DeviceChip(
                 // 批v170 克制化：选中=浅灰低透明底+细边框（InsightKit
                 // CapsuleChipRow 同口径），实心蓝块退役；设备色点仍在
                 // leading 里保留身份色。
-                .background(if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else Color.Transparent)
+                .background(if (isSelected) colors.selectedBg else Color.Transparent)
                 .border(
                     width = if (isSelected) 0.75.dp else 1.dp,
-                    color = colors.surfaceStroke,
+                    color = if (isSelected) colors.selectedBorder else colors.surfaceStroke,
                     shape = shape,
                 )
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            leading(if (isSelected) colors.textPrimary else colors.textTertiary)
+            leading(if (isSelected) colors.selectedText else colors.textTertiary)
             content()
             if (isSelected) {
                 Icon(
                     Icons.Rounded.Check,
                     contentDescription = null,
-                    tint = colors.textPrimary,
+                    tint = colors.selectedText,
                     modifier = Modifier.size(16.dp),
                 )
             }

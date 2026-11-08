@@ -230,7 +230,7 @@ fun OptionListSheet(
                                 }
                             }
                             if (selected) {
-                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.selectedText, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -323,9 +323,9 @@ private fun ChipRowBase(
                 // 只有 ~1.2:1，必须留文字色差兜底（选中 textPrimary / 未选中
                 // textSecondary，与 InsightKit.CapsuleChipRow 同口径），否则
                 // 设备/智能体选择器等于盲选。
-                color = if (selected) colors.textPrimary.copy(alpha = 0.10f) else colors.bgElevated,
-                contentColor = if (selected) colors.textPrimary else colors.textSecondary,
-                border = BorderStroke(1.dp, if (selected) colors.surfaceStroke else colors.hairline),
+                color = if (selected) colors.selectedBg else colors.bgElevated,
+                contentColor = if (selected) colors.selectedText else colors.textSecondary,
+                border = BorderStroke(1.dp, if (selected) colors.selectedBorder else colors.hairline),
             ) {
                 Row(
                     Modifier.padding(horizontal = 12.dp, vertical = 7.dp),

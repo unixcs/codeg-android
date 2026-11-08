@@ -1148,6 +1148,30 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 jumpToTab(HomeTab.SETTINGS)
                 FloatingBallSettingsBus.open()
             }
+            // 批v171: cycle the session row's swipe binding without a settings trip —
+            // walks SessionSwipeAction.RING (none → board → … → delete → none) one
+            // step per fire, then reads back the persisted name for the toast.
+            "cycleSwipeLeft", "cycleSwipeRight" -> {
+                val left = id == "cycleSwipeLeft"
+                val ring = SessionSwipeAction.RING
+                val current = if (left) {
+                    appViewModel.settings.value.sessionSwipeLeftAction
+                } else {
+                    appViewModel.settings.value.sessionSwipeRightAction
+                }
+                val next = ring[(ring.indexOf(current).coerceAtLeast(0) + 1) % ring.size]
+                val labelRes = swipeActionLabelRes(next) ?: R.string.swipe_action_none
+                if (left) appViewModel.setSessionSwipeLeftAction(next)
+                else appViewModel.setSessionSwipeRightAction(next)
+                android.widget.Toast.makeText(
+                    ballContext,
+                    ballContext.getString(
+                        if (left) R.string.ball_swipe_left_toast else R.string.ball_swipe_right_toast,
+                        ballContext.getString(labelRes),
+                    ),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
 

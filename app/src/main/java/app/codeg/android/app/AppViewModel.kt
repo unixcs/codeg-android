@@ -225,6 +225,35 @@ class AppViewModel @Inject constructor(
         appSettingsStore.setAccent(accentId)
     }
 
+    // 批v171: swipe bindings/switches + classic-look toggle（悬浮球与设置页共用）。
+    fun setSessionSwipeLeftAction(action: String) = launchPersist {
+        appSettingsStore.setSessionSwipeLeftAction(action)
+    }
+
+    fun setSessionSwipeRightAction(action: String) = launchPersist {
+        appSettingsStore.setSessionSwipeRightAction(action)
+    }
+
+    fun setSessionSwipeEnabled(enabled: Boolean) = launchPersist {
+        appSettingsStore.setSessionSwipeEnabled(enabled)
+    }
+
+    fun setInboxSwipeLeftAction(action: String) = launchPersist {
+        appSettingsStore.setInboxSwipeLeftAction(action)
+    }
+
+    fun setInboxSwipeRightAction(action: String) = launchPersist {
+        appSettingsStore.setInboxSwipeRightAction(action)
+    }
+
+    fun setInboxSwipeEnabled(enabled: Boolean) = launchPersist {
+        appSettingsStore.setInboxSwipeEnabled(enabled)
+    }
+
+    fun setClassicLook(enabled: Boolean) = launchPersist {
+        appSettingsStore.setClassicLook(enabled)
+    }
+
     /** Step to the next accent in palette order (wraps). */
     fun cycleAccent() {
         val all = AccentPalette.all

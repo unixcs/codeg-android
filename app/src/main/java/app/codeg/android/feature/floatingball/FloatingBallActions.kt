@@ -63,6 +63,10 @@ object FloatingBallCatalog {
         "toggleAllDevices" to R.string.ball_action_toggle_all,
         "refreshActivity" to R.string.ball_action_refresh_activity,
         "ballSettings" to R.string.ball_action_ball_settings,
+        // 批v171: cycle the session-row swipe bindings without visiting settings —
+        // left/right each walk SessionSwipeAction.RING (含 none) one step.
+        "cycleSwipeLeft" to R.string.ball_action_cycle_swipe_left,
+        "cycleSwipeRight" to R.string.ball_action_cycle_swipe_right,
     )
 
     val ACTION_IDS = ACTIONS.map { it.first }.toSet()

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -44,6 +45,7 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
@@ -119,6 +121,11 @@ import app.codeg.android.core.datastore.DraftEntry
 import app.codeg.android.core.datastore.IdeaEntry
 import app.codeg.android.core.datastore.INBOX_IDEA_STYLE_CENTER_WIDE
 import app.codeg.android.core.designsystem.component.AgentChipRow
+import app.codeg.android.core.designsystem.component.CardFontClamp
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.automirrored.rounded.CallMade
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Send
 import app.codeg.android.core.designsystem.component.CodegAttachActions
 import app.codeg.android.core.designsystem.component.CodegAttachmentRow
 import app.codeg.android.core.designsystem.component.CodegFormTextField
@@ -132,9 +139,12 @@ import app.codeg.android.core.designsystem.component.OptionListSheet
 import app.codeg.android.core.designsystem.component.PickerField
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.PrimaryButton
+import app.codeg.android.core.designsystem.component.SwipeActionBox
+import app.codeg.android.core.designsystem.component.SwipeSpec
 import app.codeg.android.core.designsystem.component.holdDialogWindowStill
 import app.codeg.android.core.designsystem.component.rememberSheetDragLock
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.core.designsystem.theme.CardFontClamp
 import app.codeg.android.core.model.AgentOptionsSnapshot
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.ModelProviderInfo
@@ -244,6 +254,7 @@ fun InboxScreen(
                 selectedCount = selected.size,
                 allSelected = ui.ideas.isNotEmpty() && ui.ideas.all { it.id in selected },
                 hasIdeas = ui.ideas.isNotEmpty(),
+                ideaCount = ui.ideas.size,
                 onExitSelect = { selectMode = false; selected = emptySet() },
                 onEnterSelect = { selectMode = true; selected = emptySet() },
                 onToggleColumns = {
@@ -270,31 +281,84 @@ fun InboxScreen(
                 // the two-column grid (identical wiring, only the layout differs).
                 val ideaCard: @Composable (IdeaEntry) -> Unit = { idea ->
                     val ref = refByIdeaId[idea.id]
-                    IdeaCard(
-                        idea = idea,
-                        unresolved = ref,
-                        probing = ref != null && ref.requestId in ui.probingIds,
-                        canRedispatch = ref != null && ref.requestId in ui.probeClearedIds,
-                        selectMode = selectMode,
-                        selected = idea.id in selected,
-                        onToggleSelect = {
-                            selected = if (idea.id in selected) selected - idea.id else selected + idea.id
-                        },
-                        onEnterSelect = { selectMode = true; selected = setOf(idea.id) },
-                        onDispatch = { dispatchingId = idea.id },
-                        onEdit = { editingId = idea.id },
-                        onCopy = { context ->
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("idea", "${idea.title}\n${idea.description}"))
-                        },
-                        onDelete = { pendingDelete = idea },
-                        // 批v162 反向快链入口（⋯菜单与长按菜单同一条 DropdownMenu）。
-                        onAppendToSession = { appendingId = idea.id },
-                        appendedToSession = idea.id in appendedSessionByIdeaId,
-                        onProbe = { ref?.let { viewModel.probe(it.requestId) } },
-                        onDiscard = { ref?.let { confirmRef = it; confirmRedispatch = false } },
-                        onRedispatch = { ref?.let { confirmRef = it; confirmRedispatch = true } },
-                    )
+                    val copyIdea: (Context) -> Unit = { ctx ->
+                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("idea", "${idea.title}\n${idea.description}"))
+                    }
+                    // 批v171 N7: the idea card joins the session rows in the
+                    // Gmail/Outlook swipe skeleton — the bindings mirror the
+                    // long-press menu's handlers (派发/编辑/复制/追加/删除), the
+                    // master switch (and select mode) unwraps to a plain Box.
+                    @Composable
+                    fun swipeSpec(actionId: String): SwipeSpec? = when (InboxSwipeAction.from(actionId)) {
+                        null -> null
+                        InboxSwipeAction.DISPATCH -> SwipeSpec(
+                            label = stringResource(R.string.inbox_swipe_action_dispatch),
+                            icon = Icons.Rounded.Send,
+                            background = colors.accent,
+                            fire = { dispatchingId = idea.id },
+                        )
+                        InboxSwipeAction.EDIT -> SwipeSpec(
+                            label = stringResource(R.string.inbox_swipe_action_edit),
+                            icon = Icons.Rounded.Edit,
+                            background = colors.accent,
+                            fire = { editingId = idea.id },
+                        )
+                        InboxSwipeAction.COPY -> SwipeSpec(
+                            label = stringResource(R.string.inbox_swipe_action_copy),
+                            icon = Icons.Rounded.ContentCopy,
+                            background = colors.accent,
+                            fire = { copyIdea(context) },
+                        )
+                        InboxSwipeAction.APPEND -> SwipeSpec(
+                            label = stringResource(R.string.inbox_swipe_action_append),
+                            icon = Icons.AutoMirrored.Rounded.CallMade,
+                            background = colors.accent,
+                            fire = { appendingId = idea.id },
+                        )
+                        // The swipe only opens the confirm dialog faster — same
+                        // pending-state flow as the menu item.
+                        InboxSwipeAction.DELETE -> SwipeSpec(
+                            label = stringResource(R.string.common_delete),
+                            icon = Icons.Outlined.DeleteOutline,
+                            background = colors.danger,
+                            fire = { pendingDelete = idea },
+                        )
+                    }
+                    val card: @Composable () -> Unit = {
+                        IdeaCard(
+                            idea = idea,
+                            unresolved = ref,
+                            probing = ref != null && ref.requestId in ui.probingIds,
+                            canRedispatch = ref != null && ref.requestId in ui.probeClearedIds,
+                            selectMode = selectMode,
+                            selected = idea.id in selected,
+                            onToggleSelect = {
+                                selected = if (idea.id in selected) selected - idea.id else selected + idea.id
+                            },
+                            onEnterSelect = { selectMode = true; selected = setOf(idea.id) },
+                            onDispatch = { dispatchingId = idea.id },
+                            onEdit = { editingId = idea.id },
+                            onCopy = copyIdea,
+                            onDelete = { pendingDelete = idea },
+                            // 批v162 反向快链入口（⋯菜单与长按菜单同一条 DropdownMenu）。
+                            onAppendToSession = { appendingId = idea.id },
+                            appendedToSession = idea.id in appendedSessionByIdeaId,
+                            onProbe = { ref?.let { viewModel.probe(it.requestId) } },
+                            onDiscard = { ref?.let { confirmRef = it; confirmRedispatch = false } },
+                            onRedispatch = { ref?.let { confirmRef = it; confirmRedispatch = true } },
+                        )
+                    }
+                    if (selectMode || !settings.inboxSwipeEnabled) {
+                        card()
+                    } else {
+                        SwipeActionBox(
+                            leftSpec = swipeSpec(settings.inboxSwipeLeftAction),
+                            rightSpec = swipeSpec(settings.inboxSwipeRightAction),
+                        ) {
+                            card()
+                        }
+                    }
                 }
                 if (settings.inboxColumns == 2) {
                     LazyVerticalGrid(
@@ -605,6 +669,8 @@ private fun IdeaCard(
     onDiscard: () -> Unit,
     onRedispatch: () -> Unit,
 ) {
+    // 批v171 N3e: card content ignores the user font-scale bump (see CardFontClamp).
+    CardFontClamp {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
     Card(
@@ -801,6 +867,7 @@ private fun IdeaCard(
         }
     }
 }
+    }
 
 /**
  * 批v160 inbox toolbar row. Normal mode: columns toggle (1⇄2) + enter-select on
@@ -815,6 +882,7 @@ private fun InboxToolbar(
     selectedCount: Int,
     allSelected: Boolean,
     hasIdeas: Boolean,
+    ideaCount: Int,
     onExitSelect: () -> Unit,
     onEnterSelect: () -> Unit,
     onToggleColumns: () -> Unit,
@@ -857,7 +925,14 @@ private fun InboxToolbar(
                 )
             }
         } else {
-            Spacer(Modifier.weight(1f))
+            // 批v171 N1：非选择模式这行左侧原本全空（设备条下一条 48dp 空带），
+            // 填上想法计数——信息行代替留白（Keep/Telegram 顶栏惯例）。
+            Text(
+                stringResource(R.string.inbox_count, ideaCount),
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.textTertiary,
+                modifier = Modifier.weight(1f).padding(start = 8.dp),
+            )
             IconButton(onClick = onToggleColumns) {
                 Icon(
                     if (columns == 2) Icons.Rounded.ViewAgenda else Icons.Rounded.GridView,
@@ -1069,6 +1144,9 @@ private fun IdeaEditorDialog(
             // so it never fights the scrolling form below.
             val dragY = remember { Animatable(0f) }
             val dismissPx = with(LocalDensity.current) { 96.dp.toPx() }
+            // 批v171 N1：0.94 固定高让「新想法」下半屏全空（内容只有两个输入框
+            // +附件区）；改内容自适应、仍以 0.94 封顶，描述框 minLines 6 撑住
+            // 编辑空间——sheet 高度跟着内容走。
             Surface(
                 color = colors.bgElevated,
                 shape = RoundedCornerShape(
@@ -1077,7 +1155,7 @@ private fun IdeaEditorDialog(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.94f)
+                    .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.94f).dp)
                     .offset { IntOffset(0, dragY.value.roundToInt()) },
             ) {
                 Column(Modifier.fillMaxSize()) {
@@ -1149,7 +1227,7 @@ private fun IdeaEditorDialog(
                             value = description,
                             onValueChange = { description = it },
                             label = stringResource(R.string.inbox_desc_hint),
-                            minLines = 4,
+                            minLines = 6,
                             maxLines = 12,
                             trailingIcon = {
                                 IconButton(onClick = { fullscreen = true }) {

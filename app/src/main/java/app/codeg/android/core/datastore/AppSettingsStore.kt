@@ -95,6 +95,14 @@ data class AppSettings(
      *  id ([app.codeg.android.feature.sessions.SessionSwipeAction.from]). */
     val sessionSwipeLeftAction: String = DEFAULT_SESSION_SWIPE_LEFT,
     val sessionSwipeRightAction: String = DEFAULT_SESSION_SWIPE_RIGHT,
+    /** 批v171: master switch for the session-row swipe gestures (default on). */
+    val sessionSwipeEnabled: Boolean = true,
+    /** 批v171: the inbox idea card's swipe bindings (默认左=复制引用 右=派发).
+     *  Ids from INBOX_SWIPE_ACTIONS, or "none". */
+    val inboxSwipeLeftAction: String = DEFAULT_INBOX_SWIPE_LEFT,
+    val inboxSwipeRightAction: String = DEFAULT_INBOX_SWIPE_RIGHT,
+    /** 批v171: master switch for the inbox card swipe gestures (default on). */
+    val inboxSwipeEnabled: Boolean = true,
     /** 批v160 W9: the projects' manual left-to-right chip order (project ids).
      *  Missing ids append after the known ones; stale ids are ignored. */
     val projectChipOrder: List<String> = emptyList(),
@@ -103,6 +111,9 @@ data class AppSettings(
     val projectChipSortByCount: Boolean = false,
     /** Multiplier ladder over the system font scale (0.85 / 1.0 / 1.15 / 1.3). */
     val fontScale: Float = 1f,
+    /** 批v171（经典外观）: false = restrained selected-state (v170 浅灰, default),
+     *  true = the pre-v170 accent-fill skin — one toggle, four colour roles. */
+    val classicLook: Boolean = false,
     /** Dispatch-sheet defaults (v1.0.1-fengx.34): preselected device id, folder
      *  id/name and agent wire name. Blank device / id <= 0 / blank agent = unset
      *  (the sheet opens with its previous no-default behavior). */
@@ -125,6 +136,10 @@ data class AppSettings(
         const val DEFAULT_FLOAT_BALL_CYCLE_DEPTH = 5
         const val DEFAULT_INBOX_IDEA_STYLE = INBOX_IDEA_STYLE_CORNER
         const val DEFAULT_INBOX_COLUMNS = 1
+        // 批v171: inbox card swipe defaults mirror the session row's spirit —
+        // 左滑复制引用，右滑该域的高频主动作（收件箱=派发）。
+        const val DEFAULT_INBOX_SWIPE_LEFT = "copy"
+        const val DEFAULT_INBOX_SWIPE_RIGHT = "dispatch"
         const val DEFAULT_TASK_SWIPE_MODE = TASK_SWIPE_SEGMENTS
         const val DEFAULT_TASK_BOARD_LAYOUT = TASK_BOARD_KANBAN
         const val DEFAULT_TASK_BOARD_KANBAN_COLUMNS = 2
@@ -223,6 +238,17 @@ class AppSettingsStore @Inject constructor(
                 prefs[SESSION_SWIPE_RIGHT_ACTION],
                 AppSettings.DEFAULT_SESSION_SWIPE_RIGHT,
             ),
+            sessionSwipeEnabled = prefs[SESSION_SWIPE_ENABLED] ?: true,
+            inboxSwipeLeftAction = sanitizeInboxSwipeAction(
+                prefs[INBOX_SWIPE_LEFT_ACTION],
+                AppSettings.DEFAULT_INBOX_SWIPE_LEFT,
+            ),
+            inboxSwipeRightAction = sanitizeInboxSwipeAction(
+                prefs[INBOX_SWIPE_RIGHT_ACTION],
+                AppSettings.DEFAULT_INBOX_SWIPE_RIGHT,
+            ),
+            inboxSwipeEnabled = prefs[INBOX_SWIPE_ENABLED] ?: true,
+            classicLook = prefs[CLASSIC_LOOK] ?: false,
             projectChipOrder = prefs[PROJECT_CHIP_ORDER]?.split(',')?.filter { it.isNotBlank() }
                 ?: emptyList(),
             projectChipSortByCount = prefs[PROJECT_CHIP_SORT_BY_COUNT] ?: false,
@@ -378,6 +404,39 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
+    /** 批v171: master switches for the two swipe surfaces. */
+    suspend fun setSessionSwipeEnabled(enabled: Boolean) {
+        dataStore.edit { it[SESSION_SWIPE_ENABLED] = enabled }
+    }
+
+    suspend fun setInboxSwipeEnabled(enabled: Boolean) {
+        dataStore.edit { it[INBOX_SWIPE_ENABLED] = enabled }
+    }
+
+    /** 批v171: persist the inbox card's left/right swipe bindings. */
+    suspend fun setInboxSwipeLeftAction(action: String) {
+        dataStore.edit {
+            it[INBOX_SWIPE_LEFT_ACTION] = sanitizeInboxSwipeAction(
+                action,
+                AppSettings.DEFAULT_INBOX_SWIPE_LEFT,
+            )
+        }
+    }
+
+    suspend fun setInboxSwipeRightAction(action: String) {
+        dataStore.edit {
+            it[INBOX_SWIPE_RIGHT_ACTION] = sanitizeInboxSwipeAction(
+                action,
+                AppSettings.DEFAULT_INBOX_SWIPE_RIGHT,
+            )
+        }
+    }
+
+    /** 批v171（经典外观）: persist the selected-state skin toggle. */
+    suspend fun setClassicLook(enabled: Boolean) {
+        dataStore.edit { it[CLASSIC_LOOK] = enabled }
+    }
+
     /** 批v160 W9: persist the projects' manual chip order (ids, left→right). */
     suspend fun setProjectChipOrder(order: List<String>) {
         dataStore.edit { it[PROJECT_CHIP_ORDER] = order.filter { id -> id.isNotBlank() }.joinToString(",") }
@@ -531,6 +590,11 @@ class AppSettingsStore @Inject constructor(
         val SESSION_CHIP_MODE = stringPreferencesKey("session_chip_mode")
         val SESSION_SWIPE_LEFT_ACTION = stringPreferencesKey("session_swipe_left_action")
         val SESSION_SWIPE_RIGHT_ACTION = stringPreferencesKey("session_swipe_right_action")
+        val SESSION_SWIPE_ENABLED = booleanPreferencesKey("session_swipe_enabled")
+        val INBOX_SWIPE_LEFT_ACTION = stringPreferencesKey("inbox_swipe_left_action")
+        val INBOX_SWIPE_RIGHT_ACTION = stringPreferencesKey("inbox_swipe_right_action")
+        val INBOX_SWIPE_ENABLED = booleanPreferencesKey("inbox_swipe_enabled")
+        val CLASSIC_LOOK = booleanPreferencesKey("classic_look")
         val PROJECT_CHIP_ORDER = stringPreferencesKey("project_chip_order")
         val PROJECT_CHIP_SORT_BY_COUNT = booleanPreferencesKey("project_chip_sort_by_count")
     }
@@ -578,6 +642,21 @@ val SESSION_SWIPE_ACTIONS = setOf(
     "add_project",
     "delete",
 )
+
+/** 批v171: the inbox card's bindable swipe actions（对齐长按菜单+派发）. */
+val INBOX_SWIPE_ACTIONS = setOf(
+    "none",
+    "dispatch",
+    "edit",
+    "copy",
+    "append",
+    "delete",
+)
+
+/** 批v171: unknown ids coerce to the given default (same contract as
+ *  [sanitizeSessionSwipeAction]). */
+fun sanitizeInboxSwipeAction(raw: String?, default: String): String =
+    raw?.takeIf { it in INBOX_SWIPE_ACTIONS } ?: default
 
 /** Pure read/set-side sanitize: unknown or blank ids fall back to [default]. */
 fun sanitizeSessionSwipeAction(raw: String?, default: String): String =

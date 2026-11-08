@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -160,6 +161,7 @@ import app.codeg.android.core.designsystem.component.FullscreenTextEditorDialog
 import app.codeg.android.core.designsystem.component.rememberSheetDragLock
 import app.codeg.android.core.designsystem.component.sheetContentScrollLock
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.core.designsystem.theme.CardFontClamp
 import app.codeg.android.core.designsystem.theme.CodegColors
 import app.codeg.android.core.designsystem.theme.CodegMono
 import app.codeg.android.core.model.AgentType
@@ -719,6 +721,7 @@ fun TaskHubScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .nestedScroll(rememberSheetDragLock())
                     .padding(top = 12.dp),
             ) {
@@ -1652,6 +1655,8 @@ private fun MiniColumn(
 /** The smallest readable card: a status dot, two title lines, a relative time. */
 @Composable
 private fun MiniCard(entry: TaskBoardEntry, onClick: () -> Unit) {
+    // 批v171 N3e: card content ignores the user font-scale bump (see CardFontClamp).
+    CardFontClamp {
     val colors = CodegTheme.colors
     val task = entry.task
     val shape = RoundedCornerShape(8.dp)
@@ -1674,7 +1679,7 @@ private fun MiniCard(entry: TaskBoardEntry, onClick: () -> Unit) {
             )
             Text(
                 task.title,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
                 color = colors.textPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -1686,7 +1691,7 @@ private fun MiniCard(entry: TaskBoardEntry, onClick: () -> Unit) {
         relativeLabel(task.finishedAt ?: task.settledAt ?: task.startedAt ?: task.createdAt)?.let {
             Text(
                 it,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = colors.textTertiary,
                 maxLines = 1,
                 modifier = Modifier.padding(top = 2.dp, start = 9.dp),
@@ -1694,10 +1699,13 @@ private fun MiniCard(entry: TaskBoardEntry, onClick: () -> Unit) {
         }
     }
 }
+    }
 
 /** 批v162: the smallest session cell of the overview — accent dot + two title lines. */
 @Composable
 private fun MiniConversationCard(entry: BoardConversationEntry, onClick: () -> Unit) {
+    // 批v171 N3e: card content ignores the user font-scale bump (see CardFontClamp).
+    CardFontClamp {
     val colors = CodegTheme.colors
     val conv = entry.conversation
     val shape = RoundedCornerShape(8.dp)
@@ -1722,7 +1730,7 @@ private fun MiniConversationCard(entry: BoardConversationEntry, onClick: () -> U
             )
             Text(
                 conv.trimmedTitle ?: stringResource(R.string.session_untitled),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
                 color = colors.textPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -1734,7 +1742,7 @@ private fun MiniConversationCard(entry: BoardConversationEntry, onClick: () -> U
         relativeLabel(conv.updatedAt.toString())?.let {
             Text(
                 it,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 color = colors.textTertiary,
                 maxLines = 1,
                 modifier = Modifier.padding(top = 2.dp, start = 9.dp),
@@ -1742,6 +1750,7 @@ private fun MiniConversationCard(entry: BoardConversationEntry, onClick: () -> U
         }
     }
 }
+    }
 
 /** Column header: the 4dp accent bar + name + live count (+ 全部归档 on DONE). */
 @Composable
@@ -1884,7 +1893,7 @@ private fun WebStatusChip(task: WorkTaskInfo) {
         status.raw != null -> status.raw
         else -> stringResource(status.labelRes)
     }
-    val base = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium)
+    val base = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium)
     when {
         deferred -> ChipPill(
             bg = colors.textSecondary.copy(alpha = 0.14f), fg = colors.textSecondary,
@@ -1958,7 +1967,7 @@ private fun SchedulePill(scheduledAt: String) {
         Icon(Icons.Rounded.Schedule, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(10.dp))
         Text(
             relativeLabel(scheduledAt) ?: scheduledAt,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium),
             color = colors.textSecondary,
             maxLines = 1,
         )
@@ -2101,7 +2110,7 @@ private fun ConversationTag() {
     val colors = CodegTheme.colors
     Text(
         stringResource(R.string.board_conv_badge),
-        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Medium),
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
         color = colors.textSecondary,
         maxLines = 1,
         modifier = Modifier
@@ -2117,7 +2126,7 @@ private fun ConversationFlag(label: String) {
     val colors = CodegTheme.colors
     Text(
         label,
-        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
         color = colors.textTertiary,
         maxLines = 1,
         modifier = Modifier
@@ -2147,12 +2156,14 @@ private fun ConversationCardWeb(
     onRemove: () -> Unit,
     onSetStatus: (ConversationStatus) -> Unit,
 ) {
+    // 批v171 N3e: card content ignores the user font-scale bump (see CardFontClamp).
+    CardFontClamp {
     val conv = entry.conversation
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     var showStatus by remember { mutableStateOf(false) }
-    val metaStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)
+    val metaStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp)
     val cardShape = RoundedCornerShape(if (compact) 14.dp else 16.dp)
     // "Running" is the server's persisted flag; live is the connection table.
     // Only the pair (flag running, nothing attached) is worth a warning — a
@@ -2387,6 +2398,7 @@ private fun ConversationCardWeb(
         )
     }
 }
+    }
 
 /**
  * 批v160 W5: the web TaskCard (task-card.tsx), 1:1 where the Android wire
@@ -2408,12 +2420,14 @@ private fun TaskCardWeb(
     onOpenSession: (serverId: String, conversationId: Int) -> Unit,
     onAction: (ConfirmAction) -> Unit,
 ) {
+    // 批v171 N3e: card content ignores the user font-scale bump (see CardFontClamp).
+    CardFontClamp {
     val task = entry.task
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
     val actions = buildCardActions(task)
-    val metaStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)
-    val monoStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+    val metaStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp)
+    val monoStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontFamily = FontFamily.Monospace)
     val cardShape = RoundedCornerShape(if (compact) 14.dp else 16.dp)
     Column(
         modifier = Modifier
@@ -2511,7 +2525,7 @@ private fun TaskCardWeb(
             task.resultSummary?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     it,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 15.sp),
                     color = colors.textSecondary,
                     maxLines = if (compact) 1 else 2,
                     overflow = TextOverflow.Ellipsis,
@@ -2598,6 +2612,7 @@ private fun TaskCardWeb(
         )
     }
 }
+    }
 
 /** The card footer's primary pill — ghost (hairline stroke + faint tint), since
  *  a screenful of cards each carrying a solid accent violates the 10% rule;

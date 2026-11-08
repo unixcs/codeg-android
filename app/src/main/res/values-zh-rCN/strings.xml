@@ -1576,6 +1576,30 @@
     <string name="general_swipe_left_title">左滑动作</string>
     <string name="general_swipe_right_title">右滑动作</string>
     <string name="swipe_action_none">无动作</string>
+    <!-- 批v171: 收件箱滑动绑定 + 双总开关、悬浮球循环切绑定、设置 IA 新 leaf、经典外观开关。 -->
+    <string name="inbox_count">%1$d 条想法</string>
+    <string name="ball_action_cycle_swipe_left">循环切会话左滑绑定</string>
+    <string name="ball_action_cycle_swipe_right">循环切会话右滑绑定</string>
+    <string name="ball_swipe_left_toast">会话左滑绑定 → %1$s</string>
+    <string name="ball_swipe_right_toast">会话右滑绑定 → %1$s</string>
+    <string name="settings_leaf_hands">手势与滑动</string>
+    <string name="settings_leaf_notify">通知</string>
+    <string name="settings_leaf_dispatch">任务与派发</string>
+    <string name="hands_gesture_section">横滑手势</string>
+    <string name="swipe_session_section">会话列表滑动</string>
+    <string name="swipe_inbox_section">收件箱滑动</string>
+    <string name="session_swipe_enabled_title">会话左滑右滑</string>
+    <string name="session_swipe_enabled_subtitle">关闭后会话列表不再响应左右滑动手势。</string>
+    <string name="inbox_swipe_enabled_title">收件箱左滑右滑</string>
+    <string name="inbox_swipe_enabled_subtitle">关闭后收件箱卡片不再响应左右滑动手势。</string>
+    <string name="inbox_swipe_left_title">收件箱左滑动作</string>
+    <string name="inbox_swipe_right_title">收件箱右滑动作</string>
+    <string name="inbox_swipe_action_dispatch">派发</string>
+    <string name="inbox_swipe_action_edit">编辑</string>
+    <string name="inbox_swipe_action_copy">复制内容</string>
+    <string name="inbox_swipe_action_append">追加到会话</string>
+    <string name="classic_look_title">经典外观</string>
+    <string name="classic_look_subtitle">选中态改回强调色实心填充（v169 之前的观感）。</string>
     <!-- 批v161：任务板布局 + 各布局列数 -->
     <string name="general_task_layout_title">任务板布局</string>
     <string name="general_task_layout_subtitle">看板与网页端一致；列表一次只排一个状态，更适合长标题。</string>

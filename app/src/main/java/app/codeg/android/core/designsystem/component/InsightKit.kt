@@ -91,10 +91,10 @@ fun CapsuleChipRow(
                         // 固定 32dp 胶囊 clip 咬字（1.3× 内观感不变，R4B）。
                         .heightIn(min = InsightCapsuleHeight)
                         .clip(selectedShape)
-                        .background(if (selected) colors.textPrimary.copy(alpha = 0.10f) else Color.Transparent)
+                        .background(if (selected) colors.selectedBg else Color.Transparent)
                         .border(
                             width = 0.75.dp,
-                            color = if (selected) colors.surfaceStroke else colors.hairline,
+                            color = if (selected) colors.selectedBorder else colors.hairline,
                             shape = selectedShape,
                         )
                         .padding(horizontal = 14.dp),

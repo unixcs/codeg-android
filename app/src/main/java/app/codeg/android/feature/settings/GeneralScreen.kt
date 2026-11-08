@@ -68,20 +68,19 @@ import app.codeg.android.feature.floatingball.stepFontScale
 import app.codeg.android.feature.main.HomeTab
 import app.codeg.android.feature.main.resolveStartTab
 import app.codeg.android.feature.main.visibleTabs
+import app.codeg.android.feature.inbox.InboxSwipeAction
+import app.codeg.android.feature.inbox.inboxSwipeActionLabelRes
 import app.codeg.android.feature.sessions.SessionSwipeAction
+import app.codeg.android.feature.sessions.swipeActionLabelRes
 import kotlin.math.roundToInt
 
 @Composable
 fun GeneralContent(
     viewModel: GeneralViewModel = hiltViewModel(),
-    onOpenBallSettings: () -> Unit = {},
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val appSettings by viewModel.settings.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
-    // 批v168: which swipe direction the action-picker sheet is editing
-    // ("left" | "right", null = closed). rememberSaveable survives the sheet.
-    var swipeEditor by rememberSaveable { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Section(stringResource(R.string.general_shell_section)) {
@@ -105,29 +104,6 @@ fun GeneralContent(
             TabVisibilityEditor(
                 hidden = appSettings.hiddenHomeTabs,
                 onHiddenChange = viewModel::setTabHidden,
-            )
-            ToggleRow(
-                stringResource(R.string.general_activity_swipe_title),
-                stringResource(R.string.general_activity_swipe_subtitle),
-                appSettings.activityDeviceSwipe,
-                viewModel::setActivityDeviceSwipe,
-            )
-            // 批v168: the session row's left/right swipe bindings (Gmail/Outlook
-            // model). A swipe is a shortcut into the long-press menu's handlers;
-            // 「无动作」turns that direction off.
-            PickerField(
-                icon = Icons.Rounded.SwipeLeft,
-                label = stringResource(R.string.general_swipe_left_title),
-                value = swipeActionLabel(appSettings.sessionSwipeLeftAction),
-                placeholder = stringResource(R.string.swipe_action_none),
-                onClick = { swipeEditor = "left" },
-            )
-            PickerField(
-                icon = Icons.Rounded.SwipeRight,
-                label = stringResource(R.string.general_swipe_right_title),
-                value = swipeActionLabel(appSettings.sessionSwipeRightAction),
-                placeholder = stringResource(R.string.swipe_action_none),
-                onClick = { swipeEditor = "right" },
             )
             // 批v161: task-board shape (kanban vs list) and its per-layout column
             // count. Only the count belonging to the active layout is offered —
@@ -159,45 +135,6 @@ fun GeneralContent(
                     onSelect = viewModel::setTaskBoardKanbanColumns,
                 )
             }
-            // 批v160 W5: task-board horizontal swipe semantics — step the four
-            // status columns (default) or switch devices like on Activity. Same
-            // chip idiom as the inbox-idea-style row below.
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.general_task_swipe_title)) },
-                supportingContent = { Text(stringResource(R.string.general_task_swipe_subtitle)) },
-                trailingContent = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(
-                            app.codeg.android.core.datastore.TASK_SWIPE_SEGMENTS to R.string.general_task_swipe_segments,
-                            app.codeg.android.core.datastore.TASK_SWIPE_DEVICES to R.string.general_task_swipe_devices,
-                        ).forEach { (id, labelRes) ->
-                            // 局部变量刻意叫 isSelected：若叫 selected，下方
-                            // semantics lambda 的左值会解析到局部变量报编译错。
-                            val isSelected = appSettings.taskSwipeMode == id
-                            Text(
-                                stringResource(labelRes),
-                                fontSize = 13.sp,
-                                color = if (isSelected) colors.textPrimary else colors.textSecondary,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else colors.textPrimary.copy(alpha = 0.08f),
-                                    )
-                                    .clickable { viewModel.setTaskSwipeMode(id) }
-                                    .semantics { selected = isSelected }
-                                    .heightIn(min = 48.dp)
-                                    .wrapContentHeight(Alignment.CenterVertically)
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                            )
-                        }
-                    }
-                },
-                colors = ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                    headlineColor = colors.textPrimary,
-                    supportingColor = colors.textTertiary,
-                ),
-            )
             // 批v151: inbox "new idea" button placement (corner FAB vs bottom-center
             // half-width pill) — same chip idiom as the ball-size row above.
             ListItem(
@@ -215,11 +152,11 @@ fun GeneralContent(
                             Text(
                                 stringResource(labelRes),
                                 fontSize = 13.sp,
-                                color = if (isSelected) colors.textPrimary else colors.textSecondary,
+                                color = if (isSelected) colors.selectedText else colors.textSecondary,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(
-                                        if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else colors.textPrimary.copy(alpha = 0.08f),
+                                        if (isSelected) colors.selectedBg else colors.textPrimary.copy(alpha = 0.08f),
                                     )
                                     .clickable { viewModel.setInboxNewIdeaStyle(id) }
                                     // 触达对齐第1轮标准（第2轮审查修正）：同批新 chip
@@ -337,349 +274,6 @@ fun GeneralContent(
         }
         // 批v160 W8: 会话交互提醒——智能体等确认（权限/提问/计划）时发系统通知；
         // 可选的前台服务把监听带进后台；电池白名单引导给国产 ROM 兜底。
-        Section(stringResource(R.string.general_notify_section)) {
-            val context = androidx.compose.ui.platform.LocalContext.current
-            // POST_NOTIFICATIONS is a runtime permission on 33+; below that a
-            // granted state is implicit and the toggle just persists.
-            var permissionGranted by remember {
-                mutableStateOf(
-                    androidx.core.content.ContextCompat.checkSelfPermission(
-                        context, android.Manifest.permission.POST_NOTIFICATIONS,
-                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
-                )
-            }
-            // 批v161.3 R1: all three notify toggles share ONE launcher — the
-            // pending persist records WHICH switch asked, so the grant callback
-            // flips the right pref and a denial snaps every switch back off.
-            var pendingEnable by remember { mutableStateOf<(() -> Unit)?>(null) }
-            val requestPermission = androidx.activity.compose.rememberLauncherForActivityResult(
-                androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
-            ) { granted ->
-                permissionGranted = granted
-                // Deny stays un-persisted: the switch snaps back to off and the
-                // user can retry (or grant from the system settings).
-                if (granted) pendingEnable?.invoke()
-                pendingEnable = null
-            }
-            // The shared gate (批v161.3 R1): turning a switch ON with
-            // POST_NOTIFICATIONS ungranted (33+) first launches the request —
-            // only a grant persists, a denial leaves the pref untouched. Turning
-            // OFF always persists immediately.
-            fun gatedChange(on: Boolean, persist: (Boolean) -> Unit) {
-                if (!on) {
-                    persist(false)
-                    return
-                }
-                val needsRequest =
-                    android.os.Build.VERSION.SDK_INT >= 33 && !permissionGranted
-                if (needsRequest) {
-                    pendingEnable = { persist(true) }
-                    requestPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                } else {
-                    persist(true)
-                }
-            }
-            val notifyOn = appSettings.notifyInteractiveEnabled
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.notify_interactive_toggle_title)) },
-                supportingContent = { Text(stringResource(R.string.notify_interactive_toggle_subtitle)) },
-                trailingContent = {
-                    Switch(
-                        checked = notifyOn,
-                        onCheckedChange = { on ->
-                            gatedChange(on, viewModel::setNotifyInteractiveEnabled)
-                        },
-                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.onAccent),
-                    )
-                },
-                colors = ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                    headlineColor = colors.textPrimary,
-                    supportingColor = colors.textTertiary,
-                ),
-                modifier = Modifier.clickable {
-                    gatedChange(!notifyOn, viewModel::setNotifyInteractiveEnabled)
-                },
-            )
-            // 系统级通知体系: per-channel switches — task-board outcomes (and
-            // turn completions share the channel) + silent device-offline alerts.
-            // Same runtime-permission gate as the interactive switch (批v161.3
-            // R1): persisting first used to let these two bypass the 33+ prompt
-            // entirely — the notifications then never showed.
-            ToggleRow(
-                title = stringResource(R.string.settings_notify_task_results),
-                subtitle = stringResource(R.string.settings_notify_task_results_subtitle),
-                checked = appSettings.notifyTaskResultsEnabled,
-                onChange = { on -> gatedChange(on, viewModel::setNotifyTaskResultsEnabled) },
-            )
-            ToggleRow(
-                title = stringResource(R.string.settings_notify_device_events),
-                subtitle = stringResource(R.string.settings_notify_device_events_subtitle),
-                checked = appSettings.notifyDeviceEventsEnabled,
-                onChange = { on -> gatedChange(on, viewModel::setNotifyDeviceEventsEnabled) },
-            )
-            ToggleRow(
-                title = stringResource(R.string.notify_keepalive_title),
-                subtitle = stringResource(
-                    if (notifyOn) R.string.notify_keepalive_subtitle else R.string.notify_keepalive_disabled_subtitle,
-                ),
-                checked = appSettings.keepAliveEnabled,
-                onChange = viewModel::setKeepAliveEnabled,
-                // Without notifications there is nothing to keep alive.
-                enabled = notifyOn,
-            )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.notify_battery_title)) },
-                supportingContent = { Text(stringResource(R.string.notify_battery_subtitle)) },
-                trailingContent = {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = colors.textTertiary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                },
-                colors = ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                    headlineColor = colors.textPrimary,
-                    supportingColor = colors.textTertiary,
-                ),
-                modifier = Modifier.clickable {
-                    // The dedicated screen needs no special permission; some ROMs
-                    // drop it — fall back to the app details page.
-                    val intents = listOf(
-                        android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
-                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    )
-                    intents.firstNotNullOfOrNull { action ->
-                        runCatching {
-                            context.startActivity(
-                                android.content.Intent(
-                                    action,
-                                    android.net.Uri.parse("package:${context.packageName}"),
-                                ),
-                            )
-                        }.getOrNull()
-                    }
-                },
-            )
-            // 系统级通知体系: point at the system notification settings for the
-            // per-channel sound/style knobs (importance, vibration, sound).
-            Text(
-                stringResource(R.string.notify_channels_hint),
-                fontSize = 12.sp,
-                color = colors.textTertiary,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
-            )
-            // Android 14+ gates full-screen (lock-screen floating) alerts behind
-            // a separate "Display over other apps" grant (批v161.3 R1) — without
-            // it the P0 alert silently degrades to a heads-up, so surface the
-            // missing permission right where the notification toggles live.
-            val canFullScreen = remember {
-                if (android.os.Build.VERSION.SDK_INT >= 34) {
-                    (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
-                        as? android.app.NotificationManager)
-                        ?.canUseFullScreenIntent() ?: false
-                } else {
-                    true
-                }
-            }
-            if (!canFullScreen) {
-                Text(
-                    stringResource(R.string.notify_fsi_hint),
-                    fontSize = 12.sp,
-                    color = colors.textTertiary,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
-                )
-            }
-        }
-        Section(stringResource(R.string.general_floating_ball_section)) {
-            ToggleRow(
-                stringResource(R.string.ball_enable_title),
-                stringResource(R.string.ball_enable_subtitle),
-                appSettings.floatBallEnabled,
-                viewModel::setFloatBallEnabled,
-            )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.ball_size_title)) },
-                supportingContent = { Text(stringResource(R.string.ball_size_subtitle)) },
-                trailingContent = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(
-                            "small" to R.string.ball_size_small,
-                            "medium" to R.string.ball_size_medium,
-                            "large" to R.string.ball_size_large,
-                        ).forEach { (id, labelRes) ->
-                            // 局部变量刻意叫 isSelected：若叫 selected，下方
-                            // semantics lambda 的左值会解析到局部变量报编译错
-                            // （v151 教训，同新想法样式 chip）。
-                            val isSelected = appSettings.floatBallSize == id
-                            Text(
-                                stringResource(labelRes),
-                                fontSize = 13.sp,
-                                color = if (isSelected) colors.textPrimary else colors.textSecondary,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else colors.textPrimary.copy(alpha = 0.08f),
-                                    )
-                                    .clickable { viewModel.setFloatBallSize(id) }
-                                    // 批v153（第3轮可及性审查）：对齐新想法样式 chip 的
-                                    // 三件套——48dp 触达 + selected 朗读（同族同法）。
-                                    .semantics { selected = isSelected }
-                                    .heightIn(min = 48.dp)
-                                    .wrapContentHeight(Alignment.CenterVertically)
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                            )
-                        }
-                    }
-                },
-                colors = ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                    headlineColor = colors.textPrimary,
-                    supportingColor = colors.textTertiary,
-                ),
-            )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.ball_bindings_title)) },
-                supportingContent = { Text(stringResource(R.string.ball_bindings_subtitle)) },
-                trailingContent = {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = colors.textTertiary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                },
-                colors = ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                    headlineColor = colors.textPrimary,
-                    supportingColor = colors.textTertiary,
-                ),
-                modifier = Modifier.clickable { onOpenBallSettings() },
-            )
-        }
-        Section(stringResource(R.string.general_dispatch_defaults_section)) {
-            DispatchDefaultsSection()
-        }
-        Section(stringResource(R.string.general_font_section)) {
-            val stepIndex = FONT_STEPS.indexOfFirst { kotlin.math.abs(it - appSettings.fontScale) < 0.01f }
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.general_font_scale_title)) },
-                supportingContent = { Text(stringResource(R.string.general_font_scale_subtitle)) },
-                trailingContent = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        StepButton(
-                            Icons.Rounded.Remove,
-                            enabled = stepIndex > 0,
-                            onClick = { viewModel.setFontScale(stepFontScale(appSettings.fontScale, -1)) },
-                        )
-                        Text(
-                            "${(appSettings.fontScale * 100).roundToInt()}%",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.textPrimary,
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                        )
-                        StepButton(
-                            Icons.Rounded.Add,
-                            enabled = stepIndex in 0 until FONT_STEPS.lastIndex,
-                            onClick = { viewModel.setFontScale(stepFontScale(appSettings.fontScale, +1)) },
-                        )
-                    }
-                },
-                colors = ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                    headlineColor = colors.textPrimary,
-                    supportingColor = colors.textTertiary,
-                ),
-            )
-        }
-        Section(stringResource(R.string.general_new_session_section)) {
-            var showFolderPicker by rememberSaveable { mutableStateOf(false) }
-            // Summary line: the pin's name, or the last-used folder's name when
-            // following memory, so the row reads as a fact not a mode switch.
-            val lastUsedName = ui.lastUsedFolderId?.let { id ->
-                ui.draftFolders.firstOrNull { it.id == id }?.name?.takeIf { it.isNotBlank() }
-            }
-            val followLabel = lastUsedName
-                ?.let { stringResource(R.string.general_default_folder_follow_last, it) }
-                ?: stringResource(R.string.general_default_folder_follow)
-            // A pin whose folder was closed/deleted server-side is NOT a pin any more:
-            // the new-task resolver skips it, so showing "#12" (and an option list with
-            // nothing selected) would describe behaviour that no longer happens.
-            val activePin = ui.pinnedFolderId?.takeIf { pin -> ui.draftFolders.any { it.id == pin } }
-            val currentLabel = when (val pin = activePin) {
-                null -> followLabel
-                else -> ui.draftFolders.firstOrNull { it.id == pin }?.name ?: followLabel
-            }
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.general_default_folder_title)) },
-                supportingContent = { Text(currentLabel) },
-                trailingContent = {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = colors.textTertiary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                },
-                colors = ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                    headlineColor = colors.textPrimary,
-                    supportingColor = colors.textTertiary,
-                ),
-                // No server loaded (or its load failed): the list is empty and every
-                // option would be a no-op — don't open a dead dialog.
-                modifier = Modifier.clickable { if (ui.serverId != null) showFolderPicker = true },
-            )
-            ui.error?.let { message ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.danger,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { viewModel.load() }) {
-                        Text(stringResource(R.string.common_retry), color = colors.accent)
-                    }
-                }
-            }
-            if (showFolderPicker) {
-                AlertDialog(
-                    onDismissRequest = { showFolderPicker = false },
-                    title = { Text(stringResource(R.string.general_default_folder_title)) },
-                    text = {
-                        Column(Modifier.verticalScroll(rememberScrollState())) {
-                            PickerRow(
-                                label = followLabel,
-                                selected = activePin == null,
-                                onClick = {
-                                    viewModel.setPinnedFolder(null)
-                                    showFolderPicker = false
-                                },
-                            )
-                            ui.draftFolders.forEach { f ->
-                                PickerRow(
-                                    label = f.name.ifBlank { f.path },
-                                    selected = activePin == f.id,
-                                    onClick = {
-                                        viewModel.setPinnedFolder(f.id)
-                                        showFolderPicker = false
-                                    },
-                                )
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { showFolderPicker = false }) {
-                            Text(stringResource(R.string.common_ok), color = colors.accent)
-                        }
-                    },
-                )
-            }
-        }
         Section(stringResource(R.string.general_conversation_tools)) {
             ToggleRow(stringResource(R.string.general_live_feedback_title), stringResource(R.string.general_live_feedback_subtitle), ui.feedbackEnabled, viewModel::setFeedback)
             ToggleRow(stringResource(R.string.general_ask_questions_title), stringResource(R.string.general_ask_questions_subtitle), ui.questionEnabled, viewModel::setQuestion)
@@ -701,36 +295,14 @@ fun GeneralContent(
                 )
             }
         }
-        // 批v168: swipe-action picker (one sheet at a time, per the window-limit
-        // discipline — never one Dialog per row).
-        swipeEditor?.let { direction ->
-            val isLeft = direction == "left"
-            OptionListSheet(
-                title = stringResource(if (isLeft) R.string.general_swipe_left_title else R.string.general_swipe_right_title),
-                options = (listOf(SESSION_SWIPE_NONE) + SessionSwipeAction.entries.map { it.id })
-                    .map { id -> PickerOption(id = id, label = swipeActionLabel(id)) },
-                selectedId = if (isLeft) appSettings.sessionSwipeLeftAction else appSettings.sessionSwipeRightAction,
-                onSelect = { option ->
-                    if (isLeft) viewModel.setSessionSwipeLeft(option.id) else viewModel.setSessionSwipeRight(option.id)
-                },
-                onDismiss = { swipeEditor = null },
-            )
-        }
     }
 }
 
 /** 批v168: display name for a stored swipe-binding id ("none" included). */
 @Composable
-private fun swipeActionLabel(actionId: String): String = when (SessionSwipeAction.from(actionId)) {
-    null -> stringResource(R.string.swipe_action_none)
-    SessionSwipeAction.BOARD -> stringResource(R.string.board_conv_add)
-    SessionSwipeAction.COPY -> stringResource(R.string.session_copy_reference)
-    SessionSwipeAction.PIN -> stringResource(R.string.session_pin)
-    SessionSwipeAction.HANDOFF -> stringResource(R.string.session_add_to_session)
-    SessionSwipeAction.RENAME -> stringResource(R.string.session_rename)
-    SessionSwipeAction.ADD_PROJECT -> stringResource(R.string.session_add_project)
-    SessionSwipeAction.DELETE -> stringResource(R.string.common_delete)
-}
+private fun swipeActionLabel(actionId: String): String =
+    // 批v171: label 表下沉到 sessions 域共享（悬浮球 cycle toast 同口径）。
+    stringResource(swipeActionLabelRes(actionId) ?: R.string.swipe_action_none)
 
 @Composable
 private fun PickerRow(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -778,11 +350,11 @@ private fun <T> ChipRow(
                     Text(
                         stringResource(labelRes),
                         fontSize = 13.sp,
-                        color = if (isSelected) colors.textPrimary else colors.textSecondary,
+                        color = if (isSelected) colors.selectedText else colors.textSecondary,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else colors.textPrimary.copy(alpha = 0.08f),
+                                if (isSelected) colors.selectedBg else colors.textPrimary.copy(alpha = 0.08f),
                             )
                             .clickable { onSelect(id) }
                             .semantics { selected = isSelected }
@@ -936,7 +508,7 @@ private fun TabOrderEditor(
                         if (isStart) Icons.Rounded.Check else tab.icon,
                         contentDescription = null,
                         tint = when {
-                            isStart -> colors.textPrimary
+                            isStart -> colors.selectedText
                             canStart -> colors.textTertiary
                             else -> colors.textTertiary.copy(alpha = 0.5f)
                         },
@@ -977,7 +549,7 @@ private fun TabOrderEditor(
                 colors = ListItemDefaults.colors(
                     containerColor = Color.Transparent,
                     headlineColor = when {
-                        isStart -> colors.textPrimary
+                        isStart -> colors.selectedText
                         canStart -> colors.textPrimary
                         else -> colors.textTertiary.copy(alpha = 0.6f)
                     },
@@ -1144,3 +716,544 @@ private fun RadioOptionDialog(
         },
     )
 }
+
+/**
+ * 批v171 N8: 「手势与滑动」 — split out of the crowded General leaf (settings
+ * IA research: one theme per screen). Hosts the shell's horizontal-swipe
+ * toggles, the session-row bindings (批v168), the NEW inbox-card bindings
+ * (批v171 N7) and the floating-ball block; the action-picker sheet below
+ * generalizes over the four directions instead of one sheet per domain.
+ */
+@Composable
+fun HandsContent(
+    viewModel: GeneralViewModel = hiltViewModel(),
+    onOpenBallSettings: () -> Unit = {},
+) {
+    val appSettings by viewModel.settings.collectAsStateWithLifecycle()
+    val colors = CodegTheme.colors
+    // Which binding the picker edits: "session_left" | "session_right" |
+    // "inbox_left" | "inbox_right" (null = closed). rememberSaveable survives.
+    var swipeEditor by rememberSaveable { mutableStateOf<String?>(null) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Section(stringResource(R.string.hands_gesture_section)) {
+            ToggleRow(
+                stringResource(R.string.general_activity_swipe_title),
+                stringResource(R.string.general_activity_swipe_subtitle),
+                appSettings.activityDeviceSwipe,
+                viewModel::setActivityDeviceSwipe,
+            )
+            // 批v160 W5: task-board horizontal swipe semantics — step the four
+            // status columns (default) or switch devices like on Activity. Same
+            // chip idiom as the inbox-idea-style row below.
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.general_task_swipe_title)) },
+                supportingContent = { Text(stringResource(R.string.general_task_swipe_subtitle)) },
+                trailingContent = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            app.codeg.android.core.datastore.TASK_SWIPE_SEGMENTS to R.string.general_task_swipe_segments,
+                            app.codeg.android.core.datastore.TASK_SWIPE_DEVICES to R.string.general_task_swipe_devices,
+                        ).forEach { (id, labelRes) ->
+                            // 局部变量刻意叫 isSelected：若叫 selected，下方
+                            // semantics lambda 的左值会解析到局部变量报编译错。
+                            val isSelected = appSettings.taskSwipeMode == id
+                            Text(
+                                stringResource(labelRes),
+                                fontSize = 13.sp,
+                                color = if (isSelected) colors.selectedText else colors.textSecondary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isSelected) colors.selectedBg else colors.textPrimary.copy(alpha = 0.08f),
+                                    )
+                                    .clickable { viewModel.setTaskSwipeMode(id) }
+                                    .semantics { selected = isSelected }
+                                    .heightIn(min = 48.dp)
+                                    .wrapContentHeight(Alignment.CenterVertically)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+            )
+        }
+        Section(stringResource(R.string.swipe_session_section)) {
+            // 批v171 N7: the master switch — off means the rows unwrap to a
+            // plain Box (no gesture cost, no reveal panes).
+            ToggleRow(
+                stringResource(R.string.session_swipe_enabled_title),
+                stringResource(R.string.session_swipe_enabled_subtitle),
+                appSettings.sessionSwipeEnabled,
+                viewModel::setSessionSwipeEnabled,
+            )
+            // 批v168: the session row's left/right swipe bindings (Gmail/Outlook
+            // model). A swipe is a shortcut into the long-press menu's handlers;
+            // 「无动作」turns that direction off.
+            PickerField(
+                icon = Icons.Rounded.SwipeLeft,
+                label = stringResource(R.string.general_swipe_left_title),
+                value = swipeActionLabel(appSettings.sessionSwipeLeftAction),
+                placeholder = stringResource(R.string.swipe_action_none),
+                onClick = { swipeEditor = "session_left" },
+            )
+            PickerField(
+                icon = Icons.Rounded.SwipeRight,
+                label = stringResource(R.string.general_swipe_right_title),
+                value = swipeActionLabel(appSettings.sessionSwipeRightAction),
+                placeholder = stringResource(R.string.swipe_action_none),
+                onClick = { swipeEditor = "session_right" },
+            )
+        }
+        Section(stringResource(R.string.swipe_inbox_section)) {
+            ToggleRow(
+                stringResource(R.string.inbox_swipe_enabled_title),
+                stringResource(R.string.inbox_swipe_enabled_subtitle),
+                appSettings.inboxSwipeEnabled,
+                viewModel::setInboxSwipeEnabled,
+            )
+            PickerField(
+                icon = Icons.Rounded.SwipeLeft,
+                label = stringResource(R.string.inbox_swipe_left_title),
+                value = inboxSwipeActionLabel(appSettings.inboxSwipeLeftAction),
+                placeholder = stringResource(R.string.swipe_action_none),
+                onClick = { swipeEditor = "inbox_left" },
+            )
+            PickerField(
+                icon = Icons.Rounded.SwipeRight,
+                label = stringResource(R.string.inbox_swipe_right_title),
+                value = inboxSwipeActionLabel(appSettings.inboxSwipeRightAction),
+                placeholder = stringResource(R.string.swipe_action_none),
+                onClick = { swipeEditor = "inbox_right" },
+            )
+        }
+        Section(stringResource(R.string.general_floating_ball_section)) {
+            ToggleRow(
+                stringResource(R.string.ball_enable_title),
+                stringResource(R.string.ball_enable_subtitle),
+                appSettings.floatBallEnabled,
+                viewModel::setFloatBallEnabled,
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ball_size_title)) },
+                supportingContent = { Text(stringResource(R.string.ball_size_subtitle)) },
+                trailingContent = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            "small" to R.string.ball_size_small,
+                            "medium" to R.string.ball_size_medium,
+                            "large" to R.string.ball_size_large,
+                        ).forEach { (id, labelRes) ->
+                            // 局部变量刻意叫 isSelected：若叫 selected，下方
+                            // semantics lambda 的左值会解析到局部变量报编译错
+                            // （v151 教训，同新想法样式 chip）。
+                            val isSelected = appSettings.floatBallSize == id
+                            Text(
+                                stringResource(labelRes),
+                                fontSize = 13.sp,
+                                color = if (isSelected) colors.selectedText else colors.textSecondary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isSelected) colors.selectedBg else colors.textPrimary.copy(alpha = 0.08f),
+                                    )
+                                    .clickable { viewModel.setFloatBallSize(id) }
+                                    // 批v153（第3轮可及性审查）：对齐新想法样式 chip 的
+                                    // 三件套——48dp 触达 + selected 朗读（同族同法）。
+                                    .semantics { selected = isSelected }
+                                    .heightIn(min = 48.dp)
+                                    .wrapContentHeight(Alignment.CenterVertically)
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ball_bindings_title)) },
+                supportingContent = { Text(stringResource(R.string.ball_bindings_subtitle)) },
+                trailingContent = {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                modifier = Modifier.clickable { onOpenBallSettings() },
+            )
+        }
+        swipeEditor?.let { direction ->
+            val session = direction.startsWith("session")
+            val isLeft = direction.endsWith("left")
+            OptionListSheet(
+                title = stringResource(
+                    when {
+                        session && isLeft -> R.string.general_swipe_left_title
+                        session -> R.string.general_swipe_right_title
+                        isLeft -> R.string.inbox_swipe_left_title
+                        else -> R.string.inbox_swipe_right_title
+                    },
+                ),
+                options = if (session) {
+                    (listOf(SessionSwipeAction.NONE_ID) + SessionSwipeAction.entries.map { it.id })
+                        .map { id -> PickerOption(id = id, label = swipeActionLabel(id)) }
+                } else {
+                    InboxSwipeAction.RING.map { id -> PickerOption(id = id, label = inboxSwipeActionLabel(id)) }
+                },
+                selectedId = when (direction) {
+                    "session_left" -> appSettings.sessionSwipeLeftAction
+                    "session_right" -> appSettings.sessionSwipeRightAction
+                    "inbox_left" -> appSettings.inboxSwipeLeftAction
+                    else -> appSettings.inboxSwipeRightAction
+                },
+                onSelect = { option ->
+                    when (direction) {
+                        "session_left" -> viewModel.setSessionSwipeLeft(option.id)
+                        "session_right" -> viewModel.setSessionSwipeRight(option.id)
+                        "inbox_left" -> viewModel.setInboxSwipeLeft(option.id)
+                        else -> viewModel.setInboxSwipeRight(option.id)
+                    }
+                },
+                onDismiss = { swipeEditor = null },
+            )
+        }
+    }
+}
+
+/**
+ * 批v171 N8: 「通知」 — the 会话交互提醒 block moved verbatim out of General.
+ */
+@Composable
+fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
+    val appSettings by viewModel.settings.collectAsStateWithLifecycle()
+    val colors = CodegTheme.colors
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Section(stringResource(R.string.general_notify_section)) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            // POST_NOTIFICATIONS is a runtime permission on 33+; below that a
+            // granted state is implicit and the toggle just persists.
+            var permissionGranted by remember {
+                mutableStateOf(
+                    androidx.core.content.ContextCompat.checkSelfPermission(
+                        context, android.Manifest.permission.POST_NOTIFICATIONS,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+                )
+            }
+            // 批v161.3 R1: all three notify toggles share ONE launcher — the
+            // pending persist records WHICH switch asked, so the grant callback
+            // flips the right pref and a denial snaps every switch back off.
+            var pendingEnable by remember { mutableStateOf<(() -> Unit)?>(null) }
+            val requestPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                permissionGranted = granted
+                // Deny stays un-persisted: the switch snaps back to off and the
+                // user can retry (or grant from the system settings).
+                if (granted) pendingEnable?.invoke()
+                pendingEnable = null
+            }
+            // The shared gate (批v161.3 R1): turning a switch ON with
+            // POST_NOTIFICATIONS ungranted (33+) first launches the request —
+            // only a grant persists, a denial leaves the pref untouched. Turning
+            // OFF always persists immediately.
+            fun gatedChange(on: Boolean, persist: (Boolean) -> Unit) {
+                if (!on) {
+                    persist(false)
+                    return
+                }
+                val needsRequest =
+                    android.os.Build.VERSION.SDK_INT >= 33 && !permissionGranted
+                if (needsRequest) {
+                    pendingEnable = { persist(true) }
+                    requestPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    persist(true)
+                }
+            }
+            val notifyOn = appSettings.notifyInteractiveEnabled
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.notify_interactive_toggle_title)) },
+                supportingContent = { Text(stringResource(R.string.notify_interactive_toggle_subtitle)) },
+                trailingContent = {
+                    Switch(
+                        checked = notifyOn,
+                        onCheckedChange = { on ->
+                            gatedChange(on, viewModel::setNotifyInteractiveEnabled)
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.onAccent),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                modifier = Modifier.clickable {
+                    gatedChange(!notifyOn, viewModel::setNotifyInteractiveEnabled)
+                },
+            )
+            // 系统级通知体系: per-channel switches — task-board outcomes (and
+            // turn completions share the channel) + silent device-offline alerts.
+            // Same runtime-permission gate as the interactive switch (批v161.3
+            // R1): persisting first used to let these two bypass the 33+ prompt
+            // entirely — the notifications then never showed.
+            ToggleRow(
+                title = stringResource(R.string.settings_notify_task_results),
+                subtitle = stringResource(R.string.settings_notify_task_results_subtitle),
+                checked = appSettings.notifyTaskResultsEnabled,
+                onChange = { on -> gatedChange(on, viewModel::setNotifyTaskResultsEnabled) },
+            )
+            ToggleRow(
+                title = stringResource(R.string.settings_notify_device_events),
+                subtitle = stringResource(R.string.settings_notify_device_events_subtitle),
+                checked = appSettings.notifyDeviceEventsEnabled,
+                onChange = { on -> gatedChange(on, viewModel::setNotifyDeviceEventsEnabled) },
+            )
+            ToggleRow(
+                title = stringResource(R.string.notify_keepalive_title),
+                subtitle = stringResource(
+                    if (notifyOn) R.string.notify_keepalive_subtitle else R.string.notify_keepalive_disabled_subtitle,
+                ),
+                checked = appSettings.keepAliveEnabled,
+                onChange = viewModel::setKeepAliveEnabled,
+                // Without notifications there is nothing to keep alive.
+                enabled = notifyOn,
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.notify_battery_title)) },
+                supportingContent = { Text(stringResource(R.string.notify_battery_subtitle)) },
+                trailingContent = {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                modifier = Modifier.clickable {
+                    // The dedicated screen needs no special permission; some ROMs
+                    // drop it — fall back to the app details page.
+                    val intents = listOf(
+                        android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    )
+                    intents.firstNotNullOfOrNull { action ->
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    action,
+                                    android.net.Uri.parse("package:${context.packageName}"),
+                                ),
+                            )
+                        }.getOrNull()
+                    }
+                },
+            )
+            // 系统级通知体系: point at the system notification settings for the
+            // per-channel sound/style knobs (importance, vibration, sound).
+            Text(
+                stringResource(R.string.notify_channels_hint),
+                fontSize = 12.sp,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+            )
+            // Android 14+ gates full-screen (lock-screen floating) alerts behind
+            // a separate "Display over other apps" grant (批v161.3 R1) — without
+            // it the P0 alert silently degrades to a heads-up, so surface the
+            // missing permission right where the notification toggles live.
+            val canFullScreen = remember {
+                if (android.os.Build.VERSION.SDK_INT >= 34) {
+                    (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
+                        as? android.app.NotificationManager)
+                        ?.canUseFullScreenIntent() ?: false
+                } else {
+                    true
+                }
+            }
+            if (!canFullScreen) {
+                Text(
+                    stringResource(R.string.notify_fsi_hint),
+                    fontSize = 12.sp,
+                    color = colors.textTertiary,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 批v171 N8: 「任务与派发」 — dispatch defaults + the new-session pin, verbatim
+ * out of General.
+ */
+@Composable
+fun DispatchContent(viewModel: GeneralViewModel = hiltViewModel()) {
+    val ui by viewModel.ui.collectAsStateWithLifecycle()
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Section(stringResource(R.string.general_dispatch_defaults_section)) {
+            DispatchDefaultsSection()
+        }
+        Section(stringResource(R.string.general_new_session_section)) {
+            var showFolderPicker by rememberSaveable { mutableStateOf(false) }
+            // Summary line: the pin's name, or the last-used folder's name when
+            // following memory, so the row reads as a fact not a mode switch.
+            val lastUsedName = ui.lastUsedFolderId?.let { id ->
+                ui.draftFolders.firstOrNull { it.id == id }?.name?.takeIf { it.isNotBlank() }
+            }
+            val followLabel = lastUsedName
+                ?.let { stringResource(R.string.general_default_folder_follow_last, it) }
+                ?: stringResource(R.string.general_default_folder_follow)
+            // A pin whose folder was closed/deleted server-side is NOT a pin any more:
+            // the new-task resolver skips it, so showing "#12" (and an option list with
+            // nothing selected) would describe behaviour that no longer happens.
+            val activePin = ui.pinnedFolderId?.takeIf { pin -> ui.draftFolders.any { it.id == pin } }
+            val currentLabel = when (val pin = activePin) {
+                null -> followLabel
+                else -> ui.draftFolders.firstOrNull { it.id == pin }?.name ?: followLabel
+            }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.general_default_folder_title)) },
+                supportingContent = { Text(currentLabel) },
+                trailingContent = {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                // No server loaded (or its load failed): the list is empty and every
+                // option would be a no-op — don't open a dead dialog.
+                modifier = Modifier.clickable { if (ui.serverId != null) showFolderPicker = true },
+            )
+            ui.error?.let { message ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.danger,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { viewModel.load() }) {
+                        Text(stringResource(R.string.common_retry), color = colors.accent)
+                    }
+                }
+            }
+            if (showFolderPicker) {
+                AlertDialog(
+                    onDismissRequest = { showFolderPicker = false },
+                    title = { Text(stringResource(R.string.general_default_folder_title)) },
+                    text = {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            PickerRow(
+                                label = followLabel,
+                                selected = activePin == null,
+                                onClick = {
+                                    viewModel.setPinnedFolder(null)
+                                    showFolderPicker = false
+                                },
+                            )
+                            ui.draftFolders.forEach { f ->
+                                PickerRow(
+                                    label = f.name.ifBlank { f.path },
+                                    selected = activePin == f.id,
+                                    onClick = {
+                                        viewModel.setPinnedFolder(f.id)
+                                        showFolderPicker = false
+                                    },
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showFolderPicker = false }) {
+                            Text(stringResource(R.string.common_ok), color = colors.accent)
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 批v171 N3/N8: the appearance page's 经典外观 + 字体 block — the font scale
+ * lives with the look (it used to sit at the bottom of General), and the
+ * classic-look switch flips the selected-role skin app-wide: accent-filled
+ * (pre-v169) vs the restrained neutral style.
+ */
+@Composable
+fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
+    val appSettings by viewModel.settings.collectAsStateWithLifecycle()
+    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        ToggleRow(
+            stringResource(R.string.classic_look_title),
+            stringResource(R.string.classic_look_subtitle),
+            appSettings.classicLook,
+            viewModel::setClassicLook,
+        )
+        Section(stringResource(R.string.general_font_section)) {
+            val stepIndex = FONT_STEPS.indexOfFirst { kotlin.math.abs(it - appSettings.fontScale) < 0.01f }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.general_font_scale_title)) },
+                supportingContent = { Text(stringResource(R.string.general_font_scale_subtitle)) },
+                trailingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StepButton(
+                            Icons.Rounded.Remove,
+                            enabled = stepIndex > 0,
+                            onClick = { viewModel.setFontScale(stepFontScale(appSettings.fontScale, -1)) },
+                        )
+                        Text(
+                            "${(appSettings.fontScale * 100).roundToInt()}%",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.textPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        )
+                        StepButton(
+                            Icons.Rounded.Add,
+                            enabled = stepIndex in 0 until FONT_STEPS.lastIndex,
+                            onClick = { viewModel.setFontScale(stepFontScale(appSettings.fontScale, +1)) },
+                        )
+                    }
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+            )
+        }
+    }
+}
+
+/** 批v171 N7: display name for a stored inbox swipe-binding id ("none" included). */
+@Composable
+private fun inboxSwipeActionLabel(actionId: String): String =
+    stringResource(inboxSwipeActionLabelRes(actionId) ?: R.string.swipe_action_none)

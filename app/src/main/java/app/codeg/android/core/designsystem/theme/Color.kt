@@ -53,11 +53,21 @@ data class CodegColors(
     /** Status-tag tones (task board): running/done green, waiting amber. */
     val success: Color,
     val warning: Color,
+    // 批v171（经典外观开关）：选中态四角色——全仓胶囊/芯片/药丸的唯一取色口径。
+    // restrained（默认，批v170 口径）= 浅灰低透明底+细边框+文字色差兜底；
+    // classic（主人点名可一键切回的 v169 前观感）= accent 实心底+onAccent 文字。
+    // 组件层禁止再硬编码 textPrimary@0.10 / surfaceStroke / onAccent 三元。
+    val selectedBg: Color,
+    val selectedBorder: Color,
+    val selectedText: Color,
+    val selectedSubText: Color,
 )
 
-/** Build the colour set for the given mode + accent (iOS `Theme.swift` values). */
-fun codegColors(isDark: Boolean, accent: AccentPalette): CodegColors {
+/** Build the colour set for the given mode + accent (iOS `Theme.swift` values).
+ *  [classicLook] flips the selected-state roles to the pre-v170 accent-fill skin. */
+fun codegColors(isDark: Boolean, accent: AccentPalette, classicLook: Boolean = false): CodegColors {
     val accentColor = accent.resolve(isDark)
+    val onAccent = onAccentColor(accentColor)
     return if (isDark) {
         CodegColors(
             isDark = true,
@@ -74,10 +84,14 @@ fun codegColors(isDark: Boolean, accent: AccentPalette): CodegColors {
             textTertiary = Color(0xFF8A8A8A),
             danger = Color(0xFFF57575),
             accent = accentColor,
-            onAccent = onAccentColor(accentColor),
+            onAccent = onAccent,
             accentDim = accentColor.copy(alpha = 0.16f),
             success = Color(0xFF57C79A),
             warning = Color(0xFFE0B15C),
+            selectedBg = if (classicLook) accentColor else Color(0xFFF7F7F7).copy(alpha = 0.10f),
+            selectedBorder = if (classicLook) accentColor else Color.White.copy(alpha = 0.09f),
+            selectedText = if (classicLook) onAccent else Color(0xFFF7F7F7),
+            selectedSubText = if (classicLook) onAccent.copy(alpha = 0.85f) else Color(0xFFA3A3A3),
         )
     } else {
         CodegColors(
@@ -97,12 +111,16 @@ fun codegColors(isDark: Boolean, accent: AccentPalette): CodegColors {
             textTertiary = Color(0xFF6E6E6E),
             danger = Color(0xFFCC2E2E),
             accent = accentColor,
-            onAccent = onAccentColor(accentColor),
+            onAccent = onAccent,
             accentDim = accentColor.copy(alpha = 0.16f),
             success = Color(0xFF0F946B),
             // 浅色警告色加深（第1轮可及性审查修正）：#B07A10 在浅底上 3.4:1，
             // 12sp 小字不达 AA；#8A650B ≈5:1。暗色侧不变。
             warning = Color(0xFF8A650B),
+            selectedBg = if (classicLook) accentColor else Color(0xFF1C1C1C).copy(alpha = 0.10f),
+            selectedBorder = if (classicLook) accentColor else Color.Black.copy(alpha = 0.10f),
+            selectedText = if (classicLook) onAccent else Color(0xFF1C1C1C),
+            selectedSubText = if (classicLook) onAccent.copy(alpha = 0.85f) else Color(0xFF616161),
         )
     }
 }

@@ -19,6 +19,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -81,10 +84,12 @@ private enum class SettingsLeaf(@StringRes val titleRes: Int, val icon: ImageVec
     APPEARANCE(R.string.settings_leaf_appearance, Icons.Rounded.Brush, R.string.settings_group_personalization, true),
     LANGUAGE(R.string.settings_leaf_language, Icons.Rounded.Language, R.string.settings_group_personalization, true),
     GENERAL(R.string.settings_leaf_general, Icons.Rounded.Tune, R.string.settings_group_personalization, true),
+    HANDS(R.string.settings_leaf_hands, Icons.Rounded.Gesture, R.string.settings_group_personalization, true),
     FLOATING_BALL(R.string.settings_leaf_floating_ball, Icons.Rounded.TouchApp, R.string.settings_group_personalization, true),
     QUICK_MESSAGES(R.string.settings_leaf_quick_messages, Icons.AutoMirrored.Rounded.Chat, R.string.settings_group_personalization, true),
     PROJECTS(R.string.settings_leaf_projects, Icons.Rounded.Bookmark, R.string.settings_group_personalization, true),
     AGENTS(R.string.settings_leaf_agents, Icons.Rounded.Person, R.string.settings_group_ai_agents, true),
+    DISPATCH(R.string.settings_leaf_dispatch, Icons.Rounded.Send, R.string.settings_group_ai_agents, true),
     MODEL_PROVIDERS(R.string.settings_leaf_model_providers, Icons.Rounded.Memory, R.string.settings_group_ai_agents, true),
     EXPERTS(R.string.settings_leaf_experts, Icons.Rounded.School, R.string.settings_group_ai_agents, true),
     SKILLS(R.string.settings_leaf_skills, Icons.Rounded.Extension, R.string.settings_group_ai_agents, true),
@@ -92,6 +97,7 @@ private enum class SettingsLeaf(@StringRes val titleRes: Int, val icon: ImageVec
     VERSION_CONTROL(R.string.settings_leaf_version_control, Icons.Rounded.Difference, R.string.settings_group_integrations, true),
     CHAT_CHANNELS(R.string.settings_leaf_chat_channels, Icons.AutoMirrored.Rounded.Chat, R.string.settings_group_integrations, true),
     USAGE(R.string.settings_leaf_usage, Icons.Rounded.DataUsage, R.string.settings_group_system, true),
+    NOTIFY(R.string.settings_leaf_notify, Icons.Rounded.Notifications, R.string.settings_group_system, true),
     SYSTEM(R.string.settings_leaf_system, Icons.Rounded.Settings, R.string.settings_group_system, true),
     CONFIG_SYNC(R.string.settings_leaf_config_sync, Icons.Rounded.Sync, R.string.settings_group_system, true),
     OPEN_SOURCE_LICENSES(R.string.settings_leaf_open_source_licenses, Icons.Rounded.Policy, R.string.settings_group_system, true),
@@ -159,7 +165,10 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel(), configSyncVie
                 SettingsLeaf.QUICK_MESSAGES -> QuickMessagesContent()
                 SettingsLeaf.PROJECTS -> SessionProjectsScreen()
                 SettingsLeaf.USAGE -> app.codeg.android.feature.usage.TokenUsageScreen()
-                SettingsLeaf.GENERAL -> GeneralContent(onOpenBallSettings = { leaf = SettingsLeaf.FLOATING_BALL })
+                SettingsLeaf.GENERAL -> GeneralContent()
+                SettingsLeaf.HANDS -> HandsContent(onOpenBallSettings = { leaf = SettingsLeaf.FLOATING_BALL })
+                SettingsLeaf.NOTIFY -> NotifyContent()
+                SettingsLeaf.DISPATCH -> DispatchContent()
                 SettingsLeaf.FLOATING_BALL -> FloatingBallContent(viewModel)
                 SettingsLeaf.MODEL_PROVIDERS -> ModelProvidersContent()
                 SettingsLeaf.SYSTEM -> SystemContent()
@@ -243,6 +252,7 @@ private fun AppearanceSettings(viewModel: SettingsViewModel) {
                 }
             }
         }
+        FontAndLookContent()
         // Live preview.
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.bgElevated.copy(alpha = 0.6f)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.settings_preview), fontSize = 13.sp, color = colors.textTertiary)
