@@ -24,7 +24,9 @@ class TokenUsageFilterTest {
         // JS `-getTimezoneOffset()` convention: UTC+8 → +480 (server buckets
         // by this offset; it is the viewer's distance EAST of UTC).
         assertEquals(480, f.tzOffsetMinutes)
-        assertEquals(false, f.comparePrevious)
+        // v169: every period asks for previous-period totals so the screen can
+        // render the up/down delta badge; the server simply omits it when unknown.
+        assertEquals(true, f.comparePrevious)
     }
 
     @Test
