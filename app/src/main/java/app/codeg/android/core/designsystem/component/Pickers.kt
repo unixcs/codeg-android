@@ -108,11 +108,11 @@ fun PickerField(
         Icon(
             icon,
             contentDescription = null,
-            tint = if (enabled) colors.accent else colors.textTertiary,
+            tint = if (enabled) colors.textSecondary else colors.textTertiary,
             modifier = Modifier
                 .size(32.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(colors.accent.copy(alpha = 0.10f))
+                .background(colors.textPrimary.copy(alpha = 0.06f))
                 .padding(7.dp),
         )
         Spacer(Modifier.width(12.dp))
@@ -230,7 +230,7 @@ fun OptionListSheet(
                                 }
                             }
                             if (selected) {
-                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
                             }
                         }
                     }

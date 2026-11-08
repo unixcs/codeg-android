@@ -936,7 +936,7 @@ private fun TabOrderEditor(
                         if (isStart) Icons.Rounded.Check else tab.icon,
                         contentDescription = null,
                         tint = when {
-                            isStart -> colors.accent
+                            isStart -> colors.textPrimary
                             canStart -> colors.textTertiary
                             else -> colors.textTertiary.copy(alpha = 0.5f)
                         },
@@ -977,7 +977,7 @@ private fun TabOrderEditor(
                 colors = ListItemDefaults.colors(
                     containerColor = Color.Transparent,
                     headlineColor = when {
-                        isStart -> colors.accent
+                        isStart -> colors.textPrimary
                         canStart -> colors.textPrimary
                         else -> colors.textTertiary.copy(alpha = 0.6f)
                     },

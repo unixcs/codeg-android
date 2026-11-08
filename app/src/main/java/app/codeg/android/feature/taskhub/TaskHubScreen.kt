@@ -1090,8 +1090,13 @@ private fun TaskBoardStatusBar(
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(
-                        if (isSelected) tone.copy(alpha = 0.16f)
+                        if (isSelected) colors.textPrimary.copy(alpha = 0.10f)
                         else colors.bgElevated.copy(alpha = 0.55f),
+                    )
+                    .border(
+                        CodegTheme.dimens.hairlineWidth,
+                        if (isSelected) colors.surfaceStroke else colors.hairline,
+                        RoundedCornerShape(10.dp),
                     )
                     .clickable { onSelect(segment) }
                     .heightIn(min = 40.dp)
@@ -1328,7 +1333,7 @@ private fun UnknownSectionHeader(count: Int) {
         )
         Text(
             "$count",
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelMedium.copy(fontFamily = CodegMono),
             color = CodegTheme.colors.textSecondary,
         )
     }
@@ -1656,7 +1661,7 @@ private fun MiniCard(entry: TaskBoardEntry, onClick: () -> Unit) {
             .then(if (task.isArchivedLike) Modifier.alpha(0.6f) else Modifier)
             .clip(shape)
             .background(colors.bgElevated)
-            .border(1.dp, colors.textPrimary.copy(alpha = 0.10f), shape)
+            .border(CodegTheme.dimens.hairlineWidth, colors.hairline, shape)
             .clickable(onClick = onClick)
             .padding(6.dp),
     ) {
@@ -1776,7 +1781,7 @@ private fun KanbanColumnHeader(
         ) {
             Text(
                 "$count",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = CodegMono),
                 color = colors.textSecondary,
             )
         }
@@ -2416,7 +2421,7 @@ private fun TaskCardWeb(
             .then(if (task.isArchivedLike) Modifier.alpha(0.6f) else Modifier)
             .clip(cardShape)
             .background(colors.bgElevated)
-            .border(1.dp, colors.textPrimary.copy(alpha = 0.15f), cardShape)
+            .border(CodegTheme.dimens.hairlineWidth, colors.hairline, cardShape)
             .combinedClickable(onClick = onOpenDetail, onLongClick = { menuOpen = true })
             .padding(if (compact) 10.dp else 12.dp),
     ) {

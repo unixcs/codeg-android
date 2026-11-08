@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -74,26 +76,35 @@ fun CapsuleChipRow(
     ) {
         options.forEachIndexed { index, label ->
             val selected = index == selectedIndex
+            // 触达（可及性 R2）：clickable 在外层 48dp 包装上，内层 32dp 胶囊
+            // 纯视觉——热区扩到 48×48，胶囊观感零变化。
             Box(
                 modifier = Modifier
-                    .height(InsightCapsuleHeight)
-                    .clip(selectedShape)
-                    .background(if (selected) colors.textPrimary.copy(alpha = 0.10f) else Color.Transparent)
-                    .border(
-                        width = 0.75.dp,
-                        color = if (selected) colors.surfaceStroke else colors.hairline,
-                        shape = selectedShape,
-                    )
-                    .clickable(role = Role.Tab, onClickLabel = label) { onSelect(index) }
-                    .padding(horizontal = 14.dp),
+                    .heightIn(min = 48.dp)
+                    .widthIn(min = 48.dp)
+                    .clickable(role = Role.Tab, onClickLabel = label) { onSelect(index) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (selected) colors.textPrimary else colors.textSecondary,
-                    maxLines = 1,
-                )
+                Row(
+                    modifier = Modifier
+                        .height(InsightCapsuleHeight)
+                        .clip(selectedShape)
+                        .background(if (selected) colors.textPrimary.copy(alpha = 0.10f) else Color.Transparent)
+                        .border(
+                            width = 0.75.dp,
+                            color = if (selected) colors.surfaceStroke else colors.hairline,
+                            shape = selectedShape,
+                        )
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (selected) colors.textPrimary else colors.textSecondary,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
@@ -394,6 +405,13 @@ fun DeltaBadge(delta: Float?, modifier: Modifier = Modifier) {
     val colors = CodegTheme.colors
     val up = delta > 0f
     val color = if (up) colors.success else colors.danger
+    // 可及性 R2：浅色主题下 12% 自色底上的全局语义色文字不达 4.5:1（success
+    // 3.32 / danger 4.37）——只加深徽标文字，不动全局语义色；暗色全过不动。
+    val tint = if (!colors.isDark) {
+        if (up) Color(0xFF0C7A55) else Color(0xFFB32A2A)
+    } else {
+        color
+    }
     val arrow = if (up) "↗" else "↘"
     val percent = when {
         kotlin.math.abs(delta) > 9.99f ->
@@ -414,14 +432,14 @@ fun DeltaBadge(delta: Float?, modifier: Modifier = Modifier) {
         Text(
             text = arrow,
             style = MaterialTheme.typography.labelMedium,
-            color = color,
+            color = tint,
         )
         Text(
             text = percent,
             style = MaterialTheme.typography.labelMedium,
             fontFamily = CodegMono,
             fontWeight = FontWeight.SemiBold,
-            color = color,
+            color = tint,
         )
     }
 }

@@ -84,6 +84,7 @@ import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.component.deviceBadgeColor
 import app.codeg.android.core.designsystem.component.sheetContentScrollLock
+import app.codeg.android.core.designsystem.theme.CodegMono
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.theme.colorFromHex
 import app.codeg.android.core.model.ConversationSummary
@@ -1354,7 +1355,7 @@ private fun FilterCheckRow(
         badge?.let {
             Text(
                 it,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = CodegMono),
                 color = colors.textTertiary,
                 modifier = Modifier.padding(start = 4.dp),
             )

@@ -1701,6 +1701,8 @@
     <string name="usage_sync_status">%1$d/%2$d conversations synced</string>
     <string name="usage_truncated">The scan hit its row cap — numbers cover only the most recent slice.</string>
     <string name="usage_stale_note">Refresh failed — showing the last successful data.</string>
+    <string name="usage_trend_a11y">Token usage trend, last %1$d days, total %2$s.</string>
+    <string name="usage_heatmap_a11y">Activity heatmap by weekday and hour, peak at %1$s.</string>
     <string name="usage_top_agents">Top agents</string>
     <string name="usage_top_models">Top models</string>
     <string name="usage_top_projects">Top projects</string>

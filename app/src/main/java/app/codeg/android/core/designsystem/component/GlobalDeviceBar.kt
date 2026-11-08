@@ -160,7 +160,7 @@ fun GlobalDeviceBar(
                                     text = stringResource(R.string.activity_all),
                                     fontSize = 15.sp,
                                     fontWeight = if (allSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (allSelected) colors.onAccent else colors.textSecondary,
+                                    color = if (allSelected) colors.textPrimary else colors.textSecondary,
                                     maxLines = 1,
                                 )
                                 // Collapsed slot when no project filter is active.
@@ -168,7 +168,7 @@ fun GlobalDeviceBar(
                                     Text(
                                         text = "· $allSubtitle",
                                         fontSize = 12.sp,
-                                        color = if (allSelected) colors.onAccent.copy(alpha = 0.85f) else colors.textTertiary,
+                                        color = if (allSelected) colors.textPrimary.copy(alpha = 0.85f) else colors.textTertiary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.widthIn(max = 88.dp),
@@ -226,7 +226,7 @@ fun GlobalDeviceBar(
                             text = project.name,
                             fontSize = 15.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (selected) colors.onAccent else colors.textSecondary,
+                            color = if (selected) colors.textPrimary else colors.textSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -243,7 +243,7 @@ fun GlobalDeviceBar(
                             text = stringResource(R.string.sessions_unassigned),
                             fontSize = 15.sp,
                             fontWeight = if (unassignedSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (unassignedSelected) colors.onAccent else colors.textSecondary,
+                            color = if (unassignedSelected) colors.textPrimary else colors.textSecondary,
                             maxLines = 1,
                         )
                     }
@@ -270,7 +270,7 @@ fun GlobalDeviceBar(
                             fontSize = 15.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                             color = when {
-                                selected -> colors.onAccent
+                                selected -> colors.textPrimary
                                 server.includeInAll -> colors.textSecondary
                                 else -> colors.textTertiary
                             },
@@ -377,8 +377,8 @@ private fun DeviceChip(
     val shape = RoundedCornerShape(50)
     val resolvedLongClickLabel = longClickLabel ?: stringResource(R.string.device_skip_in_all)
     // 批v151 polish (mandate 图二): a 40dp visual chip inside a ≥48dp touch box —
-    // the old ~30dp pill read as cramped little cards. Selected state is the solid
-    // accent container + trailing check (filter-chip convention) instead of a tint.
+    // the old ~30dp pill read as cramped little cards. Selected state is the faint
+    // neutral fill + trailing check (批v170 restraint) instead of a solid accent.
     Box(
         modifier = Modifier
             // R3-A P2: no extra alpha on the skipped state — textTertiary alone
@@ -461,7 +461,7 @@ private fun ModeCardOption(
             }
         },
         trailingIcon = if (selected) {
-            { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp)) }
+            { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(16.dp)) }
         } else {
             null
         },

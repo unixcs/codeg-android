@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -235,7 +238,8 @@ private fun DeviceUsageCard(
                         // （DispatchForm）用 TextButton 48dp 保障——对齐。
                         modifier = Modifier
                             .clickable(role = Role.Button, onClick = onRetry)
-                            .heightIn(min = 48.dp),
+                            .heightIn(min = 48.dp)
+                            .defaultMinSize(minWidth = 48.dp),
                     )
                 }
                 else -> {
@@ -310,6 +314,7 @@ private fun StaleUsageBanner(onRetry: () -> Unit) {
             modifier = Modifier
                 .clickable(role = Role.Button, onClick = onRetry)
                 .heightIn(min = 48.dp)
+                .defaultMinSize(minWidth = 48.dp)
                 .padding(vertical = 14.dp),
         )
     }
@@ -505,9 +510,18 @@ private fun TrendBlock(report: TokenUsageReport) {
             LegendSwatch(colors.textPrimary)
             Text(stringResource(R.string.usage_legend_fresh), style = MaterialTheme.typography.labelSmall, color = colors.textTertiary)
         }
+        // stringResource 是 @Composable，必须先求值再进 semantics 普通 lambda。
+        val trendDesc = stringResource(
+            R.string.usage_trend_a11y,
+            report.series.size,
+            formatTokenCount(report.series.sumOf { it.totalTokens }),
+        )
         MiniBarChart(
             points = points,
-            modifier = Modifier.fillMaxWidth().height(96.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(96.dp)
+                .semantics { contentDescription = trendDesc },
         )
         Row(Modifier.fillMaxWidth()) {
             Text(bucketLabel(firstKey), style = MaterialTheme.typography.labelSmall, fontFamily = CodegMono, color = colors.textTertiary)
@@ -542,9 +556,21 @@ private fun HeatmapBlock(report: TokenUsageReport) {
             title = stringResource(R.string.usage_heatmap_title),
             trailing = peak?.let { stringResource(R.string.usage_heatmap_peak, String.format(java.util.Locale.ROOT, "%02d:00", it)) },
         )
+        val heatmapDesc = peak?.let {
+            stringResource(R.string.usage_heatmap_a11y, String.format(java.util.Locale.ROOT, "%02d:00", it))
+        }
         HeatmapMatrix(
             values = values,
-            modifier = Modifier.fillMaxWidth().height(84.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(84.dp)
+                .then(
+                    if (heatmapDesc != null) {
+                        Modifier.semantics { contentDescription = heatmapDesc }
+                    } else {
+                        Modifier
+                    },
+                ),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.usage_heatmap_less), style = MaterialTheme.typography.labelSmall, color = colors.textTertiary)
