@@ -162,7 +162,16 @@ class TokenUsageViewModel @Inject constructor(
 
     fun setPeriod(period: UsagePeriod) {
         if (_ui.value.period == period) return
-        _ui.update { it.copy(period = period, lastRefreshed = null) }
+        // R3 墨菲：切周期必须清旧 report——否则网络往返期间旧周期的数字顶着
+        // 新周期标签显示且无「更新中」提示。同周期刷新失败不蒸发数据的保护
+        // 不受影响（那条路 period 没变）。
+        _ui.update {
+            it.copy(
+                period = period,
+                lastRefreshed = null,
+                devices = it.devices.map { d -> d.copy(report = null) },
+            )
+        }
         refresh()
     }
 

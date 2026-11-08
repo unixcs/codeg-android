@@ -407,6 +407,8 @@ fun DeltaBadge(delta: Float?, modifier: Modifier = Modifier) {
     val color = if (up) colors.success else colors.danger
     // 可及性 R2：浅色主题下 12% 自色底上的全局语义色文字不达 4.5:1（success
     // 3.32 / danger 4.37）——只加深徽标文字，不动全局语义色；暗色全过不动。
+    // 守卫（R3）：这两个 hex 的余量按「bgElevated 白底」核算（绿 4.63:1），
+    // 复用到页面底色（#F2F4F6）会跌到 4.23:1——挪出卡片前必须重算。
     val tint = if (!colors.isDark) {
         if (up) Color(0xFF0C7A55) else Color(0xFFB32A2A)
     } else {
