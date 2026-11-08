@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
-import app.codeg.android.core.datastore.SESSION_SWIPE_NONE
 import app.codeg.android.core.designsystem.component.OptionListSheet
 import app.codeg.android.core.designsystem.component.PickerField
 import app.codeg.android.core.designsystem.component.PickerOption
@@ -224,7 +223,7 @@ fun GeneralContent(
                                     FilledTonalIconButton(
                                         onClick = { viewModel.moveProjectChip(project.id, -1) },
                                         enabled = index > 0,
-                                        modifier = Modifier.size(44.dp),
+                                        modifier = Modifier.size(48.dp),
                                         colors = IconButtonDefaults.filledTonalIconButtonColors(
                                             containerColor = colors.textPrimary.copy(alpha = 0.08f),
                                             contentColor = colors.textPrimary,
@@ -235,7 +234,7 @@ fun GeneralContent(
                                     FilledTonalIconButton(
                                         onClick = { viewModel.moveProjectChip(project.id, 1) },
                                         enabled = index < projects.lastIndex,
-                                        modifier = Modifier.size(44.dp),
+                                        modifier = Modifier.size(48.dp),
                                         colors = IconButtonDefaults.filledTonalIconButtonColors(
                                             containerColor = colors.textPrimary.copy(alpha = 0.08f),
                                             contentColor = colors.textPrimary,
@@ -1109,6 +1108,7 @@ fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
 @Composable
 fun DispatchContent(viewModel: GeneralViewModel = hiltViewModel()) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
+    val colors = CodegTheme.colors
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Section(stringResource(R.string.general_dispatch_defaults_section)) {
             DispatchDefaultsSection()
@@ -1210,6 +1210,7 @@ fun DispatchContent(viewModel: GeneralViewModel = hiltViewModel()) {
 @Composable
 fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
     val appSettings by viewModel.settings.collectAsStateWithLifecycle()
+    val colors = CodegTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
         ToggleRow(
             stringResource(R.string.classic_look_title),

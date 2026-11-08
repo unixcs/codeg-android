@@ -1093,12 +1093,12 @@ private fun TaskBoardStatusBar(
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(
-                        if (isSelected) colors.textPrimary.copy(alpha = 0.10f)
+                        if (isSelected) colors.selectedBg
                         else colors.bgElevated.copy(alpha = 0.55f),
                     )
                     .border(
                         CodegTheme.dimens.hairlineWidth,
-                        if (isSelected) colors.surfaceStroke else colors.hairline,
+                        if (isSelected) colors.selectedBorder else colors.hairline,
                         RoundedCornerShape(10.dp),
                     )
                     .clickable { onSelect(segment) }
@@ -1111,7 +1111,7 @@ private fun TaskBoardStatusBar(
                 Text(
                     stringResource(segment.labelRes),
                     style = MaterialTheme.typography.labelMedium.copy(fontSize = 10.sp),
-                    color = if (isSelected) colors.textPrimary else colors.textSecondary,
+                    color = if (isSelected) colors.selectedText else colors.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

@@ -56,6 +56,9 @@ data class SwipeSpec(
     val label: String,
     val icon: ImageVector,
     val background: Color,
+    /** Label/icon tint over [background]; null = the theme's onAccent. Danger
+     *  panes on light boards must pass white — onAccent is dark there. */
+    val contentColor: Color? = null,
     val fire: () -> Unit,
 )
 
@@ -178,13 +181,13 @@ private fun RevealPane(
     alignment: Alignment,
     modifier: Modifier = Modifier,
 ) {
-    val tint = CodegTheme.colors.onAccent
+    val tint = spec.contentColor ?: CodegTheme.colors.onAccent
     Box(modifier.background(spec.background), contentAlignment = alignment) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 14.dp),
         ) {
-            Icon(spec.icon, contentDescription = spec.label, tint = tint, modifier = Modifier.size(20.dp))
+            Icon(spec.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
             Spacer(Modifier.height(3.dp))
             Text(
                 text = spec.label,

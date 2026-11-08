@@ -106,6 +106,7 @@ import app.codeg.android.feature.sessiondetail.SessionDetailScreen
 import app.codeg.android.feature.sessions.ProjectFilterSheet
 import app.codeg.android.feature.sessions.SessionListScreen
 import app.codeg.android.feature.sessions.SessionSwipeAction
+import app.codeg.android.feature.sessions.swipeActionLabelRes
 import app.codeg.android.feature.sessions.nextProjectFilter
 import app.codeg.android.feature.taskhub.TaskHubScreen
 

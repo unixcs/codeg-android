@@ -8,6 +8,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -121,7 +121,6 @@ import app.codeg.android.core.datastore.DraftEntry
 import app.codeg.android.core.datastore.IdeaEntry
 import app.codeg.android.core.datastore.INBOX_IDEA_STYLE_CENTER_WIDE
 import app.codeg.android.core.designsystem.component.AgentChipRow
-import app.codeg.android.core.designsystem.component.CardFontClamp
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.automirrored.rounded.CallMade
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -285,6 +284,7 @@ fun InboxScreen(
                         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         cm.setPrimaryClip(ClipData.newPlainText("idea", "${idea.title}\n${idea.description}"))
                     }
+                    val context = LocalContext.current
                     // 批v171 N7: the idea card joins the session rows in the
                     // Gmail/Outlook swipe skeleton — the bindings mirror the
                     // long-press menu's handlers (派发/编辑/复制/追加/删除), the
@@ -292,7 +292,8 @@ fun InboxScreen(
                     @Composable
                     fun swipeSpec(actionId: String): SwipeSpec? = when (InboxSwipeAction.from(actionId)) {
                         null -> null
-                        InboxSwipeAction.DISPATCH -> SwipeSpec(
+                        // unresolved（探测中/UNKNOWN）时与派发 pill 同门禁用。
+                        InboxSwipeAction.DISPATCH -> if (ref != null) null else SwipeSpec(
                             label = stringResource(R.string.inbox_swipe_action_dispatch),
                             icon = Icons.Rounded.Send,
                             background = colors.accent,
@@ -322,6 +323,9 @@ fun InboxScreen(
                             label = stringResource(R.string.common_delete),
                             icon = Icons.Outlined.DeleteOutline,
                             background = colors.danger,
+                            // 批v171 R2: 浅色板 onAccent 是深字，压 danger 不达 AA；
+                            // 白字在两板 danger 上都达标。
+                            contentColor = if (colors.isDark) colors.onAccent else Color.White,
                             fire = { pendingDelete = idea },
                         )
                     }

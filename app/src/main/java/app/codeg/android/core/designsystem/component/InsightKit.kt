@@ -103,7 +103,7 @@ fun CapsuleChipRow(
                     Text(
                         text = label,
                         style = MaterialTheme.typography.labelLarge,
-                        color = if (selected) colors.textPrimary else colors.textSecondary,
+                        color = if (selected) colors.selectedText else colors.textSecondary,
                         maxLines = 1,
                     )
                 }

@@ -172,8 +172,8 @@ private fun AgentFilterBar(agents: List<AgentType>, selected: AgentType?, onSele
                 leadingIcon = { AgentIcon(agent, size = 18.dp) },
                 colors = FilterChipDefaults.filterChipColors(
                     labelColor = colors.textSecondary,
-                    selectedContainerColor = colors.accent.copy(alpha = 0.18f),
-                    selectedLabelColor = colors.accent,
+                    selectedContainerColor = colors.selectedBg,
+                    selectedLabelColor = colors.selectedText,
                 ),
                 border = FilterChipDefaults.filterChipBorder(
                     enabled = true,

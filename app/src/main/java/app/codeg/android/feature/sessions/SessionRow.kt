@@ -44,7 +44,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.codeg.android.R
 import app.codeg.android.core.common.RelativeTime
@@ -58,7 +57,6 @@ import app.codeg.android.core.designsystem.component.statusColor
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.data.isLiveFresh
 import app.codeg.android.core.model.ConversationSummary
-import kotlin.math.roundToInt
 
 // 批v165 R4: were compiled per rendered row inside referenceBadge().
 private val WS_RUN_RE = Regex("\\s*[\\r\\n]+\\s*")
@@ -202,6 +200,8 @@ fun SessionRow(
                 label = stringResource(R.string.common_delete),
                 icon = Icons.Outlined.DeleteOutline,
                 background = colors.danger,
+                // 批v171 R2: 浅色板 onAccent 深字压 danger 不达 AA，白字两板都过。
+                contentColor = if (colors.isDark) colors.onAccent else Color.White,
                 fire = it,
             )
         }
@@ -218,7 +218,7 @@ fun SessionRow(
                 .clip(RoundedCornerShape(14.dp))
                 .then(
                     if (selected) {
-                        Modifier.background(colors.textPrimary.copy(alpha = 0.08f))
+                        Modifier.background(colors.selectedBg)
                     } else {
                         Modifier.background(highlightBg)
                     },

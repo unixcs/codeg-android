@@ -51,8 +51,8 @@ fun GlassCard(
 }
 
 /**
- * A single glass row (iOS `GlassRow`): 14dp radius, used for list rows. Supports
- * a selected wash (accent tint + accent stroke).
+ * A single glass row (iOS `GlassRow`): 14dp radius, used for list rows. The
+ * selected wash rides the four selected-role tokens (批v171 R2 sweep).
  */
 @Composable
 fun GlassRow(
@@ -62,9 +62,9 @@ fun GlassRow(
 ) {
     val colors = CodegTheme.colors
     val shape = RoundedCornerShape(CodegTheme.dimens.radiusMd)
-    val fill = if (selected) colors.accent.copy(alpha = 0.22f)
+    val fill = if (selected) colors.selectedBg
     else colors.bgElevated.copy(alpha = if (colors.isDark) 0.55f else 0.85f)
-    val stroke = if (selected) colors.accent.copy(alpha = 0.45f) else colors.surfaceStroke
+    val stroke = if (selected) colors.selectedBorder else colors.surfaceStroke
     Column(
         modifier
             .clip(shape)
