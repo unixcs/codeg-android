@@ -87,7 +87,9 @@ fun CapsuleChipRow(
             ) {
                 Row(
                     modifier = Modifier
-                        .height(InsightCapsuleHeight)
+                        // heightIn 而非 height：fontScale 2.0 时字高 40sp 不会被
+                        // 固定 32dp 胶囊 clip 咬字（1.3× 内观感不变，R4B）。
+                        .heightIn(min = InsightCapsuleHeight)
                         .clip(selectedShape)
                         .background(if (selected) colors.textPrimary.copy(alpha = 0.10f) else Color.Transparent)
                         .border(
@@ -243,12 +245,15 @@ fun RingProgress(
 ) {
     val colors = CodegTheme.colors
     val stroke = strokeWidth
+    // 浅色侧轨道升一档（R4）：hairline 黑 9% 对白卡仍近隐形，surfaceStroke
+    // 才撑得起「细描边环」；深色侧白 5.5% 观感良好不动。
+    val track = if (colors.isDark) colors.hairline else colors.surfaceStroke
     Canvas(modifier = modifier) {
         val inset = stroke.toPx() / 2f
         val arcSize = Size(size.width - stroke.toPx(), size.height - stroke.toPx())
         val arcRect = Rect(Offset(inset, inset), arcSize)
         drawArc(
-            color = colors.hairline,
+            color = track,
             startAngle = 0f,
             sweepAngle = 360f,
             useCenter = false,
@@ -383,8 +388,10 @@ fun HeatmapMatrix(
                 val v = values.getOrNull(idx)?.coerceIn(0f, 1f) ?: 0f
                 val color = when {
                     v <= 0f -> colors.hairline
-                    // 4 档灰阶：越热越亮（GitHub 口径），90/10 规范下不用彩色
-                    else -> hot.copy(alpha = 0.18f + 0.82f * v * v)
+                    // 4 档灰阶：越热越亮（GitHub 口径），90/10 规范下不用彩色。
+                    // 浅色低档抬到 0.30 起（R4：0.18 叠白 ≈#D6D6D6 与空格
+                    // hairline 只差 1.24:1，单日尖峰归一后多数格子集体失效）。
+                    else -> hot.copy(alpha = (if (colors.isDark) 0.18f else 0.30f) + (if (colors.isDark) 0.82f else 0.70f) * v * v)
                 }
                 drawRoundRect(
                     color = color,

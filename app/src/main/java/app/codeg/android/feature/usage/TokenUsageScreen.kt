@@ -387,7 +387,9 @@ private fun CacheBlock(report: TokenUsageReport) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = String.format(java.util.Locale.ROOT, "%.1f%%", hitRate * 100),
-                        style = MaterialTheme.typography.titleMedium,
+                        // titleSmall：1.3× 大字时 "100.0%" 仍收在 72dp 环内
+                        // （titleMedium 等宽 6 字 ≈74.9dp 会压过描边，R4B-B1）。
+                        style = MaterialTheme.typography.titleSmall,
                         fontFamily = CodegMono,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary,

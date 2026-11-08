@@ -85,7 +85,9 @@ fun codegColors(isDark: Boolean, accent: AccentPalette): CodegColors {
             bg = Color(0xFFF2F4F6),
             bgElevated = Color(0xFFFFFFFF),
             surfaceStroke = Color.Black.copy(alpha = 0.10f),
-            hairline = Color.Black.copy(alpha = 0.07f),
+            // 批v170 R4（浅色专项）：7% 叠白对白卡仅 1.17:1，卡片轮廓近乎隐形；
+            // 9% ≈ Tremor gray-200 档，深色侧（白 5.5%）不动。
+            hairline = Color.Black.copy(alpha = 0.09f),
             codeSurface = Color.Black.copy(alpha = 0.045f),
             rail = Color.Black.copy(alpha = 0.20f),
             textPrimary = Color(0xFF1C1C1C),
