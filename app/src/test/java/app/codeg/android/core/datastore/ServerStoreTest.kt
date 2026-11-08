@@ -138,6 +138,18 @@ class ServerStoreTest {
             }
         }
 
+        // 批v165 rc.3 root cause — androidx datastore 1.1.1 TOCTOU: a collector's
+        // initial dirty read stamps its startState with the version read AFTER
+        // the file read; if a write lands between the two, the write's cache entry
+        // (same version) is dropped forever by `dropWhile { version <= startState }`
+        // and that collector never sees the write (the rc.3 Verify/Release reds:
+        // profiles emitted [a] while selectedId sat silent for the whole 90s).
+        // Draining both initial emissions closes the window deterministically:
+        // every write below happens while both collectors are already parked on
+        // their update wait, so versions strictly increase past their startState.
+        withTimeout(90_000) { assertEquals(emptyList<ServerProfile>(), profilesSeen.receive()) }
+        withTimeout(90_000) { assertEquals(null, selectionSeen.receive()) }
+
         store.upsert(profile("a"))
         assertEquals(listOf("a"), profilesSeen.awaitMatching { it.isNotEmpty() }.map { it.id })
         assertEquals("a", selectionSeen.awaitMatching { it != null })
