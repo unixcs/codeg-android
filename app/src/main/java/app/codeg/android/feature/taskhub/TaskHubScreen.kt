@@ -54,6 +54,7 @@ import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GridView
@@ -67,6 +68,7 @@ import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Unarchive
+import androidx.compose.material.icons.rounded.ViewColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Checkbox
@@ -150,6 +152,7 @@ import app.codeg.android.core.data.TASK_BOARD_COLUMN_GAP_DP
 import app.codeg.android.core.data.TASK_BOARD_SIDE_PADDING_DP
 import app.codeg.android.core.datastore.DispatchRef
 import app.codeg.android.core.datastore.DispatchState
+import app.codeg.android.core.datastore.TASK_BOARD_KANBAN
 import app.codeg.android.core.datastore.TASK_BOARD_LIST
 import app.codeg.android.core.designsystem.component.AgentChipRow
 import app.codeg.android.core.designsystem.component.EmptyState
@@ -228,7 +231,17 @@ fun TaskHubScreen(
     // shell's swipe steps funnel through these two hand-offs, so the gesture
     // collector never captures a stale layout.
     var pendingSegment by remember { mutableStateOf<TaskSegment?>(null) }
-    var pendingStep by remember { mutableStateOf<Int?>(null) }
+    // 批v167: (seq, step) not a bare Int — a second same-direction swipe inside
+    // the first animation's window used to write an EQUAL value and never
+    // recompose (the step was silently dropped, breaking TaskSegmentBus's
+    // double-swipe promise). The seq makes every arrival a new key.
+    var pendingStep by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var pendingStepSeq by remember { mutableStateOf(0) }
+    // 批v167: card-follow jumps (an action landed the card in another segment)
+    // keep the CURRENT shape — kanban flips to the landed page, list moves the
+    // tab. Only EXPLICIT navigation (stat cards / workbench) switches to the
+    // segment's list now, so the two intents need separate hand-offs.
+    var pendingFollow by remember { mutableStateOf<TaskSegment?>(null) }
     // 批v152: the workbench stat cards / 需要处理 preview ask for a SPECIFIC
     // column. Consumed once on entry (the request is read-then-cleared in the
     // repository), so a later plain tab return keeps the board where the user
@@ -248,12 +261,14 @@ fun TaskHubScreen(
         // 批v161.3 R5: on the automation pane the user opted out of watching
         // the board — same rule the swipe handler applies. A 45s-old action
         // completing must not yank them back to the kanban.
-        if (!automationMode) pendingSegment = landed
+        // 批v167: follows the card, so it must NOT flip the layout — only an
+        // explicit stat-card tap lands in list mode (pendingSegment below).
+        if (!automationMode) pendingFollow = landed
     }
     // 批v160 W5: the 「切任务状态」 horizontal swipe — a page step in kanban
     // mode, a selected-status step in list mode (both clamp at the ends).
     LaunchedEffect(viewModel) {
-        viewModel.segmentBus.steps.collect { step -> pendingStep = step }
+        viewModel.segmentBus.steps.collect { step -> pendingStep = ++pendingStepSeq to step }
     }
     // A user swipe lands on the next page: move the highlight to that page's
     // first column, but never override a deliberate chip tap whose segment is
@@ -284,24 +299,47 @@ fun TaskHubScreen(
     }
     LaunchedEffect(pendingSegment, boardLayout, kanbanColumns) {
         val segment = pendingSegment ?: return@LaunchedEffect
-        pendingSegment = null
-        // 批v161.3 R3: a stat-card jump used to land while the automation pane
-        // was up — it scrolled the HIDDEN kanban behind the pane and looked like
-        // a dead tap. The jump must actually show: leave automation mode first.
+        // 批v167 ROOT FIX: ACT FIRST, clear LAST. Clearing [pendingSegment] is
+        // itself a key write — doing it first cancelled this very coroutine the
+        // moment it suspended inside animateScrollToPage, so a stat tap lit the
+        // chip but the board never moved (真机复现：点「等你处理/已完成」不翻页).
+        // Clearing after the work makes the key-reset restart a harmless no-op.
         automationMode = false
+        val index = SEGMENT_ORDER.indexOf(segment).coerceAtLeast(0)
+        focusIndex = index
+        // 批v167 拍板（方案A）: a stat tap means "show this segment's LIST" —
+        // explicit navigation always lands in list mode (one segment per view,
+        // the bar IS the tab row). Workbench stat cards share this path; the
+        // toolbar's layout toggle is the way back to the kanban.
+        if (boardLayout != TASK_BOARD_LIST) {
+            viewModel.setTaskBoardLayout(TASK_BOARD_LIST)
+        }
+        pendingSegment = null
+    }
+    // 批v167: card-follow — same act-first/clear-last discipline. Kanban flips
+    // to the landed segment's page (that flip was dead before the fix above);
+    // list just moves the tab highlight.
+    LaunchedEffect(pendingFollow, boardLayout, kanbanColumns) {
+        val segment = pendingFollow ?: return@LaunchedEffect
         val index = SEGMENT_ORDER.indexOf(segment).coerceAtLeast(0)
         focusIndex = index
         if (boardLayout != TASK_BOARD_LIST) {
             runCatching { pagerState.animateScrollToPage(segmentPageIndex(index, kanbanColumns)) }
         }
+        pendingFollow = null
     }
     LaunchedEffect(pendingStep, boardLayout, kanbanColumns) {
-        val step = pendingStep ?: return@LaunchedEffect
-        pendingStep = null
-        // 批v161.3 R3: on the automation pane a swipe used to silently page the
-        // HIDDEN kanban behind it — drop the step there (the gesture has no
-        // meaning for the pane it actually drove).
-        if (automationMode) return@LaunchedEffect
+        val (_, step) = pendingStep ?: return@LaunchedEffect
+        // 批v167: same act-first/clear-last ordering as pendingSegment — the
+        // clear used to run before the page animation and cancelled it.
+        if (automationMode) {
+            // 批v161.3 R3: on the automation pane a swipe used to silently page
+            // the HIDDEN kanban behind it — drop the step there (the gesture has
+            // no meaning for the pane it actually drove). Clear before leaving
+            // or the stale step would fire on a later key change.
+            pendingStep = null
+            return@LaunchedEffect
+        }
         // A single page (tablet, or 4 columns resolving to one page) has nowhere
         // to page to — step the highlight instead of swallowing the gesture.
         if (boardLayout == TASK_BOARD_LIST || pageCount <= 1) {
@@ -311,6 +349,7 @@ fun TaskHubScreen(
                 pagerState.animateScrollToPage(pageStepIndex(pagerState.currentPage, step, pageCount))
             }
         }
+        pendingStep = null
     }
     // Two-column paging must not open on a blank page: when the visible page
     // holds nothing but another status does, land on that status instead. This
@@ -434,6 +473,12 @@ fun TaskHubScreen(
                         { startAllTargets = viewModel.startAllTargets().ifEmpty { null } }
                     } else null,
                     onOverview = { overviewOpen = true },
+                    isListLayout = boardLayout == TASK_BOARD_LIST,
+                    onToggleLayout = {
+                        viewModel.setTaskBoardLayout(
+                            if (boardLayout == TASK_BOARD_LIST) TASK_BOARD_KANBAN else TASK_BOARD_LIST,
+                        )
+                    },
                 )
                 if (searchOpen) {
                     OutlinedTextField(
@@ -514,7 +559,8 @@ fun TaskHubScreen(
                     )
                 }
                 // 批v161: the four-status bar is shared by both shapes — one tap
-                // jumps a phone to that status, and it doubles as list mode's tabs.
+                // opens that status's list (批v167), and it doubles as list mode's
+                // tabs.
                 TaskBoardStatusBar(
                     counts = board.counts,
                     selectedIndex = focusIndex,
@@ -794,6 +840,9 @@ private fun ToolbarRow(
     /** M1 全部启动: non-null only when the view has todo rows and no search. */
     onStartAll: (() -> Unit)?,
     onOverview: () -> Unit,
+    /** 批v167: kanban⇄list switch — the icon names the layout you'd switch TO. */
+    isListLayout: Boolean,
+    onToggleLayout: () -> Unit,
 ) {
     val colors = CodegTheme.colors
     var filterMenu by remember { mutableStateOf(false) }
@@ -852,6 +901,22 @@ private fun ToolbarRow(
             Icon(
                 Icons.Rounded.GridView,
                 contentDescription = stringResource(R.string.task_overview_entry),
+                tint = colors.textSecondary,
+            )
+        }
+        // 批v167: kanban⇄list switch, next to the overview it complements. The
+        // icon + contentDescription state the ACTION (the layout you'd land on),
+        // matching the 批v161.3 R3 "say what it does now" rule.
+        IconButton(onClick = onToggleLayout, modifier = Modifier.size(40.dp)) {
+            Icon(
+                // ViewColumn has no AutoMirrored variant (artifact-checked) — the
+                // column metaphor is direction-neutral anyway; the list icon mirrors.
+                if (isListLayout) Icons.Rounded.ViewColumn
+                else Icons.AutoMirrored.Rounded.FormatListBulleted,
+                contentDescription = stringResource(
+                    if (isListLayout) R.string.task_layout_to_kanban_cd
+                    else R.string.task_layout_to_list_cd,
+                ),
                 tint = colors.textSecondary,
             )
         }
@@ -985,11 +1050,11 @@ private fun FolderOptionRow(label: String, selected: Boolean, onClick: () -> Uni
 }
 
 /**
- * 批v161: the four-status bar every board shape shares. On a phone it is the
- * kanban's page index (tap a status to jump to the page that holds it); on a
- * tablet it highlights the visible quarter; in list mode it is the tab row.
- * Counts are the pre-search sizes, so the bar keeps telling the user where
- * work is waiting even while a query filters the columns.
+ * 批v161: the four-status bar every board shape shares. Since 批v167 a tap from
+ * the kanban opens that status's LIST (one segment per view — the board flips
+ * shapes, the bar is always the tab row); in list mode it switches tabs as
+ * before. Counts are the pre-search sizes, so the bar keeps telling the user
+ * where work is waiting even while a query filters the columns.
  */
 @Composable
 private fun TaskBoardStatusBar(
@@ -3083,12 +3148,18 @@ private fun ZoneRow(content: @Composable RowScope.() -> Unit) {
 private fun ZoneFilled(
     labelRes: Int,
     icon: ImageVector,
-    enabled: Boolean,
+    // 批v167 ROOT FIX: callers hold the shared busy gate, so the param is named
+    // for what they pass. It used to be `enabled` and DetailZonePanel handed it
+    // `busy` straight — polarity inverted, every zone button sat dead at alpha
+    // 0.38 while idle and only lit up when some OTHER action was in flight.
+    // Deriving enabled here makes that mistake unrepresentable.
+    busy: Boolean,
     danger: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val colors = CodegTheme.colors
+    val enabled = !busy
     val bg = if (danger) colors.danger else colors.accent
     val fg = if (danger) colors.onAccent else colors.onAccent
     Row(
@@ -3119,12 +3190,14 @@ private fun ZoneFilled(
 private fun ZoneGhost(
     labelRes: Int,
     icon: ImageVector,
-    enabled: Boolean,
+    // 批v167: same polarity fix as [ZoneFilled] — callers pass the busy gate.
+    busy: Boolean,
     danger: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val colors = CodegTheme.colors
+    val enabled = !busy
     val tint = if (danger) colors.danger else colors.textSecondary
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -3380,7 +3453,15 @@ private fun DiffSection(detail: TaskHubViewModel.TaskDetail, onLoadDiff: () -> U
                 }
             }
             detail.diffLoading -> CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            detail.diffError != null -> Text(detail.diffError, color = colors.danger, style = MaterialTheme.typography.labelSmall)
+            detail.diffError != null -> Column {
+                // 批v167: the error row used to be a dead end — the message said
+                // "请重试" but only the (pre-error) else branch offered the load
+                // button, and the VM guard blocked a refetch. Retry now.
+                Text(detail.diffError, color = colors.danger, style = MaterialTheme.typography.labelSmall)
+                TextButton(onClick = onLoadDiff, contentPadding = PaddingValues(0.dp)) {
+                    Text(stringResource(R.string.task_action_retry), style = MaterialTheme.typography.labelMedium)
+                }
+            }
             else -> TextButton(onClick = onLoadDiff, contentPadding = PaddingValues(0.dp)) {
                 Text(stringResource(R.string.task_load_diff), style = MaterialTheme.typography.labelMedium)
             }

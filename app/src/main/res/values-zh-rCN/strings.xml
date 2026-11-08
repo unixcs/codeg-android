@@ -1584,6 +1584,9 @@
     <string name="general_columns_one">单列</string>
     <string name="general_columns_two">双列</string>
     <string name="task_overview_entry">总览</string>
+    <!-- 批v167：看板⇄列表切换按钮——描述动作（要切去的布局） -->
+    <string name="task_layout_to_list_cd">切换到列表视图</string>
+    <string name="task_layout_to_kanban_cd">切换到看板</string>
     <string name="task_overview_title">任务板总览</string>
     <string name="task_overview_hint">四列一屏看全。只读——点卡片看详情。</string>
     <string name="task_more_actions">更多操作</string>

@@ -1598,6 +1598,9 @@
     <string name="general_columns_one">1 column</string>
     <string name="general_columns_two">2 columns</string>
     <string name="task_overview_entry">Overview</string>
+    <!-- 批v167: kanban⇄list toolbar toggle — describes the ACTION (target layout). -->
+    <string name="task_layout_to_list_cd">Switch to list view</string>
+    <string name="task_layout_to_kanban_cd">Switch to kanban board</string>
     <string name="task_overview_title">Board overview</string>
     <string name="task_overview_hint">All four statuses at a glance. Read-only — tap a card to open it.</string>
     <string name="task_more_actions">More actions</string>

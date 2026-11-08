@@ -1466,6 +1466,15 @@ class TaskHubViewModel @Inject constructor(
         viewModelScope.launch { appSettingsStore.setTaskAutoStartDefault(value) }
     }
 
+    /**
+     * 批v167: the board layout was settings-page-only until now; stat-card
+     * jumps ("show me this segment's list") and the toolbar's kanban⇄list
+     * toggle both write it from TaskHub through this same persisted setter.
+     */
+    fun setTaskBoardLayout(layout: String) {
+        viewModelScope.launch { appSettingsStore.setTaskBoardLayout(layout) }
+    }
+
     override suspend fun probeAgentOptions(
         serverId: String,
         agentType: app.codeg.android.core.model.AgentType,
@@ -1551,9 +1560,17 @@ class TaskHubViewModel @Inject constructor(
                     return@launch
                 }
                 val existing = _ui.value.details[serverId]?.get(taskId)
-                if (withDiff && existing?.diffLoading != true && existing?.diff == null && existing?.diffError == null) {
+                // 批v167: a diffError no longer blocks a refetch — the section
+                // renders a retry row, and 10s timeouts (below) must be retryable
+                // or "请重试" would be a lie with no button.
+                if (withDiff && existing?.diffLoading != true && existing?.diff == null) {
                     _ui.update { setDiffLoading(it, serverId, taskId, true) }
-                    val diffText = runCatching { client.workTaskDiff(taskId) }
+                    // 批v167: a hung device must fail the section into its retry
+                    // row within ~10s, not ride out the OkHttp 30s read timeout.
+                    val diffText = runCatching {
+                        withTimeoutOrNull(DETAIL_LOAD_TIMEOUT_MS) { client.workTaskDiff(taskId) }
+                            ?: error("Diff 加载超时，请重试")
+                    }
                     // Same guard as the events branch: an action ran while the
                     // diff was in flight and dropped this detail — writing the
                     // stale diff back would resurrect the dropped snapshot.
@@ -1563,19 +1580,33 @@ class TaskHubViewModel @Inject constructor(
                         .onFailure { e -> _ui.update { setDiff(it, serverId, taskId, null, e.message ?: "Diff 加载失败") } }
                 }
                 if (existing == null || existing.loadError != null) {
-                    val events = runCatching { client.workTaskEvents(taskId) }.getOrNull()
-                    val files = runCatching { client.workTaskChangedFiles(taskId) }.getOrNull()
-                    // A null here means THAT load failed, not "no data" (the
-                    // decoders return emptyList for empty) — cache the failure so
-                    // the card can show it with a retry instead of a blank body.
+                    // 批v167: same ~10s budget as the diff fetch above.
+                    val eventsResult = runCatching {
+                        withTimeoutOrNull(DETAIL_LOAD_TIMEOUT_MS) { client.workTaskEvents(taskId) }
+                            ?: error("事件历史加载超时，请重试")
+                    }
+                    val filesResult = runCatching {
+                        withTimeoutOrNull(DETAIL_LOAD_TIMEOUT_MS) { client.workTaskChangedFiles(taskId) }
+                            ?: error("变更文件加载超时，请重试")
+                    }
+                    // A failure here means THAT load failed, not "no data" (the
+                    // decoders return emptyList for empty) — cache the failure
+                    // (its own message, 批v167: so a timeout doesn't read like a
+                    // generic decode error) so the card can show it with a retry
+                    // instead of a blank body.
                     // An action ran while this round was in flight: the dropped
                     // detail must stay dropped (the next expand refetches) —
                     // repopulating would show a pre-action snapshot forever.
                     if (epoch != detailEpoch) return@launch
-                    if (events == null || files == null) {
-                        _ui.update { mutateDetail(it, serverId, taskId) { it.copy(loadError = "详情加载失败，请重试") } }
+                    if (eventsResult.isFailure || filesResult.isFailure) {
+                        val msg = eventsResult.exceptionOrNull()?.message
+                            ?: filesResult.exceptionOrNull()?.message
+                            ?: "详情加载失败，请重试"
+                        _ui.update { mutateDetail(it, serverId, taskId) { it.copy(loadError = msg) } }
                         return@launch
                     }
+                    val events = eventsResult.getOrThrow()
+                    val files = filesResult.getOrThrow()
                     _ui.update { state ->
                         state.copy(
                             details = capDetails(
@@ -1659,6 +1690,13 @@ private inline fun MutableStateFlow<TaskHubViewModel.UiState>.update(transform: 
  *  not the post-action refreshes). Past it the busy slot is force-released and
  *  the wait becomes a visible timeout error instead of a silent global freeze. */
 internal const val ACTION_TIMEOUT_MS = 45_000L
+
+/** 批v167: ceiling for one detail-section fetch (events / changed files / diff).
+ *  A hung device used to stall the section for the full OkHttp 30s read timeout
+ *  before the retry row appeared; now it fails into that row within ~10s —
+ *  deliberately THE SAME budget as [AGG_DEVICE_TIMEOUT_MS] (referenced, so the
+ *  two drift together). */
+internal const val DETAIL_LOAD_TIMEOUT_MS = AGG_DEVICE_TIMEOUT_MS
 
 /** 批v161.3 R4: task keys kept in the board's per-task detail cache (events /
  *  changed files / diff) across ALL devices; the oldest entry is evicted past
