@@ -319,9 +319,13 @@ private fun ChipRowBase(
                 // Modifier.clickable 会绕过 48dp 触达保障）。
                 onClick = { onSelect(option.id) },
                 shape = RoundedCornerShape(999.dp),
+                // 批v170 克制化选中态 + 墨菲 R1 修正：0.10 浅灰底在浅色主题
+                // 只有 ~1.2:1，必须留文字色差兜底（选中 textPrimary / 未选中
+                // textSecondary，与 InsightKit.CapsuleChipRow 同口径），否则
+                // 设备/智能体选择器等于盲选。
                 color = if (selected) colors.textPrimary.copy(alpha = 0.10f) else colors.bgElevated,
-                contentColor = colors.textPrimary,
-                border = BorderStroke(1.dp, if (selected) colors.surfaceStroke else colors.surfaceStroke),
+                contentColor = if (selected) colors.textPrimary else colors.textSecondary,
+                border = BorderStroke(1.dp, if (selected) colors.surfaceStroke else colors.hairline),
             ) {
                 Row(
                     Modifier.padding(horizontal = 12.dp, vertical = 7.dp),

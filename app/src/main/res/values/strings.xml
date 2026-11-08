@@ -1700,6 +1700,7 @@
     <string name="usage_refresh">Refresh</string>
     <string name="usage_sync_status">%1$d/%2$d conversations synced</string>
     <string name="usage_truncated">The scan hit its row cap — numbers cover only the most recent slice.</string>
+    <string name="usage_stale_note">Refresh failed — showing the last successful data.</string>
     <string name="usage_top_agents">Top agents</string>
     <string name="usage_top_models">Top models</string>
     <string name="usage_top_projects">Top projects</string>

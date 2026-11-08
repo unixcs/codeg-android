@@ -211,14 +211,17 @@ private fun DeviceUsageCard(
                 )
             }
             when {
-                device.status == TokenUsageViewModel.DeviceStatus.LOADING ->
+                device.status == TokenUsageViewModel.DeviceStatus.LOADING && device.report == null ->
                     LoadingView(message = stringResource(R.string.usage_loading), modifier = Modifier.fillMaxWidth())
                 !device.supported -> Text(
                     text = stringResource(R.string.usage_unsupported),
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textTertiary,
                 )
-                device.isFailed -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // 墨菲 R1：失败且手里没有旧数据（冷加载失败）才整卡报错；
+                // 有旧 report 时降级为「陈旧数据横幅 + 原仪表盘」，不让
+                // 一次弱网刷新把刚看的数据蒸发掉。
+                device.isFailed && device.report == null -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = device.error ?: stringResource(R.string.usage_load_failed),
                         style = MaterialTheme.typography.bodySmall,
@@ -244,6 +247,9 @@ private fun DeviceUsageCard(
                             color = colors.danger,
                         )
                     } else {
+                        if (device.isFailed) {
+                            StaleUsageBanner(onRetry = onRetry)
+                        }
                         DashboardContent(
                             report = report,
                             breakdownMode = breakdownMode,
@@ -272,6 +278,40 @@ private fun DeviceUsageCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * 陈旧数据横幅（墨菲 R1）：刷新失败但手里还有上一份完整 report 时，
+ * 顶部一条低透明琥珀提示 + 重试，正文照常渲染——弱网下不再「数据蒸发」。
+ */
+@Composable
+private fun StaleUsageBanner(onRetry: () -> Unit) {
+    val colors = CodegTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.warning.copy(alpha = 0.10f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.usage_stale_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.warning,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = stringResource(R.string.common_retry),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.warning,
+            modifier = Modifier
+                .clickable(role = Role.Button, onClick = onRetry)
+                .heightIn(min = 48.dp)
+                .padding(vertical = 14.dp),
+        )
     }
 }
 

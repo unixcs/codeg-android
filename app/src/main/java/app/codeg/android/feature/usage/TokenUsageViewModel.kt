@@ -61,6 +61,7 @@ fun usageFilter(period: UsagePeriod, now: LocalDate = LocalDate.now(), zone: Zon
 
 /** K/M compact token counts — Locale.ROOT so digits stay ASCII everywhere. */
 fun formatTokenCount(n: Long): String = when {
+    n >= 1_000_000_000_000 -> String.format(java.util.Locale.ROOT, "%.2fT", n / 1_000_000_000_000.0)
     n >= 1_000_000_000 -> String.format(java.util.Locale.ROOT, "%.2fB", n / 1_000_000_000.0)
     n >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1fM", n / 1_000_000.0)
     n >= 1_000 -> String.format(java.util.Locale.ROOT, "%.1fK", n / 1_000.0)
@@ -99,10 +100,10 @@ fun formatDuration(ms: Long): String {
     return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
 
-/** 作息峰值时段（token 最高的 hour，24 小时制整数；空数据 null）。 */
+/** 作息峰值时段（token 最高的 hour，24 小时制整数；空数据或脏 hour 值 null）。 */
 fun peakHour(cells: List<TokenUsageHeatCell>): Int? {
     val best = cells.maxByOrNull { it.totalTokens } ?: return null
-    return if (best.totalTokens <= 0) null else best.hour
+    return if (best.totalTokens <= 0 || best.hour !in 0..23) null else best.hour
 }
 
 /**

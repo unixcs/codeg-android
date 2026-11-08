@@ -407,7 +407,7 @@ private fun DeviceChip(
                 .background(if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else Color.Transparent)
                 .border(
                     width = if (isSelected) 0.75.dp else 1.dp,
-                    color = if (isSelected) colors.surfaceStroke else colors.surfaceStroke,
+                    color = colors.surfaceStroke,
                     shape = shape,
                 )
                 .padding(horizontal = 14.dp),

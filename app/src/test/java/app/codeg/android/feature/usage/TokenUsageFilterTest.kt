@@ -44,11 +44,17 @@ class TokenUsageFilterTest {
 
     @Test
     fun `western hemisphere reports negative offset`() {
-        // EST (DST ended Nov 1 2026): local midnight is 05:00Z, wire offset is
-        // -300 — pins the sign convention against a silent negation regression.
+        // Local midnight of the fixed date is 05:00Z at EST / 04:00Z at EDT —
+        // only the start instant is date-pinned. The WIRE offset is the viewer's
+        // current offset (JS -getTimezoneOffset() at request time), so the
+        // expected value follows the real clock; the assertion pins the SIGN
+        // (west of UTC reads negative) against silent negation, not the DST phase.
         val f = usageFilter(UsagePeriod.TODAY, now, ZoneId.of("America/New_York"))
         assertEquals("2026-11-06T05:00:00Z", f.start)
-        assertEquals(-300, f.tzOffsetMinutes)
+        val expected = ZoneId.of("America/New_York").rules
+            .getOffset(java.time.Instant.now()).totalSeconds / 60
+        assertEquals(expected, f.tzOffsetMinutes)
+        org.junit.Assert.assertTrue("west-of-UTC offset must be negative", f.tzOffsetMinutes < 0)
     }
 
     @Test

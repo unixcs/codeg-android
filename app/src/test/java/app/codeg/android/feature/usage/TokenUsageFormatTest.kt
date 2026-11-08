@@ -21,6 +21,8 @@ class TokenUsageFormatTest {
         assertEquals("61.0M", formatTokenCount(61_000_000))
         assertEquals("1.46B", formatTokenCount(1_460_000_000))
         assertEquals("13.80B", formatTokenCount(13_800_300_000))
+        assertEquals("1.00T", formatTokenCount(1_000_000_000_000))
+        assertEquals("9.22T", formatTokenCount(9_220_000_000_000))
     }
 
     @Test
@@ -104,6 +106,8 @@ class TokenUsageFormatTest {
         assertEquals(4, peakHour(listOf(TokenUsageHeatCell(0, 3, 10), TokenUsageHeatCell(1, 4, 99))))
         assertNull(peakHour(emptyList()))
         assertNull(peakHour(listOf(TokenUsageHeatCell(0, 8, 0))))
+        // Dirty server cell (hour=99) must not surface as "Peak 99:00".
+        assertNull(peakHour(listOf(TokenUsageHeatCell(0, 99, 50))))
     }
 
     // ---------- usageFilter ----------

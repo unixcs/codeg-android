@@ -1686,6 +1686,7 @@
     <string name="usage_refresh">刷新</string>
     <string name="usage_sync_status">已同步会话 %1$d/%2$d</string>
     <string name="usage_truncated">扫描已到行数上限——数字只覆盖最近一段。</string>
+    <string name="usage_stale_note">刷新失败——展示的是上次成功的数据。</string>
     <string name="usage_top_agents">Agent TopN</string>
     <string name="usage_top_models">模型 TopN</string>
     <string name="usage_top_projects">项目 TopN</string>

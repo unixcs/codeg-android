@@ -33,7 +33,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -387,18 +386,22 @@ fun HeatmapMatrix(
     }
 }
 
-/** 周期涨跌徽标：↗ 绿 ↘ 红，previous 全零/缺失时调用方传 null 即不渲染。 */
+/** 周期涨跌徽标：↗ 绿 ↘ 红；previous 缺失（null）或两周期持平（0）不渲染。
+ *  极端环比（prev=1 现值巨大）封顶 ±999%——徽标是方向提示，不是精确读数。 */
 @Composable
 fun DeltaBadge(delta: Float?, modifier: Modifier = Modifier) {
-    if (delta == null) return
+    if (delta == null || delta == 0f) return
     val colors = CodegTheme.colors
-    val up = delta >= 0f
+    val up = delta > 0f
     val color = if (up) colors.success else colors.danger
     val arrow = if (up) "↗" else "↘"
-    val percent = if (kotlin.math.abs(delta) >= 0.1f) {
-        String.format(java.util.Locale.ROOT, "%+.0f%%", delta * 100)
-    } else {
-        String.format(java.util.Locale.ROOT, "%+.1f%%", delta * 100)
+    val percent = when {
+        kotlin.math.abs(delta) > 9.99f ->
+            String.format(java.util.Locale.ROOT, "%+.0f%%", kotlin.math.sign(delta) * 999f)
+        kotlin.math.abs(delta) >= 0.1f ->
+            String.format(java.util.Locale.ROOT, "%+.0f%%", delta * 100)
+        else ->
+            String.format(java.util.Locale.ROOT, "%+.1f%%", delta * 100)
     }
     Row(
         modifier = modifier
