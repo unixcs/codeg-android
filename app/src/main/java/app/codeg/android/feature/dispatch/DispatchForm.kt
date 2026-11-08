@@ -1328,13 +1328,14 @@ private fun ModeCard(
     Row(
         modifier
             .clip(shape)
+            // 批v170 克制化：选中=浅灰低透明底+细边框+浅色 CheckCircle（shadcn）。
             .background(
-                if (selected) colors.accent.copy(alpha = 0.13f) else colors.bg.copy(alpha = 0.42f),
+                if (selected) colors.textPrimary.copy(alpha = 0.06f) else colors.bg.copy(alpha = 0.42f),
                 shape,
             )
             .border(
-                width = 1.dp,
-                color = if (selected) colors.accent.copy(alpha = 0.55f) else colors.surfaceStroke,
+                width = if (selected) 0.75.dp else 1.dp,
+                color = colors.surfaceStroke,
                 shape = shape,
             )
             // R3-A P2: selectable (not bare clickable) carries the selected state
@@ -1351,7 +1352,7 @@ private fun ModeCard(
         Icon(
             icon,
             contentDescription = null,
-            tint = if (selected) colors.accent else colors.textTertiary,
+            tint = if (selected) colors.textPrimary else colors.textTertiary,
             modifier = Modifier.size(20.dp),
         )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1359,7 +1360,7 @@ private fun ModeCard(
                 label,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = if (selected) colors.accent else colors.textPrimary,
+                color = colors.textPrimary,
             )
             Text(note, style = MaterialTheme.typography.labelSmall, color = colors.textTertiary)
         }
@@ -1367,7 +1368,7 @@ private fun ModeCard(
             Icon(
                 Icons.Rounded.CheckCircle,
                 contentDescription = null,
-                tint = colors.accent,
+                tint = colors.textPrimary,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -1405,7 +1406,8 @@ private fun DispatchSummaryCard(
             stringResource(R.string.dispatch_summary_title),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            color = colors.accent,
+            // 批v170：摘要卡标题降灰（数值行保持等宽在 SummaryRow）。
+            color = colors.textTertiary,
         )
         SummaryRow(stringResource(R.string.dispatch_mode), stringResource(if (sessionMode) R.string.dispatch_mode_session else R.string.dispatch_mode_task))
         SummaryRow(stringResource(R.string.dispatch_device), device?.name)

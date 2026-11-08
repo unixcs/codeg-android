@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -726,7 +727,8 @@ private fun IdeaCard(
                 Text(
                     stringResource(R.string.inbox_appended_to_session),
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.accent,
+                    // 克制化：状态小标退到中性色，accent 只留给本屏主 CTA。
+                    color = colors.textTertiary,
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
@@ -783,10 +785,9 @@ private fun IdeaCard(
                     .padding(top = 8.dp)
                     .heightIn(min = 36.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        colors.accent.copy(alpha = if (unresolved == null) 0.14f else 0.06f),
-                        RoundedCornerShape(8.dp),
-                    )
+                    // 克制化：派发是次级动作——透明底 + hairline 细边框（实心 accent
+                    // 只留给编辑器「保存」），未决态文字仍用 textTertiary 表示禁用。
+                    .border(0.75.dp, colors.hairline, RoundedCornerShape(8.dp))
                     .clickable(enabled = !selectMode && unresolved == null, onClick = onDispatch)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
@@ -794,7 +795,7 @@ private fun IdeaCard(
                 Text(
                     stringResource(R.string.inbox_dispatch),
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (unresolved == null) colors.accent else colors.textTertiary,
+                    color = if (unresolved == null) colors.textPrimary else colors.textTertiary,
                 )
             }
         }
@@ -1376,7 +1377,7 @@ private fun InsertTodoSection(
             Icon(
                 Icons.Rounded.AddTask,
                 contentDescription = null,
-                tint = colors.accent,
+                tint = colors.textSecondary,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(10.dp))
@@ -1633,11 +1634,16 @@ private fun formatStamp(millis: Long): String =
     Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
 
-/** 批v151 "底部居中" new-idea placement: half the screen wide, the FAB's 56dp
- *  height, accent pill — an alternative to the corner FAB for either-thumb reach. */
+/**
+ * 批v151 "底部居中" new-idea placement: half the screen wide, the FAB's 56dp
+ * height — an alternative to the corner FAB for either-thumb reach. 克制化：
+ * 不再是 accent 实心块，改为 surfaceStroke 细边框 + 浅灰底的胶囊，文字与
+ * 图标用 textPrimary（本屏唯一实心 accent CTA 是编辑器的「保存」）。
+ */
 @Composable
 private fun NewIdeaWideButton(onClick: () -> Unit) {
     val colors = CodegTheme.colors
+    val capsule = RoundedCornerShape(percent = 50)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1649,8 +1655,9 @@ private fun NewIdeaWideButton(onClick: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth(0.5f)
                 .height(56.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(colors.accent)
+                .clip(capsule)
+                .background(colors.textPrimary.copy(alpha = 0.06f))
+                .border(0.75.dp, colors.surfaceStroke, capsule)
                 .clickable(onClickLabel = stringResource(R.string.inbox_new), onClick = onClick),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
@@ -1658,12 +1665,12 @@ private fun NewIdeaWideButton(onClick: () -> Unit) {
             Icon(
                 Icons.Rounded.Add,
                 contentDescription = null,
-                tint = colors.onAccent,
+                tint = colors.textPrimary,
             )
             Spacer(Modifier.width(6.dp))
             Text(
                 stringResource(R.string.inbox_new),
-                color = colors.onAccent,
+                color = colors.textPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
             )

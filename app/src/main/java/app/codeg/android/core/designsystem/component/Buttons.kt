@@ -69,8 +69,8 @@ fun PrimaryButton(
 }
 
 /**
- * A Material 3 single-choice segmented control, themed to the accent. Replaces
- * the hand-rolled iOS-style segmented toggles used for tab/source/theme pickers.
+ * A Material 3 single-choice segmented control. 批v170 起选中态走中性
+ * （浅灰低透明底+细边框），与 InsightKit.CapsuleChipRow 同一口径。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,10 +87,12 @@ fun CodegSegmented(
                 selected = index == selectedIndex,
                 onClick = { onSelect(index) },
                 shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                // 批v170 克制化：选中态=浅灰低透明底+细边框（shadcn 口径），
+                // 蓝色选中块退役——10% accent 额度让给每屏唯一主 CTA。
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = colors.accent.copy(alpha = 0.18f),
-                    activeContentColor = colors.accent,
-                    activeBorderColor = colors.accent.copy(alpha = 0.5f),
+                    activeContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+                    activeContentColor = colors.textPrimary,
+                    activeBorderColor = colors.surfaceStroke,
                     inactiveContainerColor = Color.Transparent,
                     inactiveContentColor = colors.textSecondary,
                     inactiveBorderColor = colors.surfaceStroke,
@@ -104,8 +106,8 @@ fun CodegSegmented(
 }
 
 /**
- * Material 3 [FilterChip] themed to the accent: accent-tinted container + accent
- * content when selected, hairline-outlined otherwise. [icon] renders as the leading
+ * Material 3 [FilterChip]: selected = 浅灰低透明底 + textPrimary + 细边框，
+ * unselected hairline-outlined. [icon] renders as the leading
  * icon (pass `Icons.Rounded.Check` when selected for the canonical multi-select look).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -128,18 +130,19 @@ fun CodegFilterChip(
         leadingIcon = icon?.let {
             { Icon(it, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
         },
+        // 批v170 克制化：选中=浅灰低透明底+textPrimary+细边框（去蓝）。
         colors = FilterChipDefaults.filterChipColors(
             labelColor = colors.textSecondary,
             iconColor = colors.textSecondary,
-            selectedContainerColor = colors.accent.copy(alpha = 0.18f),
-            selectedLabelColor = colors.accent,
-            selectedLeadingIconColor = colors.accent,
+            selectedContainerColor = colors.textPrimary.copy(alpha = 0.10f),
+            selectedLabelColor = colors.textPrimary,
+            selectedLeadingIconColor = colors.textPrimary,
         ),
         border = FilterChipDefaults.filterChipBorder(
             enabled = enabled,
             selected = selected,
             borderColor = colors.surfaceStroke,
-            selectedBorderColor = Color.Transparent,
+            selectedBorderColor = colors.surfaceStroke,
         ),
     )
 }

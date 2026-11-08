@@ -210,8 +210,9 @@ fun ChatChannelsContent(viewModel: ChatChannelsViewModel = hiltViewModel()) {
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.bgElevated.copy(alpha = 0.5f)).clickable { showGlobal = true }.padding(13.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp),
                     ) {
-                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(colors.accent.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.Tune, null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                        // 批v170 克制化：导航入口图标块走中性低透明底。
+                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(colors.textPrimary.copy(alpha = 0.06f)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Tune, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
                         }
                         Column(Modifier.weight(1f)) {
                             Text(stringResource(R.string.cc_message_settings), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
@@ -583,7 +584,7 @@ private fun WeixinQRDialog(channelId: Int, viewModel: ChatChannelsViewModel, onC
                     FilledTonalButton(
                         onClick = { attempt++ },
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.accent.copy(alpha = 0.14f), contentColor = colors.accent),
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.textPrimary.copy(alpha = 0.10f), contentColor = colors.textPrimary),
                     ) {
                         Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))

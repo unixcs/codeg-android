@@ -393,7 +393,9 @@ private fun AutomationRow(
                         Icon(
                             Icons.Rounded.PlayArrow,
                             contentDescription = stringResource(R.string.automation_run_now),
-                            tint = colors.accent,
+                            // 批v170 克制化：行内次级动作图标降灰，accent 留给
+                            // 屏内唯一主 CTA（新建/保存）。
+                            tint = colors.textSecondary,
                             modifier = Modifier.size(20.dp),
                         )
                     }

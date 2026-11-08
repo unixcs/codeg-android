@@ -493,7 +493,8 @@ private fun activitySectionStyle(kind: ActivityKind): ActivityStyle {
     return when (kind) {
         ActivityKind.RUNNING -> ActivityStyle(
             icon = Icons.Rounded.GraphicEq,
-            tint = colors.accent,
+            // 批v170 克制化：分组头图标降灰，运行语义由行内 live 圆点承担。
+            tint = colors.textSecondary,
             label = stringResource(R.string.activity_running),
         )
         ActivityKind.RECENT -> ActivityStyle(

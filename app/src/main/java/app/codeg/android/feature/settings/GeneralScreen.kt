@@ -177,11 +177,11 @@ fun GeneralContent(
                             Text(
                                 stringResource(labelRes),
                                 fontSize = 13.sp,
-                                color = if (isSelected) colors.onAccent else colors.textSecondary,
+                                color = if (isSelected) colors.textPrimary else colors.textSecondary,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(
-                                        if (isSelected) colors.accent else colors.textPrimary.copy(alpha = 0.08f),
+                                        if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else colors.textPrimary.copy(alpha = 0.08f),
                                     )
                                     .clickable { viewModel.setTaskSwipeMode(id) }
                                     .semantics { selected = isSelected }
@@ -215,11 +215,11 @@ fun GeneralContent(
                             Text(
                                 stringResource(labelRes),
                                 fontSize = 13.sp,
-                                color = if (isSelected) colors.onAccent else colors.textSecondary,
+                                color = if (isSelected) colors.textPrimary else colors.textSecondary,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(
-                                        if (isSelected) colors.accent else colors.textPrimary.copy(alpha = 0.08f),
+                                        if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else colors.textPrimary.copy(alpha = 0.08f),
                                     )
                                     .clickable { viewModel.setInboxNewIdeaStyle(id) }
                                     // 触达对齐第1轮标准（第2轮审查修正）：同批新 chip
@@ -517,11 +517,11 @@ fun GeneralContent(
                             Text(
                                 stringResource(labelRes),
                                 fontSize = 13.sp,
-                                color = if (isSelected) colors.onAccent else colors.textSecondary,
+                                color = if (isSelected) colors.textPrimary else colors.textSecondary,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(
-                                        if (isSelected) colors.accent else colors.textPrimary.copy(alpha = 0.08f),
+                                        if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else colors.textPrimary.copy(alpha = 0.08f),
                                     )
                                     .clickable { viewModel.setFloatBallSize(id) }
                                     // 批v153（第3轮可及性审查）：对齐新想法样式 chip 的
@@ -778,11 +778,11 @@ private fun <T> ChipRow(
                     Text(
                         stringResource(labelRes),
                         fontSize = 13.sp,
-                        color = if (isSelected) colors.onAccent else colors.textSecondary,
+                        color = if (isSelected) colors.textPrimary else colors.textSecondary,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                if (isSelected) colors.accent else colors.textPrimary.copy(alpha = 0.08f),
+                                if (isSelected) colors.textPrimary.copy(alpha = 0.10f) else colors.textPrimary.copy(alpha = 0.08f),
                             )
                             .clickable { onSelect(id) }
                             .semantics { selected = isSelected }

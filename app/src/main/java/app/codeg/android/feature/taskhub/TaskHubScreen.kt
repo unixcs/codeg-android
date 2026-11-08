@@ -161,6 +161,7 @@ import app.codeg.android.core.designsystem.component.rememberSheetDragLock
 import app.codeg.android.core.designsystem.component.sheetContentScrollLock
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.theme.CodegColors
+import app.codeg.android.core.designsystem.theme.CodegMono
 import app.codeg.android.core.model.AgentType
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.rounded.SwapVert
@@ -867,7 +868,9 @@ private fun ToolbarRow(
             Icon(
                 Icons.Rounded.Folder,
                 contentDescription = null,
-                tint = colors.accent,
+                // UI 克制化: static toolbar marks go neutral — accent stays
+                // reserved for active-state hints (search/filter on) and dots.
+                tint = colors.textSecondary,
                 modifier = Modifier.size(18.dp),
             )
             Text(
@@ -892,7 +895,9 @@ private fun ToolbarRow(
                 Icon(
                     Icons.Rounded.PlayArrow,
                     contentDescription = stringResource(R.string.task_start_all_title),
-                    tint = colors.accent,
+                    // UI 克制化: 全部启动 is a utility action, not the screen's one
+                    // accent CTA — toolbar icons read neutral.
+                    tint = colors.textSecondary,
                 )
             }
         }
@@ -926,7 +931,8 @@ private fun ToolbarRow(
             Icon(
                 Icons.Rounded.Add,
                 contentDescription = stringResource(R.string.task_new_title),
-                tint = colors.accent,
+                // UI 克制化: 新建降级为中性图标（规范 item 6）。
+                tint = colors.textSecondary,
             )
         }
         IconButton(onClick = onToggleSearch, modifier = Modifier.size(40.dp)) {
@@ -1038,13 +1044,14 @@ private fun FolderOptionRow(label: String, selected: Boolean, onClick: () -> Uni
         Text(
             label,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (selected) colors.accent else colors.textPrimary,
+            // UI 克制化: selected reads via the ✓ mark on textPrimary, no accent.
+            color = colors.textPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         if (selected) {
-            Text("✓", color = colors.accent, style = MaterialTheme.typography.bodyMedium)
+            Text("✓", color = colors.textPrimary, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -1102,7 +1109,10 @@ private fun TaskBoardStatusBar(
                 )
                 Text(
                     "${counts[segment] ?: 0}",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    // UI 克制化: counts are data — set them in the mono family.
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = CodegMono, fontSize = 9.sp,
+                    ),
                     color = if (isSelected) tone else colors.textTertiary,
                     maxLines = 1,
                 )
@@ -1692,7 +1702,9 @@ private fun MiniConversationCard(entry: BoardConversationEntry, onClick: () -> U
             .then(if (entry.archived) Modifier.alpha(0.6f) else Modifier)
             .clip(shape)
             .background(colors.bgElevated)
-            .border(1.dp, colors.accent.copy(alpha = 0.30f), shape)
+            // UI 克制化: hairline border like every other card — the accent dot
+            // (below) is the running/state marker, not the frame.
+            .border(CodegTheme.dimens.hairlineWidth, colors.hairline, shape)
             .clickable(onClick = onClick)
             .padding(6.dp),
     ) {
@@ -1847,11 +1859,13 @@ private fun FailedBanner(ui: TaskHubViewModel.UiState, onRetry: () -> Unit) {
 }
 
 /**
- * Web StatusChip (task-card.tsx 84-156), 1:1: live statuses are spinner text in
- * the accent colour, `awaiting_input`/`review` an outlined amber pill, `done` a
- * green pill with a check, `failed` a red pill, the rest muted — and a shelved
- * task reads as exactly that (muted + clock) whatever status is underneath.
- * An interrupted failure reads differently from an agent failure.
+ * Web StatusChip (task-card.tsx 84-156), 1:1 where the restraint spec keeps it:
+ * live statuses are a bare accent spinner over a NEUTRAL label (the spinner is
+ * the running-state dot; the text reads textSecondary), `awaiting_input`/`review`
+ * an outlined amber pill, `done` a green pill with a check, `failed` a red pill,
+ * the rest muted — and a shelved task reads as exactly that (muted + clock)
+ * whatever status is underneath. An interrupted failure reads differently from
+ * an agent failure.
  */
 @Composable
 private fun WebStatusChip(task: WorkTaskInfo) {
@@ -1876,7 +1890,9 @@ private fun WebStatusChip(task: WorkTaskInfo) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.5.dp, color = colors.accent)
-            Text(label, style = base, color = colors.accent, maxLines = 1)
+            // UI 克制化: the label goes neutral; the spinner stays accent — it is
+            // the running-state dot, and M3 control accents are protected.
+            Text(label, style = base, color = colors.textSecondary, maxLines = 1)
         }
         task.status == "awaiting_input" || task.status == "review" -> ChipPill(
             bg = colors.warning.copy(alpha = 0.05f), fg = colors.warning,
@@ -1923,7 +1939,7 @@ private fun ChipPill(
 }
 
 /** The planned start of a to-do card — the one thing on it that says something
- *  WILL happen (web ScheduleChip 375-389). */
+ *  WILL happen (web ScheduleChip 375-389). UI 克制化: neutral pill, no accent. */
 @Composable
 private fun SchedulePill(scheduledAt: String) {
     val colors = CodegTheme.colors
@@ -1931,14 +1947,14 @@ private fun SchedulePill(scheduledAt: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier
-            .background(colors.accent.copy(alpha = 0.10f), RoundedCornerShape(50))
+            .background(colors.textPrimary.copy(alpha = 0.08f), RoundedCornerShape(50))
             .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
-        Icon(Icons.Rounded.Schedule, contentDescription = null, tint = colors.accent, modifier = Modifier.size(10.dp))
+        Icon(Icons.Rounded.Schedule, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(10.dp))
         Text(
             relativeLabel(scheduledAt) ?: scheduledAt,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
-            color = colors.accent,
+            color = colors.textSecondary,
             maxLines = 1,
         )
     }
@@ -2072,8 +2088,8 @@ private fun dispatchCardAction(
 /**
  * 批v162 P1: the 「会话」 tag — the one visual that says "this card is a
  * conversation, not a work task". Same capsule language as the task status
- * chip so a column reads uniformly, tinted with the app accent instead of a
- * status colour (the column already carries the status).
+ * chip so a column reads uniformly. UI 克制化: neutral grey pill + secondary
+ * text (the status colour belongs to the column, not the badge).
  */
 @Composable
 private fun ConversationTag() {
@@ -2081,11 +2097,11 @@ private fun ConversationTag() {
     Text(
         stringResource(R.string.board_conv_badge),
         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Medium),
-        color = colors.accent,
+        color = colors.textSecondary,
         maxLines = 1,
         modifier = Modifier
             .clip(RoundedCornerShape(percent = 50))
-            .background(colors.accent.copy(alpha = 0.14f))
+            .background(colors.textPrimary.copy(alpha = 0.08f))
             .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }
@@ -2151,10 +2167,9 @@ private fun ConversationCardWeb(
             .then(if (entry.archived) Modifier.alpha(0.6f) else Modifier)
             .clip(cardShape)
             .background(colors.bgElevated)
-            // A softer, accent-tinted border instead of the task card's neutral
-            // one: colour + the 会话 tag are what separate the two card kinds at
-            // a glance, before the text is read.
-            .border(1.dp, colors.accent.copy(alpha = 0.26f), cardShape)
+            // UI 克制化: same hairline border as the task card — the two card
+            // kinds now separate via the 会话 tag, not a coloured frame.
+            .border(CodegTheme.dimens.hairlineWidth, colors.hairline, cardShape)
             .combinedClickable(onClick = onOpen, onLongClick = { menuOpen = true })
             .padding(if (compact) 10.dp else 12.dp),
     ) {
@@ -2579,7 +2594,10 @@ private fun TaskCardWeb(
     }
 }
 
-/** The one filled primary pill of a card footer; danger/amber keep their tints. */
+/** The card footer's primary pill — ghost (hairline stroke + faint tint), since
+ *  a screenful of cards each carrying a solid accent violates the 10% rule;
+ *  danger/amber keep their semantic tints. The detail sheet's primary (ZoneFilled)
+ *  stays filled — one accent CTA per surface. */
 @Composable
 private fun CardPrimaryPill(
     action: CardAction,
@@ -2588,23 +2606,34 @@ private fun CardPrimaryPill(
     onClick: () -> Unit,
 ) {
     val colors = CodegTheme.colors
+    // UI 克制化: non-danger primaries ghost out (InsightKit capsule language at
+    // pill size); the border only rides the ghost branch.
+    val ghost = !action.danger && !action.amber
+    val pillShape = RoundedCornerShape(8.dp)
     val bg = when {
         action.danger -> colors.danger.copy(alpha = 0.14f)
         action.amber -> colors.warning.copy(alpha = 0.16f)
-        else -> colors.accent
+        else -> colors.textPrimary.copy(alpha = 0.06f)
     }
     val fg = when {
         action.danger -> colors.danger
         action.amber -> colors.warning
-        else -> colors.onAccent
+        else -> colors.textPrimary
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = modifier
             .heightIn(min = 32.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(pillShape)
             .background(bg)
+            .then(
+                if (ghost) {
+                    Modifier.border(CodegTheme.dimens.hairlineWidth, colors.surfaceStroke, pillShape)
+                } else {
+                    Modifier
+                },
+            )
             // 批v161.1 Bug B: a disabled pill used to look exactly like an
             // enabled one — the tap died with zero feedback. Dim it.
             .alpha(if (enabled) 1f else 0.38f)

@@ -137,8 +137,9 @@ fun SessionRow(
     val hasMenu = onTogglePin != null || onHandoff != null || onDelete != null || onAddToProject != null ||
         onRename != null || onToggleBoard != null
     val clipboard = LocalClipboardManager.current
+    // 批v170 克制化：悬浮球聚焦高亮走中性浅灰+细边框，accent 让给语义点。
     val highlightBg by animateColorAsState(
-        targetValue = if (highlighted) colors.accent.copy(alpha = 0.16f) else Color.Transparent,
+        targetValue = if (highlighted) colors.textPrimary.copy(alpha = 0.06f) else Color.Transparent,
         animationSpec = tween(160),
         label = "focusBg",
     )
@@ -230,14 +231,14 @@ fun SessionRow(
                 .clip(RoundedCornerShape(14.dp))
                 .then(
                     if (selected) {
-                        Modifier.background(colors.accent.copy(alpha = 0.18f))
+                        Modifier.background(colors.textPrimary.copy(alpha = 0.08f))
                     } else {
                         Modifier.background(highlightBg)
                     },
                 )
                 .then(
                     if (highlighted) {
-                        Modifier.border(1.5.dp, colors.accent, RoundedCornerShape(14.dp))
+                        Modifier.border(0.75.dp, colors.surfaceStroke, RoundedCornerShape(14.dp))
                     } else {
                         Modifier
                     },

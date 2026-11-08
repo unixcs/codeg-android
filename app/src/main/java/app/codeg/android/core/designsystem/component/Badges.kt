@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.codeg.android.core.designsystem.theme.CodegMono
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.ConversationStatus
@@ -143,26 +144,28 @@ fun SectionBadgeIcon(
 }
 
 /**
- * iOS-Settings-style icon badge (`SettingsIconBadge`): a glyph in [onAccent]
- * centred on an accent-filled rounded square. Used as the leading affordance on
- * grouped Settings rows so they read as a polished, tappable list.
+ * iOS-Settings-style icon badge (`SettingsIconBadge`). 批v170 克制化：默认走
+ * 中性低透明底（浅灰方块 + textSecondary 图标，90/10 规范），显式传 [tint]
+ * 时保留彩色实心（功能性场景）。
  */
 @Composable
 fun SettingsIconBadge(
     icon: ImageVector,
     modifier: Modifier = Modifier,
-    tint: Color = CodegTheme.colors.accent,
+    tint: Color? = null,
     size: Dp = 28.dp,
 ) {
-    val onTint = CodegTheme.colors.onAccent
+    val colors = CodegTheme.colors
+    val bg = tint ?: colors.textPrimary.copy(alpha = 0.06f)
+    val fg = tint?.let { colors.onAccent } ?: colors.textSecondary
     Box(
         modifier
             .size(size)
             .clip(RoundedCornerShape(7.dp))
-            .background(tint),
+            .background(bg),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = onTint, modifier = Modifier.size(size * 0.58f))
+        Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(size * 0.58f))
     }
 }
 
@@ -190,7 +193,7 @@ fun FolderBadge(
     }
 }
 
-/** Small count pill (iOS `CountBadge`). */
+/** Small count pill (iOS `CountBadge`). 批v170：数字等宽（InsightKit 口径）。 */
 @Composable
 fun CountBadge(count: Int, modifier: Modifier = Modifier) {
     Text(
@@ -198,6 +201,7 @@ fun CountBadge(count: Int, modifier: Modifier = Modifier) {
         color = CodegTheme.colors.textTertiary,
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
+        fontFamily = CodegMono,
         modifier = modifier
             .clip(Capsule)
             .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))

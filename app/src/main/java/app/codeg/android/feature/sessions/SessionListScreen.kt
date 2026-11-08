@@ -548,7 +548,8 @@ private fun sectionStyle(kind: SectionKind): SectionStyle {
     return when (kind) {
         SectionKind.Pinned -> SectionStyle(
             icon = Icons.Rounded.PushPin,
-            tint = colors.accent,
+            // 克制化：置顶组图标退中性色，accent 只留给本屏「新任务」主 CTA。
+            tint = colors.textSecondary,
             label = stringResource(R.string.sessions_pinned),
         )
         is SectionKind.Folder -> SectionStyle(
@@ -1361,7 +1362,7 @@ private fun FilterCheckRow(
     }
 }
 
-/** Pinned (accent, pushpin) or per-device (stable color dot + name) header. */
+/** Pinned (neutral pushpin) or per-device (stable color dot + name) header. */
 @Composable
 private fun AggregateHeader(
     section: AggregateSection,
@@ -1373,7 +1374,8 @@ private fun AggregateHeader(
     when (section.kind) {
         AggregateKind.PINNED -> CollapsibleSectionHeader(
             icon = Icons.Rounded.PushPin,
-            tint = colors.accent,
+            // 克制化：置顶组图标退中性色（与 sectionStyle(Pinned) 同口径）。
+            tint = colors.textSecondary,
             label = stringResource(R.string.sessions_pinned),
             count = section.count,
             collapsed = collapsed,

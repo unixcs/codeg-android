@@ -211,7 +211,7 @@ fun OptionListSheet(
                             Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (selected) colors.accentDim else Color.Transparent)
+                                .background(if (selected) colors.textPrimary.copy(alpha = 0.08f) else Color.Transparent)
                                 .clickable { onSelect(option); onDismiss() }
                                 .padding(horizontal = 10.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -319,9 +319,9 @@ private fun ChipRowBase(
                 // Modifier.clickable 会绕过 48dp 触达保障）。
                 onClick = { onSelect(option.id) },
                 shape = RoundedCornerShape(999.dp),
-                color = if (selected) colors.accent else colors.bgElevated,
-                contentColor = if (selected) colors.onAccent else colors.textPrimary,
-                border = BorderStroke(1.dp, if (selected) colors.accent else colors.surfaceStroke),
+                color = if (selected) colors.textPrimary.copy(alpha = 0.10f) else colors.bgElevated,
+                contentColor = colors.textPrimary,
+                border = BorderStroke(1.dp, if (selected) colors.surfaceStroke else colors.surfaceStroke),
             ) {
                 Row(
                     Modifier.padding(horizontal = 12.dp, vertical = 7.dp),

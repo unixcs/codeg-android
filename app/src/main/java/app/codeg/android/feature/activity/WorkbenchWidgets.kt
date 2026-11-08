@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -27,12 +28,12 @@ import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -48,6 +49,7 @@ import app.codeg.android.core.data.PendingInteraction
 import app.codeg.android.core.data.TaskSegment
 import app.codeg.android.core.data.TaskStatusTone
 import app.codeg.android.core.data.taskStatusUi
+import app.codeg.android.core.designsystem.theme.CodegMono
 import app.codeg.android.core.designsystem.theme.CodegTheme
 
 /**
@@ -167,6 +169,7 @@ private fun StatCard(
             text = value,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
+            fontFamily = CodegMono,
             color = colors.textPrimary,
             maxLines = 1,
         )
@@ -244,7 +247,8 @@ private fun QuickCard(
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 12.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = colors.accent, modifier = Modifier.size(22.dp))
+        // 克制化：快捷入口图标退到中性色，本屏唯一 accent 实心留给「新建会话」主卡。
+        Icon(icon, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
@@ -300,6 +304,15 @@ internal fun WorkbenchQuickRow(
     }
 }
 
+/**
+ * 列表状态点（克制化）：6dp 语义色小圆点 + 中性文字。语义色
+ * （warning/danger/accentDim）只允许出现在圆点上，不再用彩底胶囊。
+ */
+@Composable
+private fun StatusDot(color: Color, modifier: Modifier = Modifier) {
+    Spacer(modifier.size(6.dp).background(color, CircleShape))
+}
+
 /** One 需要处理 preview row: status tag + title + device. Tap → task board. */
 @Composable
 private fun AttentionRow(entry: app.codeg.android.core.data.TaskBoardEntry, onClick: () -> Unit) {
@@ -316,26 +329,19 @@ private fun AttentionRow(entry: app.codeg.android.core.data.TaskBoardEntry, onCl
             .heightIn(min = 48.dp)
             .padding(horizontal = 6.dp, vertical = 7.dp),
     ) {
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = when (status.tone) {
-                TaskStatusTone.WARN, TaskStatusTone.DANGER -> colors.warning.copy(alpha = 0.16f)
+        StatusDot(
+            when (status.tone) {
+                TaskStatusTone.WARN, TaskStatusTone.DANGER -> colors.warning
                 TaskStatusTone.RUN, TaskStatusTone.INFO -> colors.accentDim
-                else -> colors.textPrimary.copy(alpha = 0.08f)
+                else -> colors.textTertiary
             },
-        ) {
-            Text(
-                text = if (status.labelRes != 0) stringResource(status.labelRes) else status.raw.orEmpty(),
-                fontSize = 11.sp,
-                color = when (status.tone) {
-                    TaskStatusTone.WARN, TaskStatusTone.DANGER -> colors.warning
-                    TaskStatusTone.RUN, TaskStatusTone.INFO -> colors.accent
-                    else -> colors.textSecondary
-                },
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            )
-        }
+        )
+        Text(
+            text = if (status.labelRes != 0) stringResource(status.labelRes) else status.raw.orEmpty(),
+            fontSize = 11.sp,
+            color = colors.textSecondary,
+            fontWeight = FontWeight.Medium,
+        )
         Text(
             text = entry.task.title,
             style = MaterialTheme.typography.bodyMedium,
@@ -362,11 +368,12 @@ private fun InteractionKind.labelRes(): Int = when (this) {
 }
 
 /**
- * 批v160 W7: one 「等待你确认」 row — amber (the attention card's task rows have
- * no dedicated color; these are the loudest thing on the workbench). Chip + title
- * on the first line, device + how long it has been waiting on the second. Tap →
- * the conversation itself ([onOpenInteraction] hands a [PendingInteraction] to
- * the shell, which handoffs to the right device and opens the session).
+ * 批v160 W7: one 「等待你确认」 row — amber dot marks the attention card's task
+ * rows' loudest signal (克制化：琥珀只落在 6dp 圆点上，不再整行彩底).
+ * Dot + kind label + title on the first line, device + how long it has been
+ * waiting on the second. Tap → the conversation itself ([onOpenInteraction]
+ * hands a [PendingInteraction] to the shell, which handoffs to the right device
+ * and opens the session).
  */
 @Composable
 private fun InteractiveRow(item: PendingInteraction, onClick: () -> Unit) {
@@ -377,7 +384,6 @@ private fun InteractiveRow(item: PendingInteraction, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(colors.warning.copy(alpha = 0.10f))
             .clickable(
                 role = Role.Button,
                 onClickLabel = stringResource(R.string.workbench_interactive_open),
@@ -386,18 +392,13 @@ private fun InteractiveRow(item: PendingInteraction, onClick: () -> Unit) {
             .heightIn(min = 48.dp)
             .padding(horizontal = 6.dp, vertical = 7.dp),
     ) {
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = colors.warning.copy(alpha = 0.18f),
-        ) {
-            Text(
-                text = stringResource(item.kind.labelRes()),
-                fontSize = 11.sp,
-                color = colors.warning,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            )
-        }
+        StatusDot(colors.warning)
+        Text(
+            text = stringResource(item.kind.labelRes()),
+            fontSize = 11.sp,
+            color = colors.textSecondary,
+            fontWeight = FontWeight.Medium,
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 text = item.title.ifBlank { stringResource(item.kind.labelRes()) },
@@ -418,7 +419,7 @@ private fun InteractiveRow(item: PendingInteraction, onClick: () -> Unit) {
                 Text(
                     text = DateUtils.getRelativeTimeSpanString(item.since).toString(),
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.warning,
+                    color = colors.textTertiary,
                     maxLines = 1,
                 )
             }
@@ -561,7 +562,6 @@ private fun AutomationFailureRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(colors.danger.copy(alpha = 0.10f))
             .clickable(
                 role = Role.Button,
                 onClickLabel = stringResource(R.string.workbench_automation_open),
@@ -570,17 +570,12 @@ private fun AutomationFailureRow(
             .heightIn(min = 48.dp)
             .padding(horizontal = 6.dp, vertical = 7.dp),
     ) {
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = colors.danger.copy(alpha = 0.18f),
-        ) {
-            Text(
-                text = stringResource(R.string.workbench_automation_chip, device.failures),
-                fontSize = 11.sp,
-                color = colors.danger,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            )
-        }
+        StatusDot(colors.danger)
+        Text(
+            text = stringResource(R.string.workbench_automation_chip, device.failures),
+            fontSize = 11.sp,
+            color = colors.textSecondary,
+        )
         Text(
             text = device.deviceName,
             style = MaterialTheme.typography.bodyMedium,

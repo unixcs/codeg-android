@@ -1895,11 +1895,13 @@ private fun CodegNavRail(
                     label = { Text(stringResource(tab.label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     alwaysShowLabel = true,
                     colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
-                        selectedIconColor = colors.accent,
-                        selectedTextColor = colors.accent,
+                        // 批v170 克制化：全局 chrome（底栏/侧栏）选中态去
+                        // accent——浅灰指示胶囊+浅色文字，accent 额度让给屏内 CTA。
+                        selectedIconColor = colors.textPrimary,
+                        selectedTextColor = colors.textPrimary,
                         unselectedIconColor = colors.textTertiary,
                         unselectedTextColor = colors.textTertiary,
-                        indicatorColor = colors.accent.copy(alpha = 0.20f),
+                        indicatorColor = colors.textPrimary.copy(alpha = 0.08f),
                     ),
                 )
             }
@@ -1963,11 +1965,13 @@ private fun CodegBottomBar(
                     label = { Text(stringResource(tab.label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     alwaysShowLabel = true,
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = colors.accent,
-                        selectedTextColor = colors.accent,
+                        // 批v170 克制化：全局 chrome（底栏/侧栏）选中态去
+                        // accent——浅灰指示胶囊+浅色文字，accent 额度让给屏内 CTA。
+                        selectedIconColor = colors.textPrimary,
+                        selectedTextColor = colors.textPrimary,
                         unselectedIconColor = colors.textTertiary,
                         unselectedTextColor = colors.textTertiary,
-                        indicatorColor = colors.accent.copy(alpha = 0.20f),
+                        indicatorColor = colors.textPrimary.copy(alpha = 0.08f),
                     ),
                 )
             }

@@ -1,5 +1,6 @@
 package app.codeg.android.core.designsystem.component
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,13 +10,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -45,12 +47,15 @@ fun EmptyState(
             textAlign = TextAlign.Center,
         )
         if (actionLabel != null && onAction != null) {
+            // 批v170 克制化：空态动作钮 ghost 化（细边框+浅色文字），
+            // accent 留给屏内真实主 CTA。
             Button(
                 onClick = onAction,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = CodegTheme.colors.accent,
-                    contentColor = CodegTheme.colors.onAccent,
+                    containerColor = Color.Transparent,
+                    contentColor = CodegTheme.colors.textPrimary,
                 ),
+                border = BorderStroke(CodegTheme.dimens.hairlineWidth, CodegTheme.colors.surfaceStroke),
             ) { Text(actionLabel) }
         }
     }
@@ -92,12 +97,12 @@ fun InlineError(
             color = CodegTheme.colors.textSecondary,
             textAlign = TextAlign.Center,
         )
-        FilledTonalButton(
+        OutlinedButton(
             onClick = onRetry,
-            colors = ButtonDefaults.filledTonalButtonColors(
-                containerColor = CodegTheme.colors.accent.copy(alpha = 0.16f),
-                contentColor = CodegTheme.colors.accent,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = CodegTheme.colors.textPrimary,
             ),
+            border = BorderStroke(CodegTheme.dimens.hairlineWidth, CodegTheme.colors.surfaceStroke),
         ) { Text(retryLabel) }
     }
 }
