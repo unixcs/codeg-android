@@ -8,6 +8,7 @@ import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.TokenUsageFilter
 import app.codeg.android.core.model.TokenUsageHeatCell
 import app.codeg.android.core.model.TokenUsageReport
+import app.codeg.android.core.model.TokenUsageTotals
 import app.codeg.android.core.model.TokenUsageSyncStatus
 import app.codeg.android.core.network.ApiError
 import app.codeg.android.core.network.displayMessage
@@ -33,7 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** 批v169 对齐 web：今日/近 7 天/近 30 天/近 90 天四档。 */
-enum class UsagePeriod(val backDays: Int) { TODAY(0), WEEK(6), MONTH(29), QUARTER(89) }
+enum class UsagePeriod(val backDays: Long) { TODAY(0), WEEK(6), MONTH(29), QUARTER(89) }
 
 /** 用量分布子视角（RankedBarList 的三个数据面）。 */
 enum class UsageBreakdownMode { FOLDER, AGENT, MODEL }
