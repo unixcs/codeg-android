@@ -359,6 +359,7 @@ fun InboxScreen(
                         SwipeActionBox(
                             leftSpec = swipeSpec(settings.inboxSwipeLeftAction),
                             rightSpec = swipeSpec(settings.inboxSwipeRightAction),
+                            cornerRadius = 16.dp,
                         ) {
                             card()
                         }
