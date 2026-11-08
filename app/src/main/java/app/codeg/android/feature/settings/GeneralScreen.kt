@@ -23,6 +23,8 @@ import androidx.compose.material.icons.rounded.ArrowDropUp
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.SwipeLeft
+import androidx.compose.material.icons.rounded.SwipeRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -55,6 +57,10 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
+import app.codeg.android.core.datastore.SESSION_SWIPE_NONE
+import app.codeg.android.core.designsystem.component.OptionListSheet
+import app.codeg.android.core.designsystem.component.PickerField
+import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.feature.floatingball.FONT_STEPS
@@ -62,6 +68,7 @@ import app.codeg.android.feature.floatingball.stepFontScale
 import app.codeg.android.feature.main.HomeTab
 import app.codeg.android.feature.main.resolveStartTab
 import app.codeg.android.feature.main.visibleTabs
+import app.codeg.android.feature.sessions.SessionSwipeAction
 import kotlin.math.roundToInt
 
 @Composable
@@ -72,6 +79,9 @@ fun GeneralContent(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val appSettings by viewModel.settings.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
+    // 批v168: which swipe direction the action-picker sheet is editing
+    // ("left" | "right", null = closed). rememberSaveable survives the sheet.
+    var swipeEditor by rememberSaveable { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Section(stringResource(R.string.general_shell_section)) {
@@ -101,6 +111,23 @@ fun GeneralContent(
                 stringResource(R.string.general_activity_swipe_subtitle),
                 appSettings.activityDeviceSwipe,
                 viewModel::setActivityDeviceSwipe,
+            )
+            // 批v168: the session row's left/right swipe bindings (Gmail/Outlook
+            // model). A swipe is a shortcut into the long-press menu's handlers;
+            // 「无动作」turns that direction off.
+            PickerField(
+                icon = Icons.Rounded.SwipeLeft,
+                label = stringResource(R.string.general_swipe_left_title),
+                value = swipeActionLabel(appSettings.sessionSwipeLeftAction),
+                placeholder = stringResource(R.string.swipe_action_none),
+                onClick = { swipeEditor = "left" },
+            )
+            PickerField(
+                icon = Icons.Rounded.SwipeRight,
+                label = stringResource(R.string.general_swipe_right_title),
+                value = swipeActionLabel(appSettings.sessionSwipeRightAction),
+                placeholder = stringResource(R.string.swipe_action_none),
+                onClick = { swipeEditor = "right" },
             )
             // 批v161: task-board shape (kanban vs list) and its per-layout column
             // count. Only the count belonging to the active layout is offered —
@@ -674,7 +701,35 @@ fun GeneralContent(
                 )
             }
         }
+        // 批v168: swipe-action picker (one sheet at a time, per the window-limit
+        // discipline — never one Dialog per row).
+        swipeEditor?.let { direction ->
+            val isLeft = direction == "left"
+            OptionListSheet(
+                title = stringResource(if (isLeft) R.string.general_swipe_left_title else R.string.general_swipe_right_title),
+                options = (listOf(SESSION_SWIPE_NONE) + SessionSwipeAction.entries.map { it.id })
+                    .map { id -> PickerOption(id = id, label = swipeActionLabel(id)) },
+                selectedId = if (isLeft) appSettings.sessionSwipeLeftAction else appSettings.sessionSwipeRightAction,
+                onSelect = { option ->
+                    if (isLeft) viewModel.setSessionSwipeLeft(option.id) else viewModel.setSessionSwipeRight(option.id)
+                },
+                onDismiss = { swipeEditor = null },
+            )
+        }
     }
+}
+
+/** 批v168: display name for a stored swipe-binding id ("none" included). */
+@Composable
+private fun swipeActionLabel(actionId: String): String = when (SessionSwipeAction.from(actionId)) {
+    null -> stringResource(R.string.swipe_action_none)
+    SessionSwipeAction.BOARD -> stringResource(R.string.board_conv_add)
+    SessionSwipeAction.COPY -> stringResource(R.string.session_copy_reference)
+    SessionSwipeAction.PIN -> stringResource(R.string.session_pin)
+    SessionSwipeAction.HANDOFF -> stringResource(R.string.session_add_to_session)
+    SessionSwipeAction.RENAME -> stringResource(R.string.session_rename)
+    SessionSwipeAction.ADD_PROJECT -> stringResource(R.string.session_add_project)
+    SessionSwipeAction.DELETE -> stringResource(R.string.common_delete)
 }
 
 @Composable

@@ -1572,6 +1572,10 @@
     <string name="general_task_swipe_subtitle">任务板顶部横滑手势的行为：默认在四个任务状态列之间步进，也可切成与动态页相同的设备切换。</string>
     <string name="general_task_swipe_segments">切任务状态</string>
     <string name="general_task_swipe_devices">切换设备</string>
+    <!-- 批v168：会话卡左滑/右滑快捷动作 -->
+    <string name="general_swipe_left_title">左滑动作</string>
+    <string name="general_swipe_right_title">右滑动作</string>
+    <string name="swipe_action_none">无动作</string>
     <!-- 批v161：任务板布局 + 各布局列数 -->
     <string name="general_task_layout_title">任务板布局</string>
     <string name="general_task_layout_subtitle">看板与网页端一致；列表一次只排一个状态，更适合长标题。</string>

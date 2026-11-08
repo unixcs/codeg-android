@@ -1586,6 +1586,10 @@
     <string name="general_task_swipe_subtitle">What a horizontal swipe does on the Task board: step through the four status columns (default) or switch devices like on Activity.</string>
     <string name="general_task_swipe_segments">Switch columns</string>
     <string name="general_task_swipe_devices">Switch devices</string>
+    <!-- 批v168: the session row's left/right swipe bindings -->
+    <string name="general_swipe_left_title">Swipe-left action</string>
+    <string name="general_swipe_right_title">Swipe-right action</string>
+    <string name="swipe_action_none">No action</string>
     <!-- 批v161: task board layout + per-layout column count -->
     <string name="general_task_layout_title">Task board layout</string>
     <string name="general_task_layout_subtitle">Kanban keeps the web board look; list stacks one status at a time and suits long task names.</string>

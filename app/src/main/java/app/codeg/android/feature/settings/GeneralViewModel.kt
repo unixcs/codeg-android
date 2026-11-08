@@ -237,6 +237,16 @@ class GeneralViewModel @Inject constructor(
         appSettingsStore.setTaskSwipeMode(mode)
     }
 
+    // ---- 批v168: session row's left/right swipe bindings ----
+
+    fun setSessionSwipeLeft(action: String) = launchPersist {
+        appSettingsStore.setSessionSwipeLeftAction(action)
+    }
+
+    fun setSessionSwipeRight(action: String) = launchPersist {
+        appSettingsStore.setSessionSwipeRightAction(action)
+    }
+
     // ---- 批v161: task-board shape + per-layout column count ----
 
     /** "kanban" (web-parity board) or "list" (four status tabs + one list). */

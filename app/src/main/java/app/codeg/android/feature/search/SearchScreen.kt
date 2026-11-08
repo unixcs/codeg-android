@@ -58,6 +58,7 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.sessions.SessionDeleteDialog
 import app.codeg.android.feature.sessions.SessionRenameDialog
 import app.codeg.android.feature.sessions.SessionRow
+import app.codeg.android.feature.sessions.SessionSwipeAction
 import app.codeg.android.feature.sessions.rememberBoardTrackMenu
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,6 +71,11 @@ fun SearchScreen(
     // row open rides the owning-device handoff, exactly like the Chats aggregate.
     allMode: Boolean = false,
     onOpenAggregateRow: (serverId: String, conversationId: Int) -> Unit = { _, id -> onOpenConversation(id) },
+    /** 批v168: swipe bindings from Settings, already resolved to null ("off").
+     *  Rows without the matching capability (pin/rename/delete on the merged
+     *  list) lock that direction per the shared row's resolution rules. */
+    swipeLeft: SessionSwipeAction? = null,
+    swipeRight: SessionSwipeAction? = null,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -232,6 +238,8 @@ fun SearchScreen(
                                         onToggleBoard = {
                                             boardMenu.toggle(hit.serverId, hit.conversation.id, hit.conversation.folderId)
                                         },
+                                        swipeLeftAction = swipeLeft,
+                                        swipeRightAction = swipeRight,
                                     )
                                 }
                             }
@@ -250,6 +258,8 @@ fun SearchScreen(
                                 onToggleBoard = ui.serverId?.let { sid ->
                                     { boardMenu.toggle(sid, c.id, c.folderId) }
                                 },
+                                swipeLeftAction = swipeLeft,
+                                swipeRightAction = swipeRight,
                             )
                         }
                     }

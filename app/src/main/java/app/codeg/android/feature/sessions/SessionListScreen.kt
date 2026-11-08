@@ -122,6 +122,9 @@ fun SessionListScreen(
     onOpenAggregateRow: (serverId: String, conversationId: Int) -> Unit = { _, _ -> },
     onHandoffAggregate: (serverId: String, folderId: Int, reference: String) -> Unit = { _, _, _ -> },
     onManageProjects: () -> Unit = {},
+    /** 批v168: swipe bindings from Settings, already resolved to null ("off"). */
+    swipeLeft: SessionSwipeAction? = null,
+    swipeRight: SessionSwipeAction? = null,
     viewModel: SessionListViewModel = hiltViewModel(),
 ) {
     // Cross-device aggregate mode ("全部" + optional project filter) renders a
@@ -133,6 +136,8 @@ fun SessionListScreen(
             onOpenRow = onOpenAggregateRow,
             onHandoff = onHandoffAggregate,
             onManageProjects = onManageProjects,
+            swipeLeft = swipeLeft,
+            swipeRight = swipeRight,
         )
         return
     }
@@ -356,6 +361,8 @@ fun SessionListScreen(
                             refreshError = ui.error,
                             onRetry = viewModel::refresh,
                             onDismissError = viewModel::dismissError,
+                            swipeLeft = swipeLeft,
+                            swipeRight = swipeRight,
                         )
                     }
                 }
@@ -452,6 +459,8 @@ private fun SessionList(
     refreshError: String?,
     onRetry: () -> Unit,
     onDismissError: () -> Unit,
+    swipeLeft: SessionSwipeAction?,
+    swipeRight: SessionSwipeAction?,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -511,6 +520,8 @@ private fun SessionList(
                                 boardMenu.toggle(sid, row.conversation.id, row.conversation.folderId)
                             }
                         },
+                        swipeLeftAction = swipeLeft,
+                        swipeRightAction = swipeRight,
                     )
                 }
             }
@@ -777,6 +788,8 @@ private fun AggregateChatsList(
     onOpenRow: (serverId: String, conversationId: Int) -> Unit,
     onHandoff: (serverId: String, folderId: Int, reference: String) -> Unit,
     onManageProjects: () -> Unit,
+    swipeLeft: SessionSwipeAction?,
+    swipeRight: SessionSwipeAction?,
 ) {
     val ui by viewModel.aggregateUi.collectAsStateWithLifecycle()
     val sections by viewModel.aggregateSections.collectAsStateWithLifecycle()
@@ -1078,6 +1091,8 @@ private fun AggregateChatsList(
                                                 item.row.conversation.folderId,
                                             )
                                         },
+                                        swipeLeftAction = swipeLeft,
+                                        swipeRightAction = swipeRight,
                                     )
                                 }
                             }

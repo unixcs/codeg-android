@@ -58,6 +58,7 @@ import app.codeg.android.feature.sessions.CollapsibleSectionHeader
 import app.codeg.android.feature.sessions.SessionDeleteDialog
 import app.codeg.android.feature.sessions.SessionRenameDialog
 import app.codeg.android.feature.sessions.SessionRow
+import app.codeg.android.feature.sessions.SessionSwipeAction
 import app.codeg.android.feature.sessions.rememberBoardTrackMenu
 import java.time.Instant
 
@@ -99,6 +100,9 @@ fun ActivityScreen(
     // 批v163（舰队 M2，Q3）：琥珀区「自动化失败」行 → 任务板自动化段。
     onOpenAutomations: () -> Unit = {},
     onOpenUsage: () -> Unit = {},
+    /** 批v168: swipe bindings from Settings, already resolved to null ("off"). */
+    swipeLeft: SessionSwipeAction? = null,
+    swipeRight: SessionSwipeAction? = null,
     viewModel: ActivityViewModel = hiltViewModel(),
     workbench: WorkbenchViewModel = hiltViewModel(),
 ) {
@@ -423,6 +427,8 @@ fun ActivityScreen(
                                             highlight?.takeIf { it.owner == ACTIVITY_FOCUS_OWNER }
                                                 ?.item?.ref?.key == row.refKey,
                                         onHandoff = { ref -> onHandoff(row.serverId, row.conversation.folderId, ref) },
+                                        swipeLeftAction = swipeLeft,
+                                        swipeRightAction = swipeRight,
                                     )
                                 }
 

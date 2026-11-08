@@ -89,6 +89,12 @@ data class AppSettings(
     /** 批v160 W9: the top chip row's dimension on 动态/会话 — "devices" (default,
      *  the pre-v160 row) or "projects" (全部 + project chips + 未添加). */
     val sessionChipMode: String = DEFAULT_SESSION_CHIP_MODE,
+    /** 批v168: the session row's swipe bindings — action ids from the long-press
+     *  menu catalog, or "none" to disable that direction (right swipe defaults
+     *  to 加入任务板, left swipe to 复制会话引用). The feature layer resolves the
+     *  id ([app.codeg.android.feature.sessions.SessionSwipeAction.from]). */
+    val sessionSwipeLeftAction: String = DEFAULT_SESSION_SWIPE_LEFT,
+    val sessionSwipeRightAction: String = DEFAULT_SESSION_SWIPE_RIGHT,
     /** 批v160 W9: the projects' manual left-to-right chip order (project ids).
      *  Missing ids append after the known ones; stale ids are ignored. */
     val projectChipOrder: List<String> = emptyList(),
@@ -124,6 +130,8 @@ data class AppSettings(
         const val DEFAULT_TASK_BOARD_KANBAN_COLUMNS = 2
         const val DEFAULT_TASK_BOARD_LIST_COLUMNS = 1
         const val DEFAULT_SESSION_CHIP_MODE = SESSION_CHIP_DEVICES
+        const val DEFAULT_SESSION_SWIPE_LEFT = "copy"
+        const val DEFAULT_SESSION_SWIPE_RIGHT = "board"
         /** The initial value [AppSettingsStore.settings] exposes before DataStore's
          *  first emission; used to detect "settings not loaded yet". */
         val INITIAL = AppSettings()
@@ -207,6 +215,14 @@ class AppSettingsStore @Inject constructor(
                 ?: AppSettings.DEFAULT_TASK_BOARD_LIST_COLUMNS).coerceIn(1, 2),
             sessionChipMode = prefs[SESSION_CHIP_MODE]?.takeIf { it in SESSION_CHIP_MODES }
                 ?: AppSettings.DEFAULT_SESSION_CHIP_MODE,
+            sessionSwipeLeftAction = sanitizeSessionSwipeAction(
+                prefs[SESSION_SWIPE_LEFT_ACTION],
+                AppSettings.DEFAULT_SESSION_SWIPE_LEFT,
+            ),
+            sessionSwipeRightAction = sanitizeSessionSwipeAction(
+                prefs[SESSION_SWIPE_RIGHT_ACTION],
+                AppSettings.DEFAULT_SESSION_SWIPE_RIGHT,
+            ),
             projectChipOrder = prefs[PROJECT_CHIP_ORDER]?.split(',')?.filter { it.isNotBlank() }
                 ?: emptyList(),
             projectChipSortByCount = prefs[PROJECT_CHIP_SORT_BY_COUNT] ?: false,
@@ -339,6 +355,26 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit {
             it[SESSION_CHIP_MODE] = mode.takeIf { m -> m in SESSION_CHIP_MODES }
                 ?: AppSettings.DEFAULT_SESSION_CHIP_MODE
+        }
+    }
+
+    /** 批v168: persist the session row's left/right swipe bindings; unknown ids
+     *  coerce back to the defaults. */
+    suspend fun setSessionSwipeLeftAction(action: String) {
+        dataStore.edit {
+            it[SESSION_SWIPE_LEFT_ACTION] = sanitizeSessionSwipeAction(
+                action,
+                AppSettings.DEFAULT_SESSION_SWIPE_LEFT,
+            )
+        }
+    }
+
+    suspend fun setSessionSwipeRightAction(action: String) {
+        dataStore.edit {
+            it[SESSION_SWIPE_RIGHT_ACTION] = sanitizeSessionSwipeAction(
+                action,
+                AppSettings.DEFAULT_SESSION_SWIPE_RIGHT,
+            )
         }
     }
 
@@ -493,6 +529,8 @@ class AppSettingsStore @Inject constructor(
         val TASK_BOARD_KANBAN_COLUMNS = intPreferencesKey("task_board_kanban_columns")
         val TASK_BOARD_LIST_COLUMNS = intPreferencesKey("task_board_list_columns")
         val SESSION_CHIP_MODE = stringPreferencesKey("session_chip_mode")
+        val SESSION_SWIPE_LEFT_ACTION = stringPreferencesKey("session_swipe_left_action")
+        val SESSION_SWIPE_RIGHT_ACTION = stringPreferencesKey("session_swipe_right_action")
         val PROJECT_CHIP_ORDER = stringPreferencesKey("project_chip_order")
         val PROJECT_CHIP_SORT_BY_COUNT = booleanPreferencesKey("project_chip_sort_by_count")
     }
@@ -525,6 +563,25 @@ val TASK_BOARD_LAYOUTS = setOf(TASK_BOARD_KANBAN, TASK_BOARD_LIST)
 const val SESSION_CHIP_DEVICES = "devices"
 const val SESSION_CHIP_PROJECTS = "projects"
 val SESSION_CHIP_MODES = setOf(SESSION_CHIP_DEVICES, SESSION_CHIP_PROJECTS)
+
+/** Legal session-row swipe bindings (批v168): the long-press menu catalog's raw
+ *  ids plus [SESSION_SWIPE_NONE] ("direction off"). The feature layer owns the
+ *  typed enum; this whitelist is the storage-side sanitize source of truth. */
+const val SESSION_SWIPE_NONE = "none"
+val SESSION_SWIPE_ACTIONS = setOf(
+    SESSION_SWIPE_NONE,
+    "board",
+    "copy",
+    "pin",
+    "handoff",
+    "rename",
+    "add_project",
+    "delete",
+)
+
+/** Pure read/set-side sanitize: unknown or blank ids fall back to [default]. */
+fun sanitizeSessionSwipeAction(raw: String?, default: String): String =
+    raw?.takeIf { it in SESSION_SWIPE_ACTIONS } ?: default
 
 /** JSON envelope for the read-marks map (DataStore carries one string). */
 @Serializable
