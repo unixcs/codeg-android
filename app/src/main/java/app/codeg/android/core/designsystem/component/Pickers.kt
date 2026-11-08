@@ -221,12 +221,12 @@ fun OptionListSheet(
                                     option.label,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = colors.textPrimary,
+                                    color = if (selected) colors.selectedText else colors.textPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 if (option.note != null) {
-                                    Text(option.note, style = MaterialTheme.typography.labelSmall, color = colors.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(option.note, style = MaterialTheme.typography.labelSmall, color = if (selected) colors.selectedSubText else colors.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                             if (selected) {

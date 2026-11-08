@@ -165,18 +165,18 @@ private fun ServerRow(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (selected) {
-                        Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.selectedText, modifier = Modifier.size(18.dp))
                     }
                     Text(
                         profile.name,
                         style = MaterialTheme.typography.titleSmall,
-                        color = if (profile.visible) colors.textPrimary else colors.textTertiary,
+                        color = if (selected) colors.selectedText else if (profile.visible) colors.textPrimary else colors.textTertiary,
                     )
                 }
                 Text(
                     profile.baseUrl,
                     style = MaterialTheme.typography.bodySmall,
-                    color = colors.textSecondary,
+                    color = if (selected) colors.selectedSubText else colors.textSecondary,
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.padding(top = 2.dp),
                 )

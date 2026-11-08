@@ -1421,8 +1421,8 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         // 批v160: push the real destination — Back returns to this tab
                         // (was: bus + Settings tab jump, which stranded the user there).
                         onManageProjects = { nav.navigate(ROUTE_SESSION_PROJECTS) },
-                        swipeLeft = SessionSwipeAction.from(appSettings.sessionSwipeLeftAction),
-                        swipeRight = SessionSwipeAction.from(appSettings.sessionSwipeRightAction),
+                        swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
+                        swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
                     )
                 }
             }
@@ -1506,8 +1506,8 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         // on, so mirror both directions unconditionally.
                         if (servers.size >= 2) appViewModel.setTasksAll(activityAll)
                     },
-                    swipeLeft = SessionSwipeAction.from(appSettings.sessionSwipeLeftAction),
-                    swipeRight = SessionSwipeAction.from(appSettings.sessionSwipeRightAction),
+                    swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
+                    swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
                 )
             }
             composable(ROUTE_SEARCH) {
@@ -1521,8 +1521,8 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     onOpenAggregateRow = { serverId, conversationId ->
                         openAggregateRow(serverId, conversationId)
                     },
-                    swipeLeft = SessionSwipeAction.from(appSettings.sessionSwipeLeftAction),
-                    swipeRight = SessionSwipeAction.from(appSettings.sessionSwipeRightAction),
+                    swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
+                    swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
                 )
             }
             composable(HomeTab.SETTINGS.route) {

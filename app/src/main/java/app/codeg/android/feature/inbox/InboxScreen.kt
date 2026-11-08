@@ -682,6 +682,7 @@ private fun IdeaCard(
             onClick = { if (selectMode) onToggleSelect() },
             onLongClick = { if (!selectMode) menuOpen = true },
         ),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = colors.bgElevated),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
@@ -934,7 +935,7 @@ private fun InboxToolbar(
             Text(
                 stringResource(R.string.inbox_count, ideaCount),
                 style = MaterialTheme.typography.labelLarge,
-                color = colors.textTertiary,
+                color = colors.textSecondary,
                 modifier = Modifier.weight(1f).padding(start = 8.dp),
             )
             IconButton(onClick = onToggleColumns) {
@@ -1162,7 +1163,7 @@ private fun IdeaEditorDialog(
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.94f).dp)
                     .offset { IntOffset(0, dragY.value.roundToInt()) },
             ) {
-                Column(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxWidth()) {
                     // W10: the bottom-sheet affordance (drag handle) + header — the
                     // handle reads as "this is a sheet" at a glance.
                     Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
@@ -1214,7 +1215,7 @@ private fun IdeaEditorDialog(
                     }
                     Column(
                         Modifier
-                            .weight(1f)
+                            .weight(1f, fill = false)
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 20.dp)
                             .padding(top = 4.dp, bottom = 12.dp),

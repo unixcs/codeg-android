@@ -1353,7 +1353,7 @@ private fun ModeCard(
         Icon(
             icon,
             contentDescription = null,
-            tint = if (selected) colors.textPrimary else colors.textTertiary,
+            tint = if (selected) colors.selectedText else colors.textTertiary,
             modifier = Modifier.size(20.dp),
         )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1361,15 +1361,15 @@ private fun ModeCard(
                 label,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = colors.textPrimary,
+                color = if (selected) colors.selectedText else colors.textPrimary,
             )
-            Text(note, style = MaterialTheme.typography.labelSmall, color = colors.textTertiary)
+            Text(note, style = MaterialTheme.typography.labelSmall, color = if (selected) colors.selectedSubText else colors.textTertiary)
         }
         if (selected) {
             Icon(
                 Icons.Rounded.CheckCircle,
                 contentDescription = null,
-                tint = colors.textPrimary,
+                tint = colors.selectedText,
                 modifier = Modifier.size(18.dp),
             )
         }

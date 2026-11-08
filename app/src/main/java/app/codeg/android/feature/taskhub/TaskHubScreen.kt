@@ -46,8 +46,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Block
-import androidx.compose.material.icons.rounded.CallMade
-import androidx.compose.material.icons.rounded.CallMerge
+import androidx.compose.material.icons.automirrored.rounded.CallMade
+import androidx.compose.material.icons.automirrored.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -1082,7 +1082,6 @@ private fun TaskBoardStatusBar(
     ) {
         SEGMENT_ORDER.forEachIndexed { index, segment ->
             val isSelected = index == focused
-            val tone = segmentAccentTone(segment).composeColor(colors)
             // Two stacked lines (name over count) instead of an inline badge:
             // at 360dp each chip is ~80dp, and 等你处理 + a count side by side
             // would ellipsize the name at 1.3× font scale.
@@ -1121,7 +1120,7 @@ private fun TaskBoardStatusBar(
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontFamily = CodegMono, fontSize = 9.sp,
                     ),
-                    color = if (isSelected) tone else colors.textTertiary,
+                    color = if (isSelected) colors.selectedText else colors.textTertiary,
                     maxLines = 1,
                 )
             }
@@ -1247,7 +1246,7 @@ private fun KanbanColumn(
             ) {
                 Text(
                     stringResource(R.string.task_segment_empty),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                     color = colors.textTertiary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -1581,6 +1580,7 @@ private fun MiniColumn(
     onOpen: (TaskBoardEntry) -> Unit,
     onOpenConversation: (serverId: String, conversationId: Int) -> Unit,
 ) {
+    CardFontClamp {
     val colors = CodegTheme.colors
     val total = entries.size + unknown.size + conversations.size
     Column(modifier) {
@@ -1597,7 +1597,7 @@ private fun MiniColumn(
             )
             Text(
                 stringResource(segment.labelRes),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium),
                 color = colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1650,6 +1650,7 @@ private fun MiniColumn(
             }
         }
     }
+    }
 }
 
 /** The smallest readable card: a status dot, two title lines, a relative time. */
@@ -1679,7 +1680,7 @@ private fun MiniCard(entry: TaskBoardEntry, onClick: () -> Unit) {
             )
             Text(
                 task.title,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, lineHeight = 15.sp),
                 color = colors.textPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -1691,7 +1692,7 @@ private fun MiniCard(entry: TaskBoardEntry, onClick: () -> Unit) {
         relativeLabel(task.finishedAt ?: task.settledAt ?: task.startedAt ?: task.createdAt)?.let {
             Text(
                 it,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                 color = colors.textTertiary,
                 maxLines = 1,
                 modifier = Modifier.padding(top = 2.dp, start = 9.dp),
@@ -1730,7 +1731,7 @@ private fun MiniConversationCard(entry: BoardConversationEntry, onClick: () -> U
             )
             Text(
                 conv.trimmedTitle ?: stringResource(R.string.session_untitled),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 14.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, lineHeight = 15.sp),
                 color = colors.textPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -1742,7 +1743,7 @@ private fun MiniConversationCard(entry: BoardConversationEntry, onClick: () -> U
         relativeLabel(conv.updatedAt.toString())?.let {
             Text(
                 it,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                 color = colors.textTertiary,
                 maxLines = 1,
                 modifier = Modifier.padding(top = 2.dp, start = 9.dp),
@@ -2057,9 +2058,9 @@ private fun buildCardActions(task: WorkTaskInfo): CardActions {
                             CardAction(R.string.task_action_complete, Icons.Rounded.CheckCircle, CardAction.Kind.COMPLETE, amber = true)
                         // forge_pr: the local merge is refused server-side (web 182-191).
                         task.fromPullRequest ->
-                            CardAction(R.string.task_action_deliver_pr, Icons.Rounded.CallMade, CardAction.Kind.DELIVER_PR, amber = true)
+                            CardAction(R.string.task_action_deliver_pr, Icons.AutoMirrored.Rounded.CallMade, CardAction.Kind.DELIVER_PR, amber = true)
                         else ->
-                            CardAction(R.string.task_action_merge, Icons.Rounded.CallMerge, CardAction.Kind.MERGE, amber = true)
+                            CardAction(R.string.task_action_merge, Icons.AutoMirrored.Rounded.CallMerge, CardAction.Kind.MERGE, amber = true)
                     }
                     cardDeferToggle(task)?.let { secondaries += it }
                 }
@@ -2110,7 +2111,7 @@ private fun ConversationTag() {
     val colors = CodegTheme.colors
     Text(
         stringResource(R.string.board_conv_badge),
-        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Medium),
         color = colors.textSecondary,
         maxLines = 1,
         modifier = Modifier
@@ -2126,7 +2127,7 @@ private fun ConversationFlag(label: String) {
     val colors = CodegTheme.colors
     Text(
         label,
-        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
         color = colors.textTertiary,
         maxLines = 1,
         modifier = Modifier
@@ -2201,7 +2202,7 @@ private fun ConversationCardWeb(
             Text(
                 conv.trimmedTitle ?: stringResource(R.string.session_untitled),
                 style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp,
+                    fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = 18.sp,
                 ),
                 color = if (conv.trimmedTitle == null) colors.textSecondary else colors.textPrimary,
                 maxLines = 2,
@@ -2463,7 +2464,7 @@ private fun TaskCardWeb(
             Text(
                 task.title,
                 style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp,
+                    fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = 18.sp,
                 ),
                 color = colors.textPrimary,
                 maxLines = 2,
@@ -2525,7 +2526,7 @@ private fun TaskCardWeb(
             task.resultSummary?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     it,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 15.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium),
                     color = colors.textSecondary,
                     maxLines = if (compact) 1 else 2,
                     overflow = TextOverflow.Ellipsis,
@@ -3094,9 +3095,9 @@ private fun DetailZonePanel(
                         (task.changedFileCount ?: -1) == 0 ->
                             Triple(R.string.task_action_complete, Icons.Rounded.CheckCircle, ConfirmAction.COMPLETE(entry))
                         task.fromPullRequest ->
-                            Triple(R.string.task_action_deliver_pr, Icons.Rounded.CallMade, ConfirmAction.DELIVER_PR(entry))
+                            Triple(R.string.task_action_deliver_pr, Icons.AutoMirrored.Rounded.CallMade, ConfirmAction.DELIVER_PR(entry))
                         else ->
-                            Triple(R.string.task_action_merge, Icons.Rounded.CallMerge, ConfirmAction.MERGE(entry))
+                            Triple(R.string.task_action_merge, Icons.AutoMirrored.Rounded.CallMerge, ConfirmAction.MERGE(entry))
                     }
                     ZoneFilled(primary.first, primary.second, busy, modifier = Modifier.weight(1f)) {
                         onAction(primary.third)
@@ -3109,7 +3110,7 @@ private fun DetailZonePanel(
                     // The alternative delivery path: a normal task can still be
                     // turned into a PR instead of merging (web offers both).
                     if (!task.fromPullRequest && (task.changedFileCount ?: -1) != 0) {
-                        ZoneGhost(R.string.task_action_deliver_pr, Icons.Rounded.CallMade, busy) {
+                        ZoneGhost(R.string.task_action_deliver_pr, Icons.AutoMirrored.Rounded.CallMade, busy) {
                             onAction(ConfirmAction.DELIVER_PR(entry))
                         }
                     }
