@@ -58,6 +58,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.OptionListSheet
+import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.PickerField
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.theme.CodegTheme
@@ -1220,6 +1221,13 @@ fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
         )
         Section(stringResource(R.string.general_font_section)) {
             val stepIndex = FONT_STEPS.indexOfFirst { kotlin.math.abs(it - appSettings.fontScale) < 0.01f }
+            // 批v172 D3: per-interface scale sheets. "session" covers the dynamic
+            // tab family (activity/chats/search/session detail); 0 = follow global.
+            var scaleSheet by rememberSaveable { mutableStateOf<String?>(null) }
+            val sheetOptions = remember {
+                listOf(PickerOption("0", stringResource(R.string.general_font_follow_global))) +
+                    FONT_STEPS.map { PickerOption(it.toString(), "${(it * 100).roundToInt()}%") }
+            }
             ListItem(
                 headlineContent = { Text(stringResource(R.string.general_font_scale_title)) },
                 supportingContent = { Text(stringResource(R.string.general_font_scale_subtitle)) },
@@ -1250,8 +1258,78 @@ fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
                     supportingColor = colors.textTertiary,
                 ),
             )
+            // 批v172 D3: 动态会话 / 收件箱 / 任务板 各自的字号档——选中档位
+            // 直接替换全局倍率（不是叠乘），「跟随全局」回到 v171 行为。
+            InterfaceScaleRow(
+                title = stringResource(R.string.general_font_session_title),
+                scale = appSettings.sessionFontScale,
+                onClick = { scaleSheet = "session" },
+            )
+            InterfaceScaleRow(
+                title = stringResource(R.string.general_font_inbox_title),
+                scale = appSettings.inboxFontScale,
+                onClick = { scaleSheet = "inbox" },
+            )
+            InterfaceScaleRow(
+                title = stringResource(R.string.general_font_taskhub_title),
+                scale = appSettings.taskhubFontScale,
+                onClick = { scaleSheet = "taskhub" },
+            )
+            scaleSheet?.let { which ->
+                OptionListSheet(
+                    title = stringResource(R.string.general_font_section),
+                    options = sheetOptions,
+                    selectedId = when (which) {
+                        "inbox" -> appSettings.inboxFontScale.toString()
+                        "taskhub" -> appSettings.taskhubFontScale.toString()
+                        else -> appSettings.sessionFontScale.toString()
+                    },
+                    onSelect = { option ->
+                        val v = option.id.toFloatOrNull() ?: 0f
+                        when (which) {
+                            "inbox" -> viewModel.setInboxFontScale(v)
+                            "taskhub" -> viewModel.setTaskhubFontScale(v)
+                            else -> viewModel.setSessionFontScale(v)
+                        }
+                        scaleSheet = null
+                    },
+                    onDismiss = { scaleSheet = null },
+                )
+            }
         }
     }
+}
+
+/** 批v172 D3: one per-interface font-scale row (value + chevron → OptionListSheet). */
+@Composable
+private fun InterfaceScaleRow(title: String, scale: Float, onClick: () -> Unit) {
+    val colors = CodegTheme.colors
+    val valueText = if (scale <= 0f) stringResource(R.string.general_font_follow_global)
+    else "${(scale * 100).roundToInt()}%"
+    ListItem(
+        headlineContent = { Text(title) },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    valueText,
+                    fontSize = 14.sp,
+                    color = if (scale <= 0f) colors.textTertiary else colors.accent,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Icon(
+                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = colors.textTertiary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = Color.Transparent,
+            headlineColor = colors.textPrimary,
+        ),
+        modifier = Modifier.clickable(onClick = onClick),
+    )
 }
 
 /** 批v171 N7: display name for a stored inbox swipe-binding id ("none" included). */

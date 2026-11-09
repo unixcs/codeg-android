@@ -370,6 +370,19 @@ class GeneralViewModel @Inject constructor(
         appSettingsStore.setFontScale(scale)
     }
 
+    /** 批v172 D3: per-interface font scales (0 = follow global). */
+    fun setSessionFontScale(scale: Float) = launchPersist {
+        appSettingsStore.setSessionFontScale(scale)
+    }
+
+    fun setInboxFontScale(scale: Float) = launchPersist {
+        appSettingsStore.setInboxFontScale(scale)
+    }
+
+    fun setTaskhubFontScale(scale: Float) = launchPersist {
+        appSettingsStore.setTaskhubFontScale(scale)
+    }
+
     // ---- New-session default folder (batch v134; per-server device-local prefs) ----
 
     /** Pin (or unpin with null = follow last used) the default folder for new tasks. */

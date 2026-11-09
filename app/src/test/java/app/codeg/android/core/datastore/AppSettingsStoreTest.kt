@@ -105,6 +105,10 @@ class AppSettingsStoreTest {
         assertEquals(1, keys.count { it == "task_board_layout" })
         assertEquals(1, keys.count { it == "task_board_kanban_columns" })
         assertEquals(1, keys.count { it == "task_board_list_columns" })
+        // 批v172 D3: the three per-interface font-scale keys.
+        assertEquals(1, keys.count { it == "session_font_scale" })
+        assertEquals(1, keys.count { it == "inbox_font_scale" })
+        assertEquals(1, keys.count { it == "taskhub_font_scale" })
         // And no key collides with another at all.
         assertEquals(keys.size, keys.toSet().size)
     }
@@ -132,6 +136,16 @@ class AppSettingsStoreTest {
         assertEquals(setOf("kanban", "list"), TASK_BOARD_LAYOUTS)
         assertEquals(2, s.taskBoardKanbanColumns)
         assertEquals(1, s.taskBoardListColumns)
+    }
+
+    @Test
+    fun `interface font scales default to follow global`() {
+        // 批v172 D3: 0 = follow the global font scale — existing users keep
+        // today's look until they set a per-interface value.
+        val s = AppSettings()
+        assertEquals(0f, s.sessionFontScale)
+        assertEquals(0f, s.inboxFontScale)
+        assertEquals(0f, s.taskhubFontScale)
     }
 
     @Test
@@ -289,6 +303,40 @@ class AppSettingsStoreTest {
             assertTrue(s.projectChipSortByCount)
             store.setProjectChipSortByCount(false)
             assertFalse(store.settings.first().projectChipSortByCount)
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
+    }
+
+    @Test
+    fun `v172 interface font scales survive a real datastore roundtrip`() = runBlocking {
+        // 批v172 D3: read-side guard for the three per-interface scales — the
+        // setter band (0.5..2) and the 0 = follow-global sentinel must both
+        // survive prefs → AppSettings, or the shell would scale the wrong tab.
+        val tmp = TemporaryFolder()
+        tmp.create()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            store.setSessionFontScale(1.3f)
+            store.setInboxFontScale(0.85f)
+            store.setTaskhubFontScale(1.15f)
+            val s = store.settings.first()
+            assertEquals(1.3f, s.sessionFontScale)
+            assertEquals(0.85f, s.inboxFontScale)
+            assertEquals(1.15f, s.taskhubFontScale)
+            // Out-of-band values clamp into 0.5..2; ≤0 means "follow global".
+            store.setSessionFontScale(9f)
+            store.setInboxFontScale(-3f)
+            store.setTaskhubFontScale(0f)
+            val coerced = store.settings.first()
+            assertEquals(2f, coerced.sessionFontScale)
+            assertEquals(0f, coerced.inboxFontScale)
+            assertEquals(0f, coerced.taskhubFontScale)
         } finally {
             scope.cancel()
             tmp.delete()

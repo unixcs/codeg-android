@@ -12,6 +12,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
@@ -22,6 +23,14 @@ val LocalCodegColors = staticCompositionLocalOf<CodegColors> {
     error("CodegColors not provided — wrap content in CodegTheme { }")
 }
 val LocalCodegDimens = staticCompositionLocalOf { CodegDimens() }
+
+/**
+ * 批v172 D3: upper bound [CardFontClamp] applies to the ambient font scale.
+ * Default 1.0 (the 批v171 behaviour); [InterfaceFontScale] raises it to the
+ * interface's own scale so card content grows with the per-interface setting
+ * while staying clamped against a system-level overshoot.
+ */
+val LocalCardFontMax = staticCompositionLocalOf { 1f }
 
 /**
  * Root theme. Resolves the active appearance (light/dark/system) + accent into a
@@ -100,8 +109,36 @@ object CodegTheme {
 @Composable
 fun CardFontClamp(content: @Composable () -> Unit) {
     val d = LocalDensity.current
+    val max = LocalCardFontMax.current
     CompositionLocalProvider(
-        LocalDensity provides Density(d.density, d.fontScale.coerceAtMost(1f)),
+        LocalDensity provides Density(d.density, d.fontScale.coerceAtMost(max)),
+        content = content,
+    )
+}
+
+/**
+ * 批v172 D3: per-interface font scale. [scale] is an ABSOLUTE multiplier over
+ * the SYSTEM font scale (it replaces the global in-app multiplier for this
+ * subtree — 130% here means "system × 1.3", not "global × 1.3"); `<= 0` means
+ * follow the global setting (a no-op wrapper). Also raises [LocalCardFontMax]
+ * to the same value so card content clamps lift with the interface instead of
+ * fighting it (the 批v171 clamp stays the ceiling guard against a large system
+ * fontScale overshooting the chosen ladder).
+ */
+@Composable
+fun InterfaceFontScale(scale: Float, content: @Composable () -> Unit) {
+    if (scale <= 0f) {
+        content()
+        return
+    }
+    val d = LocalDensity.current
+    val f = scale.coerceIn(0.5f, 2f)
+    // LocalConfiguration carries the raw OS font scale — CodegTheme only ever
+    // overrides LocalDensity, so this is the untouched system value.
+    val systemScale = LocalConfiguration.current.fontScale
+    CompositionLocalProvider(
+        LocalDensity provides Density(d.density, systemScale * f),
+        LocalCardFontMax provides f,
         content = content,
     )
 }

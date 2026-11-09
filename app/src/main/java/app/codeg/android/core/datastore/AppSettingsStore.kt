@@ -111,6 +111,13 @@ data class AppSettings(
     val projectChipSortByCount: Boolean = false,
     /** Multiplier ladder over the system font scale (0.85 / 1.0 / 1.15 / 1.3). */
     val fontScale: Float = 1f,
+    /** 批v172 D3: per-interface font scale — ABSOLUTE multiplier over the SYSTEM
+     *  scale, replacing the global one for that interface. 0 = follow global.
+     *  Legal values are the FONT_STEPS ladder (or 0); anything else is cleaned
+     *  on read back into the usable band. */
+    val sessionFontScale: Float = 0f,
+    val inboxFontScale: Float = 0f,
+    val taskhubFontScale: Float = 0f,
     /** 批v171（经典外观）: false = restrained selected-state (v170 浅灰, default),
      *  true = the pre-v170 accent-fill skin — one toggle, four colour roles. */
     val classicLook: Boolean = false,
@@ -253,6 +260,9 @@ class AppSettingsStore @Inject constructor(
                 ?: emptyList(),
             projectChipSortByCount = prefs[PROJECT_CHIP_SORT_BY_COUNT] ?: false,
             fontScale = (prefs[FONT_SCALE] ?: 1f).coerceIn(0.5f, 2f),
+            sessionFontScale = cleanInterfaceScale(prefs[SESSION_FONT_SCALE]),
+            inboxFontScale = cleanInterfaceScale(prefs[INBOX_FONT_SCALE]),
+            taskhubFontScale = cleanInterfaceScale(prefs[TASKHUB_FONT_SCALE]),
             dispatchDefaultDevice = prefs[DISPATCH_DEFAULT_DEVICE] ?: "",
             dispatchDefaultFolderId = prefs[DISPATCH_DEFAULT_FOLDER_ID] ?: -1,
             dispatchDefaultFolderName = prefs[DISPATCH_DEFAULT_FOLDER_NAME] ?: "",
@@ -496,6 +506,22 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[FONT_SCALE] = scale.coerceIn(0.5f, 2f) }
     }
 
+    /** 批v172 D3: per-interface scale; 0 = follow the global setting. */
+    suspend fun setSessionFontScale(scale: Float) = setInterfaceScale(SESSION_FONT_SCALE, scale)
+
+    suspend fun setInboxFontScale(scale: Float) = setInterfaceScale(INBOX_FONT_SCALE, scale)
+
+    suspend fun setTaskhubFontScale(scale: Float) = setInterfaceScale(TASKHUB_FONT_SCALE, scale)
+
+    private suspend fun setInterfaceScale(key: Preferences.Key<Float>, scale: Float) {
+        // 0 is the "follow global" sentinel; anything else lands in the band.
+        val v = if (scale <= 0f) 0f else scale.coerceIn(0.5f, 2f)
+        dataStore.edit { it[key] = v }
+    }
+
+    private fun cleanInterfaceScale(raw: Float?): Float =
+        raw?.takeIf { it > 0f }?.coerceIn(0.5f, 2f) ?: 0f
+
     /** Floating-ball position as screen-fraction (fx, fy) in 0..1, or null until the
      *  user first drags the ball. Same separate-flow pattern as [sessionReadMarks]:
      *  the JSON decode must not ride the app-wide settings flow. */
@@ -570,6 +596,9 @@ class AppSettingsStore @Inject constructor(
         val FLOAT_BALL_SIZE = stringPreferencesKey("float_ball_size")
         val FLOAT_BALL_CYCLE_DEPTH = intPreferencesKey("float_ball_cycle_depth")
         val FONT_SCALE = floatPreferencesKey("font_scale")
+        val SESSION_FONT_SCALE = floatPreferencesKey("session_font_scale")
+        val INBOX_FONT_SCALE = floatPreferencesKey("inbox_font_scale")
+        val TASKHUB_FONT_SCALE = floatPreferencesKey("taskhub_font_scale")
         val FLOAT_BALL_POS = stringPreferencesKey("float_ball_pos")
         val FLOAT_BALL_BINDINGS = stringPreferencesKey("float_ball_bindings")
         val DISPATCH_DEFAULT_DEVICE = stringPreferencesKey("dispatch_default_device")

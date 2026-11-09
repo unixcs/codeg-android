@@ -30,7 +30,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -41,6 +44,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.R
@@ -173,14 +177,33 @@ private fun StatCard(
             color = colors.textPrimary,
             maxLines = 1,
         )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = colors.textTertiary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        LabelSystemScale {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
+}
+
+/**
+ * 批v172 D2: workbench card labels ignore the in-app font multiplier (global /
+ * per-interface) — they hold a fixed geometry, and at 115-130% the four-across
+ * rows truncate to 1-2 glyphs. The SYSTEM font scale still passes through so
+ * OS-level accessibility sizing keeps working.
+ */
+@Composable
+private fun LabelSystemScale(content: @Composable () -> Unit) {
+    val d = LocalDensity.current
+    val systemScale = LocalConfiguration.current.fontScale
+    CompositionLocalProvider(
+        LocalDensity provides Density(d.density, systemScale),
+        content = content,
+    )
 }
 
 /** 统计行：运行中 / 需要处理 / 在线设备（真实计数，首round未落地前显示 …）。
@@ -249,13 +272,16 @@ private fun QuickCard(
     ) {
         // 克制化：快捷入口图标退到中性色，本屏唯一 accent 实心留给「新建会话」主卡。
         Icon(icon, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = colors.textSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        LabelSystemScale {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -275,7 +301,7 @@ internal fun WorkbenchQuickRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        QuickCard(Icons.Rounded.Assignment, stringResource(R.string.ball_action_quick_task), onQuickTask, Modifier.weight(1f))
+        QuickCard(Icons.Rounded.Assignment, stringResource(R.string.workbench_quick_task), onQuickTask, Modifier.weight(1f))
         QuickCard(Icons.Rounded.FolderOpen, stringResource(R.string.workbench_quick_folders), onOpenFolders, Modifier.weight(1f))
         QuickCard(Icons.Rounded.Search, stringResource(R.string.workbench_quick_search), onOpenSearch, Modifier.weight(1f))
         // Primary action: same frosted-chip language as the ball size chips.
@@ -290,16 +316,18 @@ internal fun WorkbenchQuickRow(
                 .padding(horizontal = 8.dp, vertical = 14.dp),
         ) {
             Icon(Icons.Rounded.Add, contentDescription = null, tint = colors.onAccent, modifier = Modifier.size(20.dp))
-            Text(
-                text = stringResource(R.string.workbench_new_session),
-                style = MaterialTheme.typography.labelLarge,
-                color = colors.onAccent,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                // 批v153（第3轮可及性审查）：同屏 QuickCard 全带省略，主按钮漏网
-                // ——EN/fontScale 2.0 下会在字符中间硬切。
-                overflow = TextOverflow.Ellipsis,
-            )
+            LabelSystemScale {
+                Text(
+                    text = stringResource(R.string.workbench_new_session),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.onAccent,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    // 批v153（第3轮可及性审查）：同屏 QuickCard 全带省略，主按钮漏网
+                    // ——EN/fontScale 2.0 下会在字符中间硬切。
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

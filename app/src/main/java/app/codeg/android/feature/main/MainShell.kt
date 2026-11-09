@@ -84,6 +84,7 @@ import app.codeg.android.core.datastore.SESSION_CHIP_PROJECTS
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.designsystem.component.GlobalDeviceBar
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.core.designsystem.theme.InterfaceFontScale
 import app.codeg.android.feature.activity.ActivityScreen
 import app.codeg.android.feature.floatingball.FloatingBallHost
 import app.codeg.android.feature.floatingball.FloatingBallSettingsBus
@@ -303,6 +304,11 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     // already in the saved order / start tab (no default-order flash on cold start).
     val settingsLoaded by appViewModel.settingsLoaded.collectAsStateWithLifecycle()
     val appSettings by appViewModel.settings.collectAsStateWithLifecycle()
+    // 批v172 D3: per-interface font scales (0 = follow global). "session" covers
+    // the dynamic tab family (activity / chats / search / session detail).
+    val sessionFontScale = appSettings.sessionFontScale
+    val inboxFontScale = appSettings.inboxFontScale
+    val taskhubFontScale = appSettings.taskhubFontScale
     val homeTabs = remember(appSettings.homeTabOrder, appSettings.hiddenHomeTabs) {
         visibleTabs(appSettings.homeTabOrder, appSettings.hiddenHomeTabs)
     }
@@ -1393,137 +1399,143 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 },
             ) {
             composable(ROUTE_CHATS) {
-                CompositionLocalProvider(LocalBarsVisible provides barsVisible) {
-                    SessionListScreen(
-                        servers = servers,
-                        selectedId = selectedProfile?.id,
-                        onManageServers = { nav.navigate(ROUTE_SERVERS) },
-                        // 批v153（UX 审查）：会话页自带的搜索入口，不再绕工作台。
-                        onOpenSearch = { pushSurface(ROUTE_SEARCH) },
-                        onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
-                        onNewTask = openNewTask,
-                        onHandoff = { folderId, ref -> nav.navigate(handoffRoute(folderId, ref)) },
-                        // Aggregate rows carry their owning device — same single-flight
-                        // dance as the Activity aggregate (review #14). Exit is scoped
-                        // to THIS tab (chatsAll + filter) so the Activity tab's own
-                        // All mode survives, mirroring the Activity path (R1-6).
-                        onOpenAggregateRow = { serverId, conversationId ->
-                            // v134: selection only — the aggregate mode survives so Back
-                            // returns to the 全部 surface (see openAggregateRow).
-                            openAggregateRow(serverId, conversationId)
-                        },
-                        onHandoffAggregate = { serverId, folderId, ref ->
-                            // v134: selection only, exactly like a row tap — the
-                            // composer is pushed over the tab, so Back must land
-                            // back on the 全部 surface the user came from.
-                            handoffTo(serverId) { nav.navigate(handoffRoute(folderId, ref)) }
-                        },
-                        // 批v160: push the real destination — Back returns to this tab
-                        // (was: bus + Settings tab jump, which stranded the user there).
-                        onManageProjects = { nav.navigate(ROUTE_SESSION_PROJECTS) },
-                        swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
-                        swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
-                    )
+                InterfaceFontScale(sessionFontScale) {
+                    CompositionLocalProvider(LocalBarsVisible provides barsVisible) {
+                        SessionListScreen(
+                            servers = servers,
+                            selectedId = selectedProfile?.id,
+                            onManageServers = { nav.navigate(ROUTE_SERVERS) },
+                            // 批v153（UX 审查）：会话页自带的搜索入口，不再绕工作台。
+                            onOpenSearch = { pushSurface(ROUTE_SEARCH) },
+                            onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
+                            onNewTask = openNewTask,
+                            onHandoff = { folderId, ref -> nav.navigate(handoffRoute(folderId, ref)) },
+                            // Aggregate rows carry their owning device — same single-flight
+                            // dance as the Activity aggregate (review #14). Exit is scoped
+                            // to THIS tab (chatsAll + filter) so the Activity tab's own
+                            // All mode survives, mirroring the Activity path (R1-6).
+                            onOpenAggregateRow = { serverId, conversationId ->
+                                // v134: selection only — the aggregate mode survives so Back
+                                // returns to the 全部 surface (see openAggregateRow).
+                                openAggregateRow(serverId, conversationId)
+                            },
+                            onHandoffAggregate = { serverId, folderId, ref ->
+                                // v134: selection only, exactly like a row tap — the
+                                // composer is pushed over the tab, so Back must land
+                                // back on the 全部 surface the user came from.
+                                handoffTo(serverId) { nav.navigate(handoffRoute(folderId, ref)) }
+                            },
+                            // 批v160: push the real destination — Back returns to this tab
+                            // (was: bus + Settings tab jump, which stranded the user there).
+                            onManageProjects = { nav.navigate(ROUTE_SESSION_PROJECTS) },
+                            swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
+                            swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
+                        )
+                    }
                 }
             }
             composable(ROUTE_FOLDERS) {
                 ProjectListScreen(onOpenFolder = { id -> nav.navigate("project/$id") })
             }
             composable(HomeTab.ACTIVITY.route) {
-                ActivityScreen(
-                    servers = servers,
-                    allMode = activityAll,
-                    onRefreshAll = appViewModel::refreshActivityAll,
-                    // In aggregate mode a row tap focuses that device: leave "All",
-                    // wait for the selection to land, then push the conversation
-                    // (session detail reads selectedProfile exactly once on entry).
-                    onOpenRow = { serverId, conversationId ->
-                        // v134: selection only — the aggregate mode survives so Back
-                        // returns to the 全部 surface (see openAggregateRow).
-                        openAggregateRow(serverId, conversationId)
-                    },
-                    onManageServers = { nav.navigate(ROUTE_SERVERS) },
-                    // Long-press handoff on an aggregate row must land on the OWNING
-                    // device first (folderId is server-local), same dance as onOpenRow.
-                    onHandoff = { serverId, folderId, ref ->
-                        // v134: selection only — keep the aggregate mode so Back from
-                        // the composer returns to the 全部 surface. Already on the
-                        // owning device in single mode, so no selection dance needed.
-                        if (activityAll) handoffTo(serverId) { nav.navigate(handoffRoute(folderId, ref)) }
-                        else nav.navigate(handoffRoute(folderId, ref))
-                    },
-                    onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
-                    // 批v160: push, not the Settings tab jump — Back returns to the
-                    // activity tab (从哪里跳转过去的，还跳转回哪里).
-                    onManageProjects = { nav.navigate(ROUTE_SESSION_PROJECTS) },
-                    // 批v150 工作台接线（批v152：会话已回到五栏；批v160：直达改
-                    // jumpToTab，Back 回工作台；任务板段位直达用一次性请求）。
-                    // 批v153（UX 审查）：快捷行会话卡与底栏重复，换成「创建任务」
-                    // 直达球的快速任务 sheet。
-                    onQuickTask = { showQuickTask = true },
-                    // 批v160: workbench quick entries are cross-jumps — Back returns
-                    // to the workbench tab (jumpToTab).
-                    onOpenAllChats = { jumpToTab(HomeTab.CHATS) },
-                    onOpenFolders = { pushSurface(ROUTE_FOLDERS) },
-                    onOpenSearch = { pushSurface(ROUTE_SEARCH) },
-                    onOpenNewSession = openNewTask,
-                    onOpenTasks = { segment ->
-                        appViewModel.requestTaskSegment(segment)
-                        jumpToTab(HomeTab.TASKS)
-                        // 批v152 审查修正: the stat cards count the workbench's
-                        // scope (single device unless the Activity tab is in 全部).
-                        // enterTab defaults the board to 全部, which would show a
-                        // DIFFERENT, larger set than the number just tapped —
-                        // mirror the workbench scope instead.
-                        if (servers.size >= 2 && !activityAll) appViewModel.setTasksAll(false)
-                    },
-                    // 批v160 W7: 「等待你确认」行直达会话——先切到持有设备（与
-                    // 聚合行同款 single-flight 舞步），落地后打开并清未读。
-                    onOpenInteraction = { row ->
-                        handoffTo(row.serverId) { openConversationAndMark(row.serverId, row.conversationId) }
-                    },
-                    // 批v163（舰队 M2，Q3）：自动化失败行 → 任务板自动化段（one-shot
-                    // request，与任务段位直达同款纪律）。
-                    onOpenAutomations = {
-                        appViewModel.requestAutomationTab()
-                        jumpToTab(HomeTab.TASKS)
-                        // M6 审查（与 M3 审查 H1 同款）：the automation pane reads
-                        // the task board's scope flow (tasksAll) while the failure
-                        // row counts the workbench's (activityAll) — mirror both
-                        // directions unconditionally or the landing pane can show
-                        // a different device set than the row just tapped.
-                        if (servers.size >= 2) appViewModel.setTasksAll(activityAll)
-                    },
-                    // 批v163（舰队 M3）：今日用量卡 → 设置页用量 leaf（一次性总线）。
-                    onOpenUsage = {
-                        app.codeg.android.feature.usage.UsageOpenBus.request()
-                        jumpToTab(HomeTab.SETTINGS)
-                        // M3 审查 H1: the usage page reads the task board's scope
-                        // flow (tasksAll) while this card counts the workbench's
-                        // (activityAll) — mirror the tapped scope or the landing
-                        // page can show a different device set than the number
-                        // just tapped. SETTINGS has no enterTab default to lean
-                        // on, so mirror both directions unconditionally.
-                        if (servers.size >= 2) appViewModel.setTasksAll(activityAll)
-                    },
-                    swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
-                    swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
-                )
+                InterfaceFontScale(sessionFontScale) {
+                    ActivityScreen(
+                        servers = servers,
+                        allMode = activityAll,
+                        onRefreshAll = appViewModel::refreshActivityAll,
+                        // In aggregate mode a row tap focuses that device: leave "All",
+                        // wait for the selection to land, then push the conversation
+                        // (session detail reads selectedProfile exactly once on entry).
+                        onOpenRow = { serverId, conversationId ->
+                            // v134: selection only — the aggregate mode survives so Back
+                            // returns to the 全部 surface (see openAggregateRow).
+                            openAggregateRow(serverId, conversationId)
+                        },
+                        onManageServers = { nav.navigate(ROUTE_SERVERS) },
+                        // Long-press handoff on an aggregate row must land on the OWNING
+                        // device first (folderId is server-local), same dance as onOpenRow.
+                        onHandoff = { serverId, folderId, ref ->
+                            // v134: selection only — keep the aggregate mode so Back from
+                            // the composer returns to the 全部 surface. Already on the
+                            // owning device in single mode, so no selection dance needed.
+                            if (activityAll) handoffTo(serverId) { nav.navigate(handoffRoute(folderId, ref)) }
+                            else nav.navigate(handoffRoute(folderId, ref))
+                        },
+                        onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
+                        // 批v160: push, not the Settings tab jump — Back returns to the
+                        // activity tab (从哪里跳转过去的，还跳转回哪里).
+                        onManageProjects = { nav.navigate(ROUTE_SESSION_PROJECTS) },
+                        // 批v150 工作台接线（批v152：会话已回到五栏；批v160：直达改
+                        // jumpToTab，Back 回工作台；任务板段位直达用一次性请求）。
+                        // 批v153（UX 审查）：快捷行会话卡与底栏重复，换成「创建任务」
+                        // 直达球的快速任务 sheet。
+                        onQuickTask = { showQuickTask = true },
+                        // 批v160: workbench quick entries are cross-jumps — Back returns
+                        // to the workbench tab (jumpToTab).
+                        onOpenAllChats = { jumpToTab(HomeTab.CHATS) },
+                        onOpenFolders = { pushSurface(ROUTE_FOLDERS) },
+                        onOpenSearch = { pushSurface(ROUTE_SEARCH) },
+                        onOpenNewSession = openNewTask,
+                        onOpenTasks = { segment ->
+                            appViewModel.requestTaskSegment(segment)
+                            jumpToTab(HomeTab.TASKS)
+                            // 批v152 审查修正: the stat cards count the workbench's
+                            // scope (single device unless the Activity tab is in 全部).
+                            // enterTab defaults the board to 全部, which would show a
+                            // DIFFERENT, larger set than the number just tapped —
+                            // mirror the workbench scope instead.
+                            if (servers.size >= 2 && !activityAll) appViewModel.setTasksAll(false)
+                        },
+                        // 批v160 W7: 「等待你确认」行直达会话——先切到持有设备（与
+                        // 聚合行同款 single-flight 舞步），落地后打开并清未读。
+                        onOpenInteraction = { row ->
+                            handoffTo(row.serverId) { openConversationAndMark(row.serverId, row.conversationId) }
+                        },
+                        // 批v163（舰队 M2，Q3）：自动化失败行 → 任务板自动化段（one-shot
+                        // request，与任务段位直达同款纪律）。
+                        onOpenAutomations = {
+                            appViewModel.requestAutomationTab()
+                            jumpToTab(HomeTab.TASKS)
+                            // M6 审查（与 M3 审查 H1 同款）：the automation pane reads
+                            // the task board's scope flow (tasksAll) while the failure
+                            // row counts the workbench's (activityAll) — mirror both
+                            // directions unconditionally or the landing pane can show
+                            // a different device set than the row just tapped.
+                            if (servers.size >= 2) appViewModel.setTasksAll(activityAll)
+                        },
+                        // 批v163（舰队 M3）：今日用量卡 → 设置页用量 leaf（一次性总线）。
+                        onOpenUsage = {
+                            app.codeg.android.feature.usage.UsageOpenBus.request()
+                            jumpToTab(HomeTab.SETTINGS)
+                            // M3 审查 H1: the usage page reads the task board's scope
+                            // flow (tasksAll) while this card counts the workbench's
+                            // (activityAll) — mirror the tapped scope or the landing
+                            // page can show a different device set than the number
+                            // just tapped. SETTINGS has no enterTab default to lean
+                            // on, so mirror both directions unconditionally.
+                            if (servers.size >= 2) appViewModel.setTasksAll(activityAll)
+                        },
+                        swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
+                        swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
+                    )
+                }
             }
             composable(ROUTE_SEARCH) {
-                // 批v151: All mode fans out across the aggregate scope; row opens ride
-                // the owning-device handoff dance (same single-flight as the Activity
-                // aggregate) so Back returns to the 全部 surface. Single-mode rows keep
-                // the plain selected-device open.
-                SearchScreen(
-                    allMode = searchAll,
-                    onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
-                    onOpenAggregateRow = { serverId, conversationId ->
-                        openAggregateRow(serverId, conversationId)
-                    },
-                    swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
-                    swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
-                )
+                InterfaceFontScale(sessionFontScale) {
+                    // 批v151: All mode fans out across the aggregate scope; row opens ride
+                    // the owning-device handoff dance (same single-flight as the Activity
+                    // aggregate) so Back returns to the 全部 surface. Single-mode rows keep
+                    // the plain selected-device open.
+                    SearchScreen(
+                        allMode = searchAll,
+                        onOpenConversation = { id -> openConversationAndMark(selectedProfile?.id, id) },
+                        onOpenAggregateRow = { serverId, conversationId ->
+                            openAggregateRow(serverId, conversationId)
+                        },
+                        swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
+                        swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
+                    )
+                }
             }
             composable(HomeTab.SETTINGS.route) {
                 SettingsScreen()
@@ -1533,25 +1545,29 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             // same ViewModels (per-destination owners replace the Activity entry) —
             // capability unchanged.
             composable(HomeTab.INBOX.route) {
-                InboxScreen(
-                    onOpenSession = { serverId, conversationId ->
-                        // Same dance as 批v149 wired on the old host: the detail reads
-                        // selectedProfile exactly once on entry, so the owning-device
-                        // selection lands before the push (Back returns to the inbox).
-                        handoffTo(serverId) { openConversationAndMark(serverId, conversationId) }
-                    },
-                    // 批v153（UX 审查）：任务模式派发回执直达任务板。批v160: cross-jump.
-                    onOpenTasks = { jumpToTab(HomeTab.TASKS) },
-                )
+                InterfaceFontScale(inboxFontScale) {
+                    InboxScreen(
+                        onOpenSession = { serverId, conversationId ->
+                            // Same dance as 批v149 wired on the old host: the detail reads
+                            // selectedProfile exactly once on entry, so the owning-device
+                            // selection lands before the push (Back returns to the inbox).
+                            handoffTo(serverId) { openConversationAndMark(serverId, conversationId) }
+                        },
+                        // 批v153（UX 审查）：任务模式派发回执直达任务板。批v160: cross-jump.
+                        onOpenTasks = { jumpToTab(HomeTab.TASKS) },
+                    )
+                }
             }
             composable(HomeTab.TASKS.route) {
-                TaskHubScreen(
-                    // 批v155: 查看会话 — same owning-device handoff dance as the
-                    // inbox tab (the session screen reads selectedProfile once).
-                    onOpenSession = { serverId, conversationId ->
-                        handoffTo(serverId) { openConversationAndMark(serverId, conversationId) }
-                    },
-                )
+                InterfaceFontScale(taskhubFontScale) {
+                    TaskHubScreen(
+                        // 批v155: 查看会话 — same owning-device handoff dance as the
+                        // inbox tab (the session screen reads selectedProfile once).
+                        onOpenSession = { serverId, conversationId ->
+                            handoffTo(serverId) { openConversationAndMark(serverId, conversationId) }
+                        },
+                    )
+                }
             }
 
             composable(
@@ -1568,13 +1584,15 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     },
                 ),
             ) {
-                SessionDetailScreen(
-                    onBack = { nav.popBackStack() },
-                    onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
-                    onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
-                    onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
-                    servers = servers,
-                )
+                InterfaceFontScale(sessionFontScale) {
+                    SessionDetailScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
+                        onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
+                        onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
+                        servers = servers,
+                    )
+                }
             }
             composable(
                 route = "$ROUTE_NEW_TASK?folderId={folderId}",
@@ -1585,13 +1603,15 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     },
                 ),
             ) {
-                SessionDetailScreen(
-                    onBack = { nav.popBackStack() },
-                    onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
-                    onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
-                    onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
-                    servers = servers,
-                )
+                InterfaceFontScale(sessionFontScale) {
+                    SessionDetailScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
+                        onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
+                        onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
+                        servers = servers,
+                    )
+                }
             }
             composable(
                 route = "$ROUTE_NEW_TASK?folderId={folderId}&handoff={handoff}",
@@ -1607,18 +1627,20 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     },
                 ),
             ) { entry ->
-                // The handoff entry sits directly above the list, so Back lands there
-                // naturally; its arguments also survive process death and re-seed the
-                // composer (draft is remembered-empty then, seed re-applies). No stack
-                // surgery needed.
-                SessionDetailScreen(
-                    onBack = { nav.popBackStack() },
-                    onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
-                    onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
-                    onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
-                    servers = servers,
-                    seedText = entry.arguments?.getString("handoff"),
-                )
+                InterfaceFontScale(sessionFontScale) {
+                    // The handoff entry sits directly above the list, so Back lands there
+                    // naturally; its arguments also survive process death and re-seed the
+                    // composer (draft is remembered-empty then, seed re-applies). No stack
+                    // surgery needed.
+                    SessionDetailScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
+                        onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
+                        onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
+                        servers = servers,
+                        seedText = entry.arguments?.getString("handoff"),
+                    )
+                }
             }
 
             composable(

@@ -39,15 +39,17 @@
     <string name="tab_activity">动态</string>
     <string name="tab_inbox">收件箱</string>
     <string name="tab_tasks">任务板</string>
-    <string name="workbench_stat_running">运行中</string>
-    <string name="workbench_stat_attention">需要处理</string>
-    <string name="workbench_stat_online">在线设备</string>
+    <string name="workbench_stat_running">运行</string>
+    <string name="workbench_stat_attention">待处理</string>
+    <string name="workbench_stat_online">在线</string>
     <string name="workbench_stat_running_action">查看运行中任务</string>
     <string name="workbench_stat_attention_action">查看需要处理的任务</string>
     <string name="workbench_stat_online_action">管理设备</string>
+    <!-- 批v172 D2：快捷卡独立短标签（悬浮球保留自己的）。 -->
+    <string name="workbench_quick_task">任务</string>
     <string name="workbench_quick_folders">项目</string>
     <string name="workbench_quick_search">搜索</string>
-    <string name="workbench_new_session">新建会话</string>
+    <string name="workbench_new_session">新建</string>
     <string name="workbench_view_all_sessions">查看全部</string>
     <string name="workbench_attention_more">还有 %1$d 项</string>
     <!-- 批v160 W7: 等待你确认节（智能体卡在等确认的会话）。 -->
@@ -775,6 +777,9 @@
     <string name="compose_send">发送</string>
     <string name="compose_expand">展开</string>
     <string name="compose_edit_fullscreen">编辑提示词</string>
+    <!-- 批v172 D1：编辑器 header 的全屏 ⇄ 小窗切换钮。 -->
+    <string name="compose_edit_collapse">收起为小窗</string>
+    <string name="compose_edit_expand">全屏显示</string>
     <string name="compose_ctx_device">设备</string>
     <string name="compose_ctx_project">项目</string>
     <string name="session_device_no_token">尚未配置「%1$s」的 Token——请先到设备管理里补上。</string>
@@ -1171,6 +1176,11 @@
     <string name="general_font_section">显示</string>
     <string name="general_font_scale_title">字号</string>
     <string name="general_font_scale_subtitle">在系统字号基础上整体缩放应用内文字</string>
+    <!-- 批v172 D3：会话族/收件箱/任务板独立字号（0 = 跟随全局）。 -->
+    <string name="general_font_session_title">动态会话字号</string>
+    <string name="general_font_inbox_title">收件箱字号</string>
+    <string name="general_font_taskhub_title">任务板字号</string>
+    <string name="general_font_follow_global">跟随全局</string>
     <string name="ball_enable_title">显示悬浮球</string>
     <string name="ball_enable_subtitle">任意界面快速操作；按住球 1 秒拖动可移动位置</string>
     <string name="ball_size_title">球大小</string>
@@ -1782,6 +1792,6 @@
     <string name="session_import_all_hidden_title">筛选隐藏了全部会话</string>
     <string name="session_import_all_hidden_hint">调整筛选条件，或一键重新显示。</string>
     <string name="session_import_folder_toggle">全选或取消「%1$s」的全部会话</string>
-    <string name="workbench_stat_usage">今日用量</string>
+    <string name="workbench_stat_usage">今日</string>
     <string name="workbench_stat_usage_action">查看用量</string>
 </resources>

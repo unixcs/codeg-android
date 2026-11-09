@@ -45,6 +45,8 @@
     <string name="workbench_stat_running_action">View running tasks</string>
     <string name="workbench_stat_attention_action">View tasks that need you</string>
     <string name="workbench_stat_online_action">Manage devices</string>
+    <!-- 批v172 D2: short label for the workbench quick card (the ball keeps its own). -->
+    <string name="workbench_quick_task">Task</string>
     <string name="workbench_quick_folders">Projects</string>
     <string name="workbench_quick_search">Search</string>
     <string name="workbench_new_session">New session</string>
@@ -783,6 +785,9 @@
     <string name="compose_send">Send</string>
     <string name="compose_expand">Expand</string>
     <string name="compose_edit_fullscreen">Edit prompt</string>
+    <!-- 批v172 D1: fullscreen ⇄ floating-card toggle in the editor header. -->
+    <string name="compose_edit_collapse">Collapse to card</string>
+    <string name="compose_edit_expand">Expand to fullscreen</string>
     <string name="compose_ctx_device">Device</string>
     <string name="compose_ctx_project">Project</string>
     <string name="session_device_no_token">No token for %1$s — add one under Servers first.</string>
@@ -1185,6 +1190,11 @@
     <string name="general_font_section">Display</string>
     <string name="general_font_scale_title">Font size</string>
     <string name="general_font_scale_subtitle">App-wide text size, on top of the system setting</string>
+    <!-- 批v172 D3: independent font scales for the session-family tabs, inbox and task board (0 = follow global). -->
+    <string name="general_font_session_title">Sessions font size</string>
+    <string name="general_font_inbox_title">Inbox font size</string>
+    <string name="general_font_taskhub_title">Task board font size</string>
+    <string name="general_font_follow_global">Follow global</string>
     <string name="ball_enable_title">Show floating ball</string>
     <string name="ball_enable_subtitle">Quick actions from anywhere; hold the ball 1s and move to reposition it</string>
     <string name="ball_size_title">Ball size</string>
