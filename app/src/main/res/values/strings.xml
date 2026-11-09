@@ -49,7 +49,7 @@
     <string name="workbench_quick_task">Task</string>
     <string name="workbench_quick_folders">Projects</string>
     <string name="workbench_quick_search">Search</string>
-    <string name="workbench_new_session">New session</string>
+    <string name="workbench_new_session">New</string>
     <string name="workbench_view_all_sessions">View all</string>
     <string name="workbench_attention_more">%1$d more</string>
     <!-- 批v160 W7: waiting-for-you section (agents blocked on a confirmation). -->
@@ -1505,7 +1505,7 @@
     <string name="quick_save_title">Quick save</string>
     <string name="quick_save_device">Device</string>
     <string name="quick_save_pick_device">Choose device</string>
-    <string name="quick_save_folder">Save to folder</string>
+    <string name="quick_save_folder">Save folder</string>
     <string name="quick_save_folder_root">Workspace root</string>
     <string name="quick_save_name">Title</string>
     <string name="quick_save_name_placeholder">Becomes &lt;title&gt;.md</string>

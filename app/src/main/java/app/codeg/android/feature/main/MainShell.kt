@@ -1489,6 +1489,10 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         // 直达球的快速任务 sheet。
                         quickCards = appSettings.workbenchQuickCards,
                         onQuickAction = { id ->
+                            // 终审: sheet-opening cards close the other sheets
+                            // first, same discipline as onBallAction (unreachable
+                            // today behind the scrim — defense in depth).
+                            closeQuickSheets()
                             when (id) {
                                 "quickTask" -> showQuickTask = true
                                 "folders" -> pushSurface(ROUTE_FOLDERS)

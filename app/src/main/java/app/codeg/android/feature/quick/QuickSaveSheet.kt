@@ -40,6 +40,7 @@ import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
+import app.codeg.android.core.designsystem.component.OptionListSheet
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.PickerField
 import app.codeg.android.core.designsystem.component.PrimaryButton
@@ -215,6 +216,13 @@ fun QuickSaveSheet(
     val pickDevice = stringResource(R.string.quick_save_pick_device)
     val loadingLabel = stringResource(R.string.common_loading)
     val rootFolderLabel = stringResource(R.string.quick_save_folder_root)
+    // Hoisted with the labels above: the (serverId, profiles) LaunchedEffect
+    // below consumes rootError, and Kotlin locals must be declared before use
+    // (the old spot under the saveSeq effect was a forward reference —
+    // 终审必修, cloud Verify would have failed the build).
+    val savedToastTemplate = stringResource(R.string.quick_save_saved)
+    val genericError = stringResource(R.string.quick_save_err_generic)
+    val rootError = stringResource(R.string.quick_save_err_root)
 
     var title by rememberSaveable { mutableStateOf(initialTitle) }
     var content by rememberSaveable { mutableStateOf(initialContent) }
@@ -265,9 +273,6 @@ fun QuickSaveSheet(
     // 只有「本 sheet 里点了保存」才允许自动关闭（seq 基线，QuickIdeaSheet 同款：
     // 布尔位会在保存完成于 sheet 关闭之后残留，误关重开的新 sheet）。
     var pendingSaveAt by rememberSaveable { mutableStateOf<Int?>(null) }
-    val savedToastTemplate = stringResource(R.string.quick_save_saved)
-    val genericError = stringResource(R.string.quick_save_err_generic)
-    val rootError = stringResource(R.string.quick_save_err_root)
     LaunchedEffect(saveSeq) {
         val at = pendingSaveAt ?: return@LaunchedEffect
         if (saveSeq > at) {

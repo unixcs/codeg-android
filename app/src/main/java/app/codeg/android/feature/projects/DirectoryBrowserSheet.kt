@@ -86,8 +86,10 @@ fun DirectoryBrowserSheet(
 
     LaunchedEffect(Unit) { path = runCatching { initialPath ?: loadHome() }.getOrDefault("") }
     LaunchedEffect(path) {
+        // 终审 B3: a failed loadHome leaves path empty — clear the spinner
+        // and show the empty listing (".." renders) instead of spinning forever.
+        loading = path.isNotEmpty()
         if (path.isNotEmpty()) {
-            loading = true
             // 批v172c 审查R2-2: quick-save reopens the browser directly on the
             // persisted last dir, which may have since been deleted — an
             // unguarded loadDirs crashed the app on first frame. Fall back to an
