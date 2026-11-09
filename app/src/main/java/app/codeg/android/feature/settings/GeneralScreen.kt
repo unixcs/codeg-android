@@ -58,7 +58,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.OptionListSheet
-import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.PickerField
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.theme.CodegTheme
@@ -1224,8 +1223,9 @@ fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
             // 批v172 D3: per-interface scale sheets. "session" covers the dynamic
             // tab family (activity/chats/search/session detail); 0 = follow global.
             var scaleSheet by rememberSaveable { mutableStateOf<String?>(null) }
-            val sheetOptions = remember {
-                listOf(PickerOption("0", stringResource(R.string.general_font_follow_global))) +
+            val followGlobal = stringResource(R.string.general_font_follow_global)
+            val sheetOptions = remember(followGlobal) {
+                listOf(PickerOption("0", followGlobal)) +
                     FONT_STEPS.map { PickerOption(it.toString(), "${(it * 100).roundToInt()}%") }
             }
             ListItem(
@@ -1277,13 +1277,21 @@ fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
             )
             scaleSheet?.let { which ->
                 OptionListSheet(
-                    title = stringResource(R.string.general_font_section),
+                    title = stringResource(
+                        when (which) {
+                            "inbox" -> R.string.general_font_inbox_title
+                            "taskhub" -> R.string.general_font_taskhub_title
+                            else -> R.string.general_font_session_title
+                        },
+                    ),
                     options = sheetOptions,
+                    // 0 = follow-global sentinel; 0f.toString() is "0.0" and would
+                    // never match the option id "0", so normalize before comparing.
                     selectedId = when (which) {
-                        "inbox" -> appSettings.inboxFontScale.toString()
-                        "taskhub" -> appSettings.taskhubFontScale.toString()
-                        else -> appSettings.sessionFontScale.toString()
-                    },
+                        "inbox" -> appSettings.inboxFontScale
+                        "taskhub" -> appSettings.taskhubFontScale
+                        else -> appSettings.sessionFontScale
+                    }.let { if (it <= 0f) "0" else it.toString() },
                     onSelect = { option ->
                         val v = option.id.toFloatOrNull() ?: 0f
                         when (which) {

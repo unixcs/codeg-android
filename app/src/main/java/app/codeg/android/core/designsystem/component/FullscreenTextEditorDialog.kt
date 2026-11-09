@@ -1,16 +1,16 @@
 package app.codeg.android.core.designsystem.component
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -41,7 +42,6 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDirection
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -111,94 +111,94 @@ fun FullscreenTextEditorDialog(
                 .imePadding(),
             contentAlignment = Alignment.Center,
         ) {
-        Surface(
-            color = colors.bg,
-            shape = if (expanded) RectangleShape else RoundedCornerShape(24.dp),
-            modifier = if (expanded) {
-                Modifier.fillMaxSize()
-            } else {
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .fillMaxHeight(0.72f)
-            },
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                ) {
-                    FilledTonalIconButton(
-                        onClick = onDismiss,
-                        // R3-A: 44dp visual on our touch-target line (M3 default is 40).
-                        modifier = Modifier.size(44.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = colors.textPrimary.copy(alpha = 0.06f),
-                            contentColor = colors.textSecondary,
-                        ),
-                    ) {
-                        Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close))
-                    }
-                    Text(
-                        text = label + " · " + text.length,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = colors.textSecondary,
-                        modifier = Modifier.weight(1f).padding(start = 8.dp),
-                    )
-                    // 批v172 D1: shape toggle — the icon shows what tapping DOES
-                    // (fullscreen now → exit; card now → enter).
-                    FilledTonalIconButton(
-                        onClick = { expanded = !expanded },
-                        modifier = Modifier.size(44.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = colors.textPrimary.copy(alpha = 0.06f),
-                            contentColor = colors.textSecondary,
-                        ),
-                    ) {
-                        Icon(
-                            if (expanded) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
-                            contentDescription = stringResource(
-                                if (expanded) R.string.compose_edit_collapse else R.string.compose_edit_expand,
-                            ),
-                        )
-                    }
-                    if (onSend != null) {
-                        FilledIconButton(
-                            onClick = onSend,
-                            enabled = sendEnabled,
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = colors.accent,
-                                contentColor = colors.onAccent,
-                            ),
-                        ) {
-                            Icon(Icons.Rounded.ArrowUpward, contentDescription = stringResource(R.string.compose_send))
-                        }
-                    }
-                }
-                HorizontalDivider(thickness = Dp.Hairline, color = colors.surfaceStroke)
-                Box(
+            Surface(
+                color = colors.bg,
+                shape = if (expanded) RectangleShape else RoundedCornerShape(24.dp),
+                modifier = if (expanded) {
+                    Modifier.fillMaxSize()
+                } else {
                     Modifier
-                        .weight(1f)
-                        .verticalScroll(scroll),
-                ) {
-                    BasicTextField(
-                        value = text,
-                        onValueChange = onTextChange,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = colors.textPrimary,
-                            textDirection = TextDirection.Content,
-                        ),
-                        cursorBrush = SolidColor(colors.accent),
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .fillMaxHeight(0.72f)
+                },
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp)
-                            .focusRequester(focusRequester),
-                    )
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilledTonalIconButton(
+                            onClick = onDismiss,
+                            // R3-A: 44dp visual on our touch-target line (M3 default is 40).
+                            modifier = Modifier.size(44.dp),
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = colors.textPrimary.copy(alpha = 0.06f),
+                                contentColor = colors.textSecondary,
+                            ),
+                        ) {
+                            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close))
+                        }
+                        Text(
+                            text = label + " · " + text.length,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = colors.textSecondary,
+                            modifier = Modifier.weight(1f).padding(start = 8.dp),
+                        )
+                        // 批v172 D1: shape toggle — the icon shows what tapping DOES
+                        // (fullscreen now → exit; card now → enter).
+                        FilledTonalIconButton(
+                            onClick = { expanded = !expanded },
+                            modifier = Modifier.size(44.dp),
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = colors.textPrimary.copy(alpha = 0.06f),
+                                contentColor = colors.textSecondary,
+                            ),
+                        ) {
+                            Icon(
+                                if (expanded) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                                contentDescription = stringResource(
+                                    if (expanded) R.string.compose_edit_collapse else R.string.compose_edit_expand,
+                                ),
+                            )
+                        }
+                        if (onSend != null) {
+                            FilledIconButton(
+                                onClick = onSend,
+                                enabled = sendEnabled,
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = colors.accent,
+                                    contentColor = colors.onAccent,
+                                ),
+                            ) {
+                                Icon(Icons.Rounded.ArrowUpward, contentDescription = stringResource(R.string.compose_send))
+                            }
+                        }
+                    }
+                    HorizontalDivider(thickness = Dp.Hairline, color = colors.surfaceStroke)
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .verticalScroll(scroll),
+                    ) {
+                        BasicTextField(
+                            value = text,
+                            onValueChange = onTextChange,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = colors.textPrimary,
+                                textDirection = TextDirection.Content,
+                            ),
+                            cursorBrush = SolidColor(colors.accent),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                                .focusRequester(focusRequester),
+                        )
+                    }
                 }
             }
-        }
         }
         // Focus first, then bring the text tail into view (batch v123): opening on a
         // long draft used to land the viewport at the top while the cursor sat at the
