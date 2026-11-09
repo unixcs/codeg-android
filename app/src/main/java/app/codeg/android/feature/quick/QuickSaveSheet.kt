@@ -86,17 +86,21 @@ class QuickSaveViewModel @Inject constructor(
         settingsStore.settings.map { it.quickSaveLastDir }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
 
-    val saving: StateFlow<Boolean> = _saving.asStateFlow()
+    // Backing fields BEFORE their public exposures — Kotlin class-body
+    // initializers run in declaration order, so a forward reference is the
+    // "Variable '_x' must be initialized" compile error (cloud Verify caught
+    // this; reviews read past it).
     private val _saving = MutableStateFlow(false)
+    val saving: StateFlow<Boolean> = _saving.asStateFlow()
 
     /** 保存成功计数器（单调递增、永不清零）——sheet 用「打开时的基线」判断
      *  本次会话内是否发生了新保存。布尔位会在保存完成于 sheet 关闭之后残留，
      *  下次打开瞬间就误关新 sheet（VM 是 activity 作用域，比 sheet 长寿，
      *  QuickIdeaSheet 同款教训）。 */
-    val saveSeq: StateFlow<Int> = _saveSeq.asStateFlow()
     private val _saveSeq = MutableStateFlow(0)
-    val saveResult: StateFlow<QuickSaveOutcome?> = _saveResult.asStateFlow()
+    val saveSeq: StateFlow<Int> = _saveSeq.asStateFlow()
     private val _saveResult = MutableStateFlow<QuickSaveOutcome?>(null)
+    val saveResult: StateFlow<QuickSaveOutcome?> = _saveResult.asStateFlow()
 
     // 双击防抖：一次保存只落一个文件。
     private val inFlight = AtomicBoolean(false)
