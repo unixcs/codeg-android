@@ -1453,6 +1453,8 @@
     <string name="dispatch_pending_note">已提交，等待服务端回执…</string>
     <string name="ball_action_quick_idea">记录想法</string>
     <string name="ball_action_quick_task">快速创建</string>
+    <!-- 批v172 D2：工作台卡短化成「新建」后，悬浮球保留完整文案。 -->
+    <string name="ball_quick_new_session">新建会话</string>
     <string name="ball_action_quick_handoff">会话交接</string>
     <string name="ball_action_quick_search">全局搜索</string>
     <string name="ball_panel_all_actions">全部动作</string>

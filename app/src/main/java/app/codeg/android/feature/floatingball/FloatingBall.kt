@@ -317,7 +317,7 @@ fun FloatingBallHost(
                         // 批v153（UX 审查）：首卡换全局新建会话——v151 专门做的
                         // 「选设备→选目录→自动跳会话」此前沉在「全部动作」目录里；
                         // 本机 composer 仍由会话页 FAB 与默认左滑手势承载。
-                        Triple("quickNewSession", R.string.workbench_new_session, R.string.ball_quick_new_session_global_note),
+                        Triple("quickNewSession", R.string.ball_quick_new_session, R.string.ball_quick_new_session_global_note),
                         Triple("quickIdea", R.string.ball_action_quick_idea, R.string.ball_quick_idea_note),
                         Triple("quickTask", R.string.ball_action_quick_task, R.string.ball_quick_task_note),
                         Triple("quickHandoff", R.string.ball_action_quick_handoff, R.string.ball_quick_handoff_note),

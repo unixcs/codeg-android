@@ -1467,6 +1467,8 @@
     <string name="dispatch_pending_note">Submitting — waiting for the server receipt.</string>
     <string name="ball_action_quick_idea">Quick idea</string>
     <string name="ball_action_quick_task">Quick create</string>
+    <!-- 批v172 D2: the ball keeps its full label when the workbench card shortens to "New". -->
+    <string name="ball_quick_new_session">New session</string>
     <string name="ball_action_quick_handoff">Quick handoff</string>
     <string name="ball_action_quick_search">Global search</string>
     <string name="ball_panel_all_actions">All actions</string>
