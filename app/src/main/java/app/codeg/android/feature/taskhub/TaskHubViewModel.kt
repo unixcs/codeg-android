@@ -11,6 +11,7 @@ import app.codeg.android.core.data.LIVE_PROBE_TIMEOUT_MS
 import app.codeg.android.core.data.RUNNING_STATUS_MAX_AGE
 import app.codeg.android.core.data.DeviceLoad
 import app.codeg.android.core.data.DeviceLoadStatus
+import app.codeg.android.core.data.GlobalEventWatcher
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.BoardConversationEntry
 import app.codeg.android.core.data.TaskBoardData
@@ -45,6 +46,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
@@ -93,6 +95,8 @@ class TaskHubViewModel @Inject constructor(
     /** 批v160 W5: the shell's 「切任务状态」 swipe steps — the screen collects
      *  them to step the kanban's columns (same singleton the shell emits into). */
     val segmentBus: app.codeg.android.core.data.TaskSegmentBus,
+    /** 批v173 C1: process-wide push layer — task://changed ticks the poll. */
+    private val globalEvents: GlobalEventWatcher,
 ) : ViewModel(),
     app.codeg.android.feature.dispatch.DispatchFormHost {
 
@@ -298,6 +302,14 @@ class TaskHubViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { pollLoop() }
+        // 批v173 C1: a pushed task://changed makes the NEXT poll round immediate
+        // by ticking the existing arbitration — lastSeenTick dedupes, and a tick
+        // landing while the board is hidden is consumed without a fetch (the
+        // re-entry fetch covers it). The 25s poll stays as the floor.
+        globalEvents.events
+            .filter { it.channel == GlobalEventWatcher.CHANNEL_TASK }
+            .onEach { refresh() }
+            .launchIn(viewModelScope)
         // 批v155: same crash-recovery sweep as every dispatch surface — the board
         // is now one (its 新建任务 form goes through the ledger).
         viewModelScope.launch {

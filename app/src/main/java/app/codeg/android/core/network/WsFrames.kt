@@ -2,6 +2,7 @@ package app.codeg.android.core.network
 
 import app.codeg.android.core.model.EventEnvelope
 import app.codeg.android.core.model.LiveSessionSnapshot
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -36,6 +37,14 @@ object WsClientMessage {
 sealed interface StreamFrame {
     /** Legacy `{channel:"__ready__"}` — the link is usable; safe to attach/prompt. */
     data object Ready : StreamFrame
+    /**
+     * 批v173 C1: a legacy firehose frame (`{channel, payload}`, e.g.
+     * `task://changed` / `automation://changed` / `conversation://changed`).
+     * The server auto-subscribes every WS connection to the firehose and
+     * forwards the payloads as-is; consumers filter on [channel] — payloads
+     * carry only ids, so a hit means "refetch", never "apply this delta".
+     */
+    data class Channel(val channel: String, val payload: JsonObject) : StreamFrame
     data class Snapshot(val snapshot: LiveSessionSnapshot) : StreamFrame
     data class Replay(val events: List<EventEnvelope>) : StreamFrame
     data class Event(val envelope: EventEnvelope) : StreamFrame

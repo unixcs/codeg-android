@@ -105,9 +105,18 @@ class EventStream(
             val root = runCatching { json.parseToJsonElement(text) }.getOrNull() as? JsonObject
                 ?: return null
 
-            // Legacy global side-channel frames.
+            // Legacy global side-channel frames. `__ready__` stays the link-readiness
+            // marker; 批v173 C1 forwards the rest of the firehose (payload as-is) —
+            // consumers filter on channel, the router stays protocol-dumb.
             (root["channel"] as? JsonPrimitive)?.let { ch ->
-                return if (ch.contentOrNull == "__ready__") StreamFrame.Ready else null
+                return when (val name = ch.contentOrNull) {
+                    "__ready__" -> StreamFrame.Ready
+                    null -> null
+                    else -> StreamFrame.Channel(
+                        name,
+                        root["payload"] as? JsonObject ?: JsonObject(emptyMap()),
+                    )
+                }
             }
 
             // Attach-protocol frames.

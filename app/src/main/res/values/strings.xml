@@ -79,6 +79,10 @@
     <string name="notify_task_failed">Task failed</string>
     <string name="notify_turn_done">Run finished</string>
     <string name="notify_turn_title">Session finished</string>
+    <!-- 批v173 C7: automation run-settled alerts (same channel/toggle as task results). -->
+    <string name="notify_automation_succeeded">Automation run succeeded</string>
+    <string name="notify_automation_failed">Automation run failed</string>
+    <string name="notify_automation_fallback">Automation #%1$d</string>
     <string name="notify_device_offline">Device offline</string>
     <string name="notify_channels_hint">Sounds and style live in the system app notification settings</string>
     <string name="notify_fsi_hint">Full-screen alerts need the \"Display over other apps\" permission in system settings</string>

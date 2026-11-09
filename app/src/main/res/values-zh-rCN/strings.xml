@@ -79,6 +79,10 @@
     <string name="notify_task_failed">任务失败</string>
     <string name="notify_turn_done">执行完成</string>
     <string name="notify_turn_title">会话已结束</string>
+    <!-- 批v173 C7：自动化运行结算提醒（与任务结果同渠道同开关）。 -->
+    <string name="notify_automation_succeeded">自动化运行成功</string>
+    <string name="notify_automation_failed">自动化运行失败</string>
+    <string name="notify_automation_fallback">自动化 #%1$d</string>
     <string name="notify_device_offline">设备离线</string>
     <string name="notify_channels_hint">提醒声音与样式可在系统设置的应用通知里调整</string>
     <string name="notify_fsi_hint">锁屏悬浮提醒需在系统设置中允许“显示在其他应用上层”</string>

@@ -8,6 +8,7 @@ import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
 import app.codeg.android.core.data.DispatchTargetLoader
 import app.codeg.android.core.data.DispatchTargets
 import app.codeg.android.core.data.DeviceLoadStatus
+import app.codeg.android.core.data.GlobalEventWatcher
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.network.ApiError
@@ -28,7 +29,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.isActive
@@ -48,6 +52,8 @@ import javax.inject.Inject
 class AutomationViewModel @Inject constructor(
     private val repository: ServerRepository,
     private val targetLoader: DispatchTargetLoader,
+    /** 批v173 C1: process-wide push layer — automation://changed ticks the poll. */
+    private val globalEvents: GlobalEventWatcher,
     @ApplicationContext appContext: Context,
 ) : ViewModel() {
 
@@ -141,6 +147,13 @@ class AutomationViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { pollLoop() }
+        // 批v173 C1: a pushed automation://changed ticks the existing 60s-poll
+        // arbitration (same shape as the task hub) — payload carries only ids,
+        // so the refetch IS the reaction. Poll stays as the floor.
+        globalEvents.events
+            .filter { it.channel == GlobalEventWatcher.CHANNEL_AUTOMATION }
+            .onEach { refresh() }
+            .launchIn(viewModelScope)
         viewModelScope.launch {
             while (currentCoroutineContext().isActive) {
                 try {

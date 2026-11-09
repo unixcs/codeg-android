@@ -10,7 +10,9 @@ import androidx.core.app.NotificationCompat
 import app.codeg.android.MainActivity
 import app.codeg.android.R
 import app.codeg.android.core.common.LocaleManager
+import app.codeg.android.core.data.GlobalEventWatcher
 import app.codeg.android.core.data.InteractiveRequestWatcher
+import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.TaskTransition
 import app.codeg.android.core.data.TurnCompleteEvent
 import app.codeg.android.core.datastore.AppSettings
@@ -18,9 +20,14 @@ import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.SessionRef
 import app.codeg.android.di.ApplicationScope
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -64,6 +71,14 @@ import javax.inject.Singleton
  * possible under Int wraparound but require a crafted 4-tuple over uniform
  * hashes — the same accepted risk the 31· formula shipped with in 批v160 W8.
  */
+/** One settled automation run (批v173 C7) — decoded from the firehose payload
+ *  by [TaskResultNotifier.parseRunSettled]. */
+internal data class RunSettled(
+    val automationId: Int,
+    val runId: Int,
+    val status: String,
+)
+
 @Singleton
 class TaskResultNotifier @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -71,6 +86,11 @@ class TaskResultNotifier @Inject constructor(
     private val interactionWatcher: InteractiveRequestWatcher,
     private val appForeground: AppForeground,
     private val appSettingsStore: AppSettingsStore,
+    /** 批v173 C7: run-settled pushes ride the process-wide firehose listener. */
+    private val globalEvents: GlobalEventWatcher,
+    /** 批v173 C7: the payload carries only ids — the automation's display name
+     *  is refetched through the device client at event time. */
+    private val repository: ServerRepository,
     @ApplicationScope appScope: CoroutineScope,
 ) {
     /** key → notification id for outstanding task_results posts. LinkedHashMap
@@ -131,6 +151,19 @@ class TaskResultNotifier @Inject constructor(
                     .onFailure { Log.w(TAG, "device-down post failed") }
             }
         }
+        // 批v173 C7: automation://changed → run_settled alerts. Only the two
+        // outcomes a user waits on (succeeded/failed) notify — cancelled/skipped
+        // are scheduler noise. The name lookup runs BEFORE the lock: the lock
+        // guards post+record, never a network call.
+        appScope.launch {
+            globalEvents.events.collect { event ->
+                if (event.channel != GlobalEventWatcher.CHANNEL_AUTOMATION) return@collect
+                val settled = parseRunSettled(event.payload) ?: return@collect
+                if (settled.status !in NOTIFYABLE_RUN_STATUSES) return@collect
+                runCatching { onAutomationSettled(event.serverId, settled) }
+                    .onFailure { Log.w(TAG, "automation settled post failed") }
+            }
+        }
     }
 
     private fun onTaskTransition(transition: TaskTransition) = synchronized(lock) {
@@ -187,6 +220,62 @@ class TaskResultNotifier @Inject constructor(
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify turn complete failed: ${it.message}") }
         putCapped(postedResults, "turn|${event.serverId}|${event.conversationId}", id)
+    }
+
+    /** 批v173 C7: resolve the automation's display name (and the device's) at
+     *  event time. Never throws: a gone device / dead client / failed lookup
+     *  all degrade to nulls → the fallback title below. */
+    private suspend fun resolveAutomationContext(
+        serverId: String,
+        automationId: Int,
+    ): Pair<String?, String?> {
+        val profile = try {
+            repository.profiles.first().find { it.id == serverId }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return null to null
+        val name = try {
+            repository.client(profile)?.automationGet(automationId)?.name
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        return name to profile.name
+    }
+
+    private suspend fun onAutomationSettled(serverId: String, settled: RunSettled) {
+        val (automationName, serverName) = resolveAutomationContext(serverId, settled.automationId)
+        synchronized(lock) {
+            if (!settings.notifyTaskResultsEnabled) return
+            // Automations surface on the board (the 琥珀区 row) — looking at the
+            // board right now means the alert would be noise. Same foreground
+            // gate as the task/turn checks (批v161.3 R1).
+            if (appForeground.fg.value && ForegroundBoard.onBoard.value) return
+            val ctx = LocaleManager.wrapReadOnly(context)
+            val id = automationNotificationId(serverId, settled.runId)
+            val title = automationName?.takeIf { it.isNotBlank() }
+                ?: ctx.getString(R.string.notify_automation_fallback, settled.automationId)
+            val outcome = ctx.getString(
+                if (settled.status == "succeeded") R.string.notify_automation_succeeded
+                else R.string.notify_automation_failed,
+            )
+            val text = serverName?.takeIf { it.isNotBlank() }?.let { "$outcome · $it" } ?: outcome
+            val notification = NotificationCompat.Builder(ctx, InteractiveNotifier.CHANNEL_TASK_RESULTS)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle(ellipsis(title))
+                .setContentText(text)
+                .setContentIntent(boardContentIntent(ctx))
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .build()
+            runCatching { notificationManager().notify(id, notification) }
+                .onFailure { Log.w(TAG, "notify automation settled failed: ${it.message}") }
+            putCapped(postedResults, "automation|$serverId|${settled.runId}", id)
+        }
     }
 
     private fun onDeviceDown(event: DeviceDownEvent) = synchronized(lock) {
@@ -293,6 +382,31 @@ class TaskResultNotifier @Inject constructor(
         /** One outstanding outage alert per device. */
         fun deviceNotificationId(serverId: String): Int =
             43 * serverId.hashCode()
+
+        /** 批v173 C7: the run outcomes worth a shade row (cancelled/skipped are
+         *  scheduler noise the user never waits on). */
+        internal val NOTIFYABLE_RUN_STATUSES = setOf("succeeded", "failed")
+
+        /** Stable per-run automation notification id. 47 ≠ 37 (task) / 41
+         *  (turn) / 43 (device) — a run id may equal a task id on the wire. */
+        fun automationNotificationId(serverId: String, runId: Int): Int =
+            47 * serverId.hashCode() + runId.hashCode()
+
+        /** 批v173 C7: pure decoder for the firehose's run_settled payload —
+         *  `{"kind":"run_settled","automation_id":N,"run_id":N,"status":"..."}`.
+         *  null = anything malformed or a different kind on the same channel
+         *  (the channel carries other automation frames too). Exposed internal
+         *  and pure so the contract is unit-testable without a socket. */
+        internal fun parseRunSettled(payload: JsonObject): RunSettled? {
+            val kind = (payload["kind"] as? JsonPrimitive)?.contentOrNull ?: return null
+            if (kind != "run_settled") return null
+            val automationId = (payload["automation_id"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
+                ?: return null
+            val runId = (payload["run_id"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
+                ?: return null
+            val status = (payload["status"] as? JsonPrimitive)?.contentOrNull ?: return null
+            return RunSettled(automationId, runId, status)
+        }
 
         /** Collapse line breaks first (a multi-line title would break the one-
          *  line shade row), then count CHARACTERS as code points (批v161.3 R2):

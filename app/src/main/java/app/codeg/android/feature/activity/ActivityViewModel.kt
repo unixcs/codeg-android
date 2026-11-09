@@ -10,6 +10,7 @@ import app.codeg.android.core.data.DeviceLoadStatus
 import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
 import app.codeg.android.core.data.AGG_SKELETON_DELAY_MS
 import app.codeg.android.core.data.FOLDER_LOOKUP_TIMEOUT_MS
+import app.codeg.android.core.data.GlobalEventWatcher
 import app.codeg.android.core.data.LIVE_PROBE_TIMEOUT_MS
 import app.codeg.android.core.data.RUNNING_STATUS_MAX_AGE
 import app.codeg.android.core.data.SINGLE_DEVICE_TIMEOUT_MS
@@ -47,9 +48,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -82,6 +86,8 @@ class ActivityViewModel @Inject constructor(
     private val aggregateProjectFilter: AggregateProjectFilterStore,
     /** Floating-ball session cycling (batch v132) — the aggregate list registers here. */
     val focusHub: SessionFocusHub,
+    /** 批v173 C1: process-wide push layer — conversation://changed pings the feed. */
+    private val globalEvents: GlobalEventWatcher,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -173,6 +179,13 @@ class ActivityViewModel @Inject constructor(
     private val folderCache = HashMap<String, Map<Int, String>>()
 
     init {
+        // 批v173 C1: a pushed conversation://changed bumps the repository's
+        // activity tick — the VM's existing combine+tick arbitration does the
+        // rest (dedupe, mode resets, active/foreground gating all unchanged).
+        globalEvents.events
+            .filter { it.channel == GlobalEventWatcher.CHANNEL_CONVERSATION }
+            .onEach { repository.requestActivityRefresh() }
+            .launchIn(viewModelScope)
         viewModelScope.launch {
             combine(
                 repository.selectedProfile,

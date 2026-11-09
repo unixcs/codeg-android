@@ -6,6 +6,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.codeg.android.core.crash.CrashReporter
 import app.codeg.android.core.crash.CrashStore
+import app.codeg.android.core.data.GlobalEventWatcher
 import app.codeg.android.core.data.InteractiveRequestWatcher
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.notify.AppForeground
@@ -65,6 +66,14 @@ class CodegApplication : Application() {
     @Inject
     lateinit var taskResultWatcher: TaskResultWatcher
 
+    // 批v173 C1: the push layer must outlive the shell AND the keep-alive
+    // service — it feeds both in-app refreshes and (via the notifier) the
+    // run-settled notifications that only exist while backgrounded. Same
+    // laziness trap as the notifier above: nothing else holds a process-
+    // lifetime reference, so the injection IS the activation.
+    @Inject
+    lateinit var globalEventWatcher: GlobalEventWatcher
+
     // 批v161.3 R1: the foreground mirror moved into [AppForeground] so the
     // notifiers can read it too; this alias keeps the polling ViewModels'
     // `(appContext as CodegApplication).appForeground` reads working.
@@ -103,6 +112,7 @@ class CodegApplication : Application() {
         // MainShell DisposableEffect is gone) — this is THE process-lifetime one.
         interactionWatcher.start()
         taskResultWatcher.start()
+        globalEventWatcher.start()
         appScope.launch {
             appSettingsStore.settings
                 .map { it.keepAliveEnabled }
