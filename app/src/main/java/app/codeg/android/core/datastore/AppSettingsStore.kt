@@ -121,6 +121,12 @@ data class AppSettings(
     /** 批v171（经典外观）: false = restrained selected-state (v170 浅灰, default),
      *  true = the pre-v170 accent-fill skin — one toggle, four colour roles. */
     val classicLook: Boolean = false,
+    /** 批v172 D4: light-mode paper variant ("default"/"parchment"/"sage"/"gray");
+     *  dark mode ignores it. Unknown ids fall back at the theme layer. */
+    val lightSurfaceId: String = DEFAULT_LIGHT_SURFACE,
+    /** 批v172 D5: app-wide body font ("system"/"wenkai"/"serif"); unknown ids
+     *  fall back to the platform default at the theme layer. */
+    val appFontId: String = DEFAULT_APP_FONT,
     /** Dispatch-sheet defaults (v1.0.1-fengx.34): preselected device id, folder
      *  id/name and agent wire name. Blank device / id <= 0 / blank agent = unset
      *  (the sheet opens with its previous no-default behavior). */
@@ -137,6 +143,8 @@ data class AppSettings(
         // id 一致（那边只兜「未知 id」，新用户拿到的是这里的值）。显式选过
         // 配色的用户存的是自己的 id，不受影响。
         const val DEFAULT_ACCENT = "teal"
+        const val DEFAULT_LIGHT_SURFACE = "default"
+        const val DEFAULT_APP_FONT = "system"
         // The app opens on the workbench unless the user picked another start tab.
         const val DEFAULT_START_TAB = "activity"
         const val DEFAULT_FLOAT_BALL_SIZE = "medium"
@@ -256,6 +264,8 @@ class AppSettingsStore @Inject constructor(
             ),
             inboxSwipeEnabled = prefs[INBOX_SWIPE_ENABLED] ?: true,
             classicLook = prefs[CLASSIC_LOOK] ?: false,
+            lightSurfaceId = prefs[LIGHT_SURFACE_ID] ?: AppSettings.DEFAULT_LIGHT_SURFACE,
+            appFontId = prefs[APP_FONT_ID] ?: AppSettings.DEFAULT_APP_FONT,
             projectChipOrder = prefs[PROJECT_CHIP_ORDER]?.split(',')?.filter { it.isNotBlank() }
                 ?: emptyList(),
             projectChipSortByCount = prefs[PROJECT_CHIP_SORT_BY_COUNT] ?: false,
@@ -307,6 +317,16 @@ class AppSettingsStore @Inject constructor(
 
     suspend fun setAccent(accentId: String) {
         dataStore.edit { it[ACCENT] = accentId }
+    }
+
+    /** 批v172 D4: light paper variant; the theme layer coerces unknown ids. */
+    suspend fun setLightSurface(id: String) {
+        dataStore.edit { it[LIGHT_SURFACE_ID] = id }
+    }
+
+    /** 批v172 D5: body font; the theme layer coerces unknown ids. */
+    suspend fun setAppFont(id: String) {
+        dataStore.edit { it[APP_FONT_ID] = id }
     }
 
     /** Persist the bottom-tab order as an ordered list of route names. */
@@ -599,6 +619,8 @@ class AppSettingsStore @Inject constructor(
         val SESSION_FONT_SCALE = floatPreferencesKey("session_font_scale")
         val INBOX_FONT_SCALE = floatPreferencesKey("inbox_font_scale")
         val TASKHUB_FONT_SCALE = floatPreferencesKey("taskhub_font_scale")
+        val LIGHT_SURFACE_ID = stringPreferencesKey("light_surface_id")
+        val APP_FONT_ID = stringPreferencesKey("app_font_id")
         val FLOAT_BALL_POS = stringPreferencesKey("float_ball_pos")
         val FLOAT_BALL_BINDINGS = stringPreferencesKey("float_ball_bindings")
         val DISPATCH_DEFAULT_DEVICE = stringPreferencesKey("dispatch_default_device")

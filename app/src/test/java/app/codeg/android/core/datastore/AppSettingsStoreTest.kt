@@ -109,6 +109,9 @@ class AppSettingsStoreTest {
         assertEquals(1, keys.count { it == "session_font_scale" })
         assertEquals(1, keys.count { it == "inbox_font_scale" })
         assertEquals(1, keys.count { it == "taskhub_font_scale" })
+        // 批v172 D4/D5: light paper variant + body font ids.
+        assertEquals(1, keys.count { it == "light_surface_id" })
+        assertEquals(1, keys.count { it == "app_font_id" })
         // And no key collides with another at all.
         assertEquals(keys.size, keys.toSet().size)
     }
@@ -337,6 +340,43 @@ class AppSettingsStoreTest {
             assertEquals(2f, coerced.sessionFontScale)
             assertEquals(0f, coerced.inboxFontScale)
             assertEquals(0f, coerced.taskhubFontScale)
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
+    }
+
+    @Test
+    fun `v172 light surface and app font default to stock ids`() {
+        // 批v172 D4/D5: existing users keep today's look until they pick one.
+        val s = AppSettings()
+        assertEquals("default", s.lightSurfaceId)
+        assertEquals("system", s.appFontId)
+    }
+
+    @Test
+    fun `v172 light surface and app font ids survive a datastore roundtrip`() = runBlocking {
+        // The store persists raw ids; LightSurface.from / AppFont.from coerce
+        // unknown ones at the theme layer — pin that contract end to end.
+        val tmp = TemporaryFolder()
+        tmp.create()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            store.setLightSurface("parchment")
+            store.setAppFont("wenkai")
+            val s = store.settings.first()
+            assertEquals("parchment", s.lightSurfaceId)
+            assertEquals("wenkai", s.appFontId)
+            // Unknown ids pass through raw (the theme coerces, not the store).
+            store.setLightSurface("nonsense")
+            store.setAppFont("nonsense")
+            val raw = store.settings.first()
+            assertEquals("nonsense", raw.lightSurfaceId)
+            assertEquals("nonsense", raw.appFontId)
         } finally {
             scope.cancel()
             tmp.delete()

@@ -60,7 +60,9 @@ import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.OptionListSheet
 import app.codeg.android.core.designsystem.component.PickerField
 import app.codeg.android.core.designsystem.component.PickerOption
+import app.codeg.android.core.designsystem.theme.AppFont
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.core.designsystem.theme.LightSurface
 import app.codeg.android.core.model.AgentType
 import app.codeg.android.feature.floatingball.FONT_STEPS
 import app.codeg.android.feature.floatingball.stepFontScale
@@ -1223,6 +1225,8 @@ fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
             // 批v172 D3: per-interface scale sheets. "session" covers the dynamic
             // tab family (activity/chats/search/session detail); 0 = follow global.
             var scaleSheet by rememberSaveable { mutableStateOf<String?>(null) }
+            var fontSheet by rememberSaveable { mutableStateOf(false) }
+            var surfaceSheet by rememberSaveable { mutableStateOf(false) }
             val followGlobal = stringResource(R.string.general_font_follow_global)
             val sheetOptions = remember(followGlobal) {
                 listOf(PickerOption("0", followGlobal)) +
@@ -1275,6 +1279,32 @@ fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 scale = appSettings.taskhubFontScale,
                 onClick = { scaleSheet = "taskhub" },
             )
+            // 批v172 D5: 正文字体三选（数字/代码保持等宽，CodegMono 不受影响）。
+            ChoiceRow(
+                title = stringResource(R.string.general_font_family_title),
+                value = stringResource(
+                    when (AppFont.from(appSettings.appFontId)) {
+                        AppFont.WENKAI -> R.string.general_font_family_wenkai
+                        AppFont.SERIF -> R.string.general_font_family_serif
+                        AppFont.SYSTEM -> R.string.general_font_family_system
+                    },
+                ),
+                onClick = { fontSheet = true },
+            )
+            // 批v172 D4: 浅色纸面四选——sheet 的 hint 注明深色模式忽略该设置。
+            ChoiceRow(
+                title = stringResource(R.string.general_surface_title),
+                value = stringResource(
+                    when (LightSurface.from(appSettings.lightSurfaceId)) {
+                        LightSurface.PARCHMENT -> R.string.general_surface_parchment
+                        LightSurface.SAGE -> R.string.general_surface_sage
+                        LightSurface.PAPER_GRAY -> R.string.general_surface_gray
+                        LightSurface.DEFAULT -> R.string.general_surface_default
+                    },
+                ),
+                note = stringResource(R.string.general_surface_hint),
+                onClick = { surfaceSheet = true },
+            )
             scaleSheet?.let { which ->
                 OptionListSheet(
                     title = stringResource(
@@ -1302,6 +1332,42 @@ fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
                         scaleSheet = null
                     },
                     onDismiss = { scaleSheet = null },
+                )
+            }
+            // 批v172 D5: 字体 sheet——stringResource 先提出来再拼 options
+            // （R1 的教训：@DisallowComposableCalls 禁 remember 内取）。
+            if (fontSheet) {
+                OptionListSheet(
+                    title = stringResource(R.string.general_font_family_title),
+                    options = listOf(
+                        PickerOption(AppFont.SYSTEM.id, stringResource(R.string.general_font_family_system)),
+                        PickerOption(AppFont.WENKAI.id, stringResource(R.string.general_font_family_wenkai)),
+                        PickerOption(AppFont.SERIF.id, stringResource(R.string.general_font_family_serif)),
+                    ),
+                    selectedId = AppFont.from(appSettings.appFontId).id,
+                    onSelect = { option ->
+                        viewModel.setAppFont(option.id)
+                        fontSheet = false
+                    },
+                    onDismiss = { fontSheet = false },
+                )
+            }
+            // 批v172 D4: 纸面 sheet。
+            if (surfaceSheet) {
+                OptionListSheet(
+                    title = stringResource(R.string.general_surface_title),
+                    options = listOf(
+                        PickerOption(LightSurface.DEFAULT.id, stringResource(R.string.general_surface_default)),
+                        PickerOption(LightSurface.PARCHMENT.id, stringResource(R.string.general_surface_parchment)),
+                        PickerOption(LightSurface.SAGE.id, stringResource(R.string.general_surface_sage)),
+                        PickerOption(LightSurface.PAPER_GRAY.id, stringResource(R.string.general_surface_gray)),
+                    ),
+                    selectedId = LightSurface.from(appSettings.lightSurfaceId).id,
+                    onSelect = { option ->
+                        viewModel.setLightSurface(option.id)
+                        surfaceSheet = false
+                    },
+                    onDismiss = { surfaceSheet = false },
                 )
             }
         }
@@ -1335,6 +1401,43 @@ private fun InterfaceScaleRow(title: String, scale: Float, onClick: () -> Unit) 
         colors = ListItemDefaults.colors(
             containerColor = Color.Transparent,
             headlineColor = colors.textPrimary,
+        ),
+        modifier = Modifier.clickable(onClick = onClick),
+    )
+}
+
+/** 批v172 D4/D5: generic choice row — same language as [InterfaceScaleRow]
+ *  (transparent ListItem, right value + chevron), optional supporting note. */
+@Composable
+private fun ChoiceRow(title: String, value: String, note: String? = null, onClick: () -> Unit) {
+    val colors = CodegTheme.colors
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = if (note != null) {
+            { Text(note) }
+        } else {
+            null
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    value,
+                    fontSize = 14.sp,
+                    color = colors.textSecondary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Icon(
+                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = colors.textTertiary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = Color.Transparent,
+            headlineColor = colors.textPrimary,
+            supportingColor = colors.textTertiary,
         ),
         modifier = Modifier.clickable(onClick = onClick),
     )

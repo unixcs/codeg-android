@@ -370,6 +370,16 @@ class GeneralViewModel @Inject constructor(
         appSettingsStore.setFontScale(scale)
     }
 
+    /** 批v172 D4: light paper variant (theme layer coerces unknown ids). */
+    fun setLightSurface(id: String) = launchPersist {
+        appSettingsStore.setLightSurface(id)
+    }
+
+    /** 批v172 D5: body font (theme layer coerces unknown ids). */
+    fun setAppFont(id: String) = launchPersist {
+        appSettingsStore.setAppFont(id)
+    }
+
     /** 批v172 D3: per-interface font scales (0 = follow global). */
     fun setSessionFontScale(scale: Float) = launchPersist {
         appSettingsStore.setSessionFontScale(scale)

@@ -43,6 +43,8 @@ fun CodegTheme(
     accentId: String = AccentPalette.DEFAULT.id,
     fontScaleFactor: Float = 1f,
     classicLook: Boolean = false,
+    lightSurfaceId: String = LightSurface.DEFAULT.id,
+    appFontId: String = AppFont.SYSTEM.id,
     content: @Composable () -> Unit,
 ) {
     val isDark = when (themeMode) {
@@ -51,7 +53,14 @@ fun CodegTheme(
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
     val palette = AccentPalette.from(accentId)
-    val colors = remember(isDark, palette, classicLook) { codegColors(isDark, palette, classicLook) }
+    // 批v172 D4/D5: the paper variant only touches the light branch; the body
+    // font builds a Typography copy (null = platform default, pre-D5 look).
+    val lightSurface = LightSurface.from(lightSurfaceId)
+    val appFont = remember(appFontId) { AppFont.from(appFontId).resolve() }
+    val colors = remember(isDark, palette, classicLook, lightSurface) {
+        codegColors(isDark, palette, classicLook, lightSurface)
+    }
+    val typography = remember(appFont) { codegTypography(appFont) }
     val material = remember(colors) { colors.toMaterialScheme() }
 
     // Drive the system bar icon contrast from the *resolved* appearance rather than the
@@ -84,7 +93,7 @@ fun CodegTheme(
     ) {
         MaterialTheme(
             colorScheme = material,
-            typography = CodegTypography,
+            typography = typography,
             shapes = CodegShapes,
             content = content,
         )

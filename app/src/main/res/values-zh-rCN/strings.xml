@@ -1181,6 +1181,18 @@
     <string name="general_font_inbox_title">收件箱字号</string>
     <string name="general_font_taskhub_title">任务板字号</string>
     <string name="general_font_follow_global">跟随全局</string>
+    <!-- 批v172 D5：正文字体 -->
+    <string name="general_font_family_title">正文字体</string>
+    <string name="general_font_family_system">系统默认</string>
+    <string name="general_font_family_wenkai">霞鹜文楷</string>
+    <string name="general_font_family_serif">系统衬线</string>
+    <!-- 批v172 D4：浅色纸面变体 -->
+    <string name="general_surface_title">浅色底色</string>
+    <string name="general_surface_default">默认</string>
+    <string name="general_surface_parchment">羊皮纸</string>
+    <string name="general_surface_sage">豆沙绿</string>
+    <string name="general_surface_gray">纸灰</string>
+    <string name="general_surface_hint">仅浅色模式下生效</string>
     <string name="ball_enable_title">显示悬浮球</string>
     <string name="ball_enable_subtitle">任意界面快速操作；按住球 1 秒拖动可移动位置</string>
     <string name="ball_size_title">球大小</string>

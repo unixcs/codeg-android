@@ -36,6 +36,8 @@ fun CodegApp(appViewModel: AppViewModel = hiltViewModel()) {
         accentId = settings.accentId,
         fontScaleFactor = settings.fontScale,
         classicLook = settings.classicLook,
+        lightSurfaceId = settings.lightSurfaceId,
+        appFontId = settings.appFontId,
     ) {
         CodegBackground {
             val servers by appViewModel.servers.collectAsStateWithLifecycle()

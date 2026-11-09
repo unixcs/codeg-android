@@ -1195,6 +1195,18 @@
     <string name="general_font_inbox_title">Inbox font size</string>
     <string name="general_font_taskhub_title">Task board font size</string>
     <string name="general_font_follow_global">Follow global</string>
+    <!-- 批v172 D5: body font -->
+    <string name="general_font_family_title">Body font</string>
+    <string name="general_font_family_system">System default</string>
+    <string name="general_font_family_wenkai">LXGW WenKai</string>
+    <string name="general_font_family_serif">System serif</string>
+    <!-- 批v172 D4: light-mode paper variants -->
+    <string name="general_surface_title">Light background</string>
+    <string name="general_surface_default">Default</string>
+    <string name="general_surface_parchment">Parchment</string>
+    <string name="general_surface_sage">Sage green</string>
+    <string name="general_surface_gray">Paper gray</string>
+    <string name="general_surface_hint">Applies in light mode</string>
     <string name="ball_enable_title">Show floating ball</string>
     <string name="ball_enable_subtitle">Quick actions from anywhere; hold the ball 1s and move to reposition it</string>
     <string name="ball_size_title">Ball size</string>

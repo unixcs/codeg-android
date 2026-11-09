@@ -30,6 +30,25 @@ enum class AccentPalette(val id: String, val dark: Color, val light: Color) {
 }
 
 /**
+ * 批v172 D4 护眼全家桶: light-mode paper variants. Dark mode ignores the
+ * setting — this is the "paper" the app reads on, not a second dark theme.
+ * Alpha-derived strokes/hairlines adapt to any of these on their own; the
+ * tinted variants only need two ink colours darkened to hold WCAG AA at 12sp
+ * (see [codegColors]).
+ */
+enum class LightSurface(val id: String, val bg: Color, val bgElevated: Color, val tinted: Boolean) {
+    DEFAULT("default", Color(0xFFF2F4F6), Color(0xFFFFFFFF), tinted = false),
+    PARCHMENT("parchment", Color(0xFFF2EAD8), Color(0xFFFAF5E9), tinted = true),
+    SAGE("sage", Color(0xFFCCE8CF), Color(0xFFEAF4EC), tinted = true),
+    PAPER_GRAY("gray", Color(0xFFE6E5E1), Color(0xFFF4F3F0), tinted = true);
+
+    companion object {
+        val all: List<LightSurface> = entries
+        fun from(id: String?): LightSurface = entries.firstOrNull { it.id == id } ?: DEFAULT
+    }
+}
+
+/**
  * The full set of semantic colours used across the app, ported from the iOS
  * `Theme`. Provided via `LocalCodegColors`; resolved for the active mode +
  * accent by [codegColors].
@@ -64,8 +83,14 @@ data class CodegColors(
 )
 
 /** Build the colour set for the given mode + accent (iOS `Theme.swift` values).
- *  [classicLook] flips the selected-state roles to the pre-v170 accent-fill skin. */
-fun codegColors(isDark: Boolean, accent: AccentPalette, classicLook: Boolean = false): CodegColors {
+ *  [classicLook] flips the selected-state roles to the pre-v170 accent-fill skin;
+ *  [lightSurface] swaps the LIGHT branch's paper tones only (批v172 D4). */
+fun codegColors(
+    isDark: Boolean,
+    accent: AccentPalette,
+    classicLook: Boolean = false,
+    lightSurface: LightSurface = LightSurface.DEFAULT,
+): CodegColors {
     val accentColor = accent.resolve(isDark)
     val onAccent = onAccentColor(accentColor)
     return if (isDark) {
@@ -96,8 +121,11 @@ fun codegColors(isDark: Boolean, accent: AccentPalette, classicLook: Boolean = f
     } else {
         CodegColors(
             isDark = false,
-            bg = Color(0xFFF2F4F6),
-            bgElevated = Color(0xFFFFFFFF),
+            // 批v172 D4: paper variant — DEFAULT reproduces the v170 light theme
+            // exactly; tinted variants swap both paper tones (cards read as the
+            // same paper, one step lighter than the page).
+            bg = lightSurface.bg,
+            bgElevated = lightSurface.bgElevated,
             surfaceStroke = Color.Black.copy(alpha = 0.10f),
             // 批v170 R4（浅色专项）：7% 叠白对白卡仅 1.17:1，卡片轮廓近乎隐形；
             // 9% ≈ Tremor gray-200 档，深色侧（白 5.5%）不动。
@@ -108,8 +136,12 @@ fun codegColors(isDark: Boolean, accent: AccentPalette, classicLook: Boolean = f
             textSecondary = Color(0xFF616161),
             // 批v153（第3轮可及性审查修正）：#8C8C8C ≈3.1-3.4:1（12sp 不达 AA，
             // 工作台新面大量使用）；#6E6E6E ≈4.6-5.1:1。
-            textTertiary = Color(0xFF6E6E6E),
-            danger = Color(0xFFCC2E2E),
+            // 批v172 D4: tinted paper drops that to ≈4.27:1 (parchment) — the
+            // tinted variants darken one step (#5E5E5E ≈5.3:1 on every paper).
+            textTertiary = if (lightSurface.tinted) Color(0xFF5E5E5E) else Color(0xFF6E6E6E),
+            // 批v172 D4: same tinted-paper logic — #CC2E2E is ≈4.4:1 on parchment,
+            // #B32E2E holds ≈5.2:1 on every tinted paper (default unchanged).
+            danger = if (lightSurface.tinted) Color(0xFFB32E2E) else Color(0xFFCC2E2E),
             accent = accentColor,
             onAccent = onAccent,
             accentDim = accentColor.copy(alpha = 0.16f),
