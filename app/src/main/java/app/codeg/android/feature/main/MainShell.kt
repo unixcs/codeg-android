@@ -95,6 +95,7 @@ import app.codeg.android.feature.projects.ProjectDetailScreen
 import app.codeg.android.feature.quick.QuickActionViewModel
 import app.codeg.android.feature.quick.QuickIdeaSheet
 import app.codeg.android.feature.quick.QuickNewSessionSheet
+import app.codeg.android.feature.quick.QuickSaveSheet
 import app.codeg.android.feature.quick.QuickTaskSheet
 import app.codeg.android.feature.quick.RecentSessionPickerSheet
 import app.codeg.android.feature.search.SearchScreen
@@ -387,6 +388,9 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     var showQuickHandoff by rememberSaveable { mutableStateOf(false) }
     // 批v151: ball "quickNewSession" — the global new-session sheet (P6).
     var showQuickNewSession by rememberSaveable { mutableStateOf(false) }
+    // 批v172 D7: the quick-save-to-markdown sheet (ball + workbench card +
+    // inbox long-press hosts it separately for prefilled ideas).
+    var showQuickSave by rememberSaveable { mutableStateOf(false) }
     // 每次打开快照一个 token：派发/保存的完成回调可能在 sheet 被关掉、又被重新
     // 打开之后才迟到（VM 协程持有旧闭包）。旧 token 与当前不一致时只弹回执，
     // 不关掉用户刚打开的新 sheet。两个 sheet 分开计数——共用计数器时后开的会
@@ -1045,15 +1049,18 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             "newSession" -> openNewTask()
             // 批v150 quick-center actions (panel 2×2 cards): idea/task/handoff
             // open shell-level sheets; search is the demoted push surface.
-            "quickIdea" -> showQuickIdea = true
+            "quickIdea" -> { showQuickSave = false; showQuickIdea = true }
             // quickTask/quickNewSession 共用宿主 B（QuickActionViewModel）——互斥
             // 打开（第1轮派发审查修正）：一张 sheet 的 loadTarget 会清掉另一张
             // 正在填的目录/Agent 列表，不能同屏叠开。
-            "quickTask" -> { showQuickNewSession = false; showQuickTask = true }
-            "quickHandoff" -> showQuickHandoff = true
+            "quickTask" -> { showQuickNewSession = false; showQuickSave = false; showQuickTask = true }
+            "quickHandoff" -> { showQuickSave = false; showQuickHandoff = true }
             "quickSearch" -> pushSurface(ROUTE_SEARCH)
             // 批v151: global new-session sheet — pick device, then folder, then jump.
-            "quickNewSession" -> { showQuickTask = false; showQuickNewSession = true }
+            "quickNewSession" -> { showQuickTask = false; showQuickSave = false; showQuickNewSession = true }
+            // 批v172 D7: quick-save is sheet-hosted like the other quick-center
+            // actions; own VM (no host-B contention), still one sheet at a time.
+            "quickSave" -> { showQuickTask = false; showQuickNewSession = false; showQuickSave = true }
             // 批v152: Chats is a tab again — the ball entry goes through enterTab
             // (All-devices on entry); folders/search stay pushes. 批v160: the ball
             // is free navigation — never records, clears any pending return.
@@ -1469,13 +1476,19 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         // jumpToTab，Back 回工作台；任务板段位直达用一次性请求）。
                         // 批v153（UX 审查）：快捷行会话卡与底栏重复，换成「创建任务」
                         // 直达球的快速任务 sheet。
-                        onQuickTask = { showQuickTask = true },
+                        quickCards = appSettings.workbenchQuickCards,
+                        onQuickAction = { id ->
+                            when (id) {
+                                "quickTask" -> showQuickTask = true
+                                "folders" -> pushSurface(ROUTE_FOLDERS)
+                                "search" -> pushSurface(ROUTE_SEARCH)
+                                "newSession" -> openNewTask()
+                                "quickSave" -> showQuickSave = true
+                            }
+                        },
                         // 批v160: workbench quick entries are cross-jumps — Back returns
                         // to the workbench tab (jumpToTab).
                         onOpenAllChats = { jumpToTab(HomeTab.CHATS) },
-                        onOpenFolders = { pushSurface(ROUTE_FOLDERS) },
-                        onOpenSearch = { pushSurface(ROUTE_SEARCH) },
-                        onOpenNewSession = openNewTask,
                         onOpenTasks = { segment ->
                             appViewModel.requestTaskSegment(segment)
                             jumpToTab(HomeTab.TASKS)
@@ -1784,6 +1797,12 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         // the same owning-device dance as the inbox's v149 session dispatch.
         // 第1轮审查修正：跳转没走成时（单飞被占 / 迟到回调）回执兜底——
         // "创建了但没下文"至少留下一条全局可见记录。
+        // 批v172 D7: the ball's quick-save sheet — title + body + device + folder
+        // → <标题>.md on the device. Owns its VM (no host-B contention); the
+        // show* flags above keep it exclusive with the other quick sheets.
+        if (showQuickSave) {
+            QuickSaveSheet(onDismiss = { showQuickSave = false })
+        }
         if (showQuickNewSession) {
             val openToken = remember { quickNewSessionSeq.incrementAndGet() }
             QuickNewSessionSheet(

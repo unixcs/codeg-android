@@ -112,8 +112,46 @@ class AppSettingsStoreTest {
         // 批v172 D4/D5: light paper variant + body font ids.
         assertEquals(1, keys.count { it == "light_surface_id" })
         assertEquals(1, keys.count { it == "app_font_id" })
+        // 批v172 D7/补充1: quick-save memory + the workbench quick-card list.
+        assertEquals(1, keys.count { it == "workbench_quick_cards" })
+        assertEquals(1, keys.count { it == "quick_save_last_server" })
+        assertEquals(1, keys.count { it == "quick_save_last_dir" })
         // And no key collides with another at all.
         assertEquals(keys.size, keys.toSet().size)
+    }
+
+    @Test
+    fun `quick cards default to the pre-v172 four and roundtrip`() = runBlocking {
+        // 批v172 补充1/D7: a missing key must NOT read as "no cards" — upgrade
+        // has to keep the row the user already had. An explicitly stored empty
+        // string IS "all off" (the user's choice, not corruption). quickSave is
+        // opt-in: it joins only when the toggle adds it.
+        val tmp = TemporaryFolder()
+        tmp.create()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            assertEquals(
+                AppSettings.DEFAULT_WORKBENCH_QUICK_CARDS,
+                store.settings.first().workbenchQuickCards,
+            )
+            assertEquals(listOf("quickTask", "folders", "search", "newSession"), store.settings.first().workbenchQuickCards)
+            store.setWorkbenchQuickCards(listOf("quickTask", "quickSave", "stale-id"))
+            store.setQuickSaveLast("srv-1", "notes/sub")
+            val s = store.settings.first()
+            assertEquals(listOf("quickTask", "quickSave", "stale-id"), s.workbenchQuickCards)
+            assertEquals("srv-1", s.quickSaveLastServer)
+            assertEquals("notes/sub", s.quickSaveLastDir)
+            // All-off is a legal explicit state.
+            store.setWorkbenchQuickCards(emptyList())
+            assertTrue(store.settings.first().workbenchQuickCards.isEmpty())
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
     }
 
     @Test

@@ -149,6 +149,7 @@ import app.codeg.android.core.model.AgentType
 import app.codeg.android.core.model.ModelProviderInfo
 import app.codeg.android.feature.dispatch.AgentOptionsRows
 import app.codeg.android.feature.dispatch.AgentOptionsRowsState
+import app.codeg.android.feature.quick.QuickSaveSheet
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -223,6 +224,10 @@ fun InboxScreen(
     // 不丢"正在追加哪个想法"。
     var appendingId by rememberSaveable { mutableStateOf<String?>(null) }
     var appendTarget by remember { mutableStateOf<SessionPickerRow?>(null) }
+    // 批v172 D7: 长按/⋯菜单的「保存为 Markdown」——同一卡片的 id（saveable），
+    // 弹 QuickSaveSheet 时预填标题与正文。
+    var quickSavingId by rememberSaveable { mutableStateOf<String?>(null) }
+    val quickSaving = quickSavingId?.let { id -> ui.ideas.firstOrNull { it.id == id } }
     val appending = appendingId?.let { id -> ui.ideas.firstOrNull { it.id == id } }
     // 「已派进会话」小标的来源：已确认的会话型 DispatchRef（ideaId → 最近一笔）。
     val appendedSessionByIdeaId = remember(ui.confirmedRefs) {
@@ -347,6 +352,8 @@ fun InboxScreen(
                             onDelete = { pendingDelete = idea },
                             // 批v162 反向快链入口（⋯菜单与长按菜单同一条 DropdownMenu）。
                             onAppendToSession = { appendingId = idea.id },
+                            // 批v172 D7: 预填快速保存（标题=idea.title，正文=description）。
+                            onSaveAsMarkdown = { quickSavingId = idea.id },
                             appendedToSession = idea.id in appendedSessionByIdeaId,
                             onProbe = { ref?.let { viewModel.probe(it.requestId) } },
                             onDiscard = { ref?.let { confirmRef = it; confirmRedispatch = false } },
@@ -637,6 +644,15 @@ fun InboxScreen(
             )
         }
     }
+
+    // 批v172 D7: 快速保存宿主——想法卡长按/⋯菜单进来，标题与正文已预填。
+    quickSaving?.let { idea ->
+        QuickSaveSheet(
+            initialTitle = idea.title,
+            initialContent = idea.description,
+            onDismiss = { quickSavingId = null },
+        )
+    }
 }
 
 /**
@@ -668,6 +684,8 @@ private fun IdeaCard(
     onDelete: () -> Unit,
     /** 批v162 反向快链：⋯菜单 / 长按菜单的「追加到已有会话」——打开目标选择器。 */
     onAppendToSession: () -> Unit,
+    /** 批v172 D7: ⋯菜单 / 长按菜单的「保存为 Markdown」——预填打开快速保存。 */
+    onSaveAsMarkdown: () -> Unit,
     /** 批v162: 这条想法已有确认入账的会话追加（读 DispatchRef）——出小标。 */
     appendedToSession: Boolean,
     onProbe: () -> Unit,
@@ -726,6 +744,10 @@ private fun IdeaCard(
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.inbox_append_to_session)) },
                                 onClick = { menuOpen = false; onAppendToSession() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.inbox_menu_save_md)) },
+                                onClick = { menuOpen = false; onSaveAsMarkdown() },
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.inbox_menu_select)) },

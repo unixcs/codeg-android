@@ -86,9 +86,8 @@ fun ActivityScreen(
     // 批v150 工作台：快捷入口 + 聚合会话一键直达 + 任务板跳转。onOpenAllChats
     // 先置 chatsAll 再 push（聚合不变量在 push 面上认 chatsAll）。
     onOpenAllChats: () -> Unit = {},
-    onOpenFolders: () -> Unit = {},
-    onOpenSearch: () -> Unit = {},
-    onOpenNewSession: () -> Unit = {},
+    quickCards: List<String> = emptyList(),
+    onQuickAction: (String) -> Unit = {},
     // 批v153: 快捷行的「创建任务」卡直达球的快速任务 sheet。
     onQuickTask: () -> Unit = {},
     // 批v152: the stat cards jump into a SPECIFIC task-board segment (running /
@@ -222,10 +221,8 @@ fun ActivityScreen(
                 attentionCollapsed = display.attentionCollapsed,
                 onToggleOverview = { workbench.setOverviewCollapsed(!display.overviewCollapsed) },
                 onToggleAttention = { workbench.setAttentionCollapsed(!display.attentionCollapsed) },
-                onQuickTask = onQuickTask,
-                onOpenFolders = onOpenFolders,
-                onOpenSearch = onOpenSearch,
-                onOpenNewSession = onOpenNewSession,
+                quickCards = quickCards,
+                onQuickAction = onQuickAction,
                 onOpenTasks = onOpenTasks,
                 onOpenInteraction = onOpenInteraction,
                 onOpenAutomations = onOpenAutomations,

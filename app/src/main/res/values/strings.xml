@@ -1497,6 +1497,26 @@
     <string name="quick_idea_auto_title">Idea %1$s</string>
     <string name="quick_task_title">Quick create</string>
     <string name="quick_new_session_title">New session</string>
+    <!-- 批v172 D7: the quick-save-to-markdown sheet (ball / workbench card / inbox menu). -->
+    <string name="quick_save_title">Quick save</string>
+    <string name="quick_save_device">Device</string>
+    <string name="quick_save_pick_device">Choose device</string>
+    <string name="quick_save_folder">Save to folder</string>
+    <string name="quick_save_folder_root">Workspace root</string>
+    <string name="quick_save_name">Title</string>
+    <string name="quick_save_name_placeholder">Becomes &lt;title&gt;.md</string>
+    <string name="quick_save_content">Content</string>
+    <string name="quick_save_save">Save</string>
+    <string name="quick_save_saving">Saving…</string>
+    <string name="quick_save_choose_dir">Save here</string>
+    <string name="quick_save_saved">Saved to %1$s</string>
+    <string name="quick_save_no_device">No device available — add one in device management first.</string>
+    <string name="quick_save_err_root">Couldn\'t resolve the device\'s home directory.</string>
+    <string name="quick_save_err_generic">Save failed. Your text is kept — try again.</string>
+    <string name="inbox_menu_save_md">Save as Markdown</string>
+    <string name="ball_action_quick_save">Quick save (as Markdown)</string>
+    <string name="workbench_quick_save">Save</string>
+    <string name="workbench_card_toggle_hint">Show in the workbench quick row</string>
     <string name="dispatch_summary_title">Summary</string>
     <string name="dispatch_button_session">Create session</string>
     <string name="dispatch_button_task">Create task</string>

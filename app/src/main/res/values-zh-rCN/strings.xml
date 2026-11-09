@@ -1483,6 +1483,26 @@
     <string name="quick_idea_auto_title">想法 %1$s</string>
     <string name="quick_task_title">快速创建</string>
     <string name="quick_new_session_title">新建会话</string>
+    <!-- 批v172 D7: 快速保存（悬浮球/工作台卡/收件箱菜单共用） -->
+    <string name="quick_save_title">快速保存</string>
+    <string name="quick_save_device">设备</string>
+    <string name="quick_save_pick_device">选择设备</string>
+    <string name="quick_save_folder">保存目录</string>
+    <string name="quick_save_folder_root">根目录</string>
+    <string name="quick_save_name">标题</string>
+    <string name="quick_save_name_placeholder">保存为 &lt;标题&gt;.md</string>
+    <string name="quick_save_content">内容</string>
+    <string name="quick_save_save">保存</string>
+    <string name="quick_save_saving">保存中…</string>
+    <string name="quick_save_choose_dir">保存到这里</string>
+    <string name="quick_save_saved">已保存到 %1$s</string>
+    <string name="quick_save_no_device">暂无可用设备，请先在设备管理里添加。</string>
+    <string name="quick_save_err_root">无法获取设备的根目录。</string>
+    <string name="quick_save_err_generic">保存失败，内容已保留，可重试。</string>
+    <string name="inbox_menu_save_md">保存为 Markdown</string>
+    <string name="ball_action_quick_save">快速保存（存为 .md）</string>
+    <string name="workbench_quick_save">保存</string>
+    <string name="workbench_card_toggle_hint">显示在工作台快捷行</string>
     <string name="dispatch_summary_title">派发摘要</string>
     <string name="dispatch_button_session">创建会话</string>
     <string name="dispatch_button_task">创建任务</string>

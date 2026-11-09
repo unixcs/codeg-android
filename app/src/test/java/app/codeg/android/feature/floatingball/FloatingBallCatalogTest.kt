@@ -63,12 +63,19 @@ class FloatingBallCatalogTest {
         // v150 appended the four quick-center actions; v151 the five quick-shell
         // ones (tabInbox/tabTasks/quickNewSession/toggleAllDevices/refreshActivity);
         // v160 added cycleSessionCustom; v171 the two swipe-binding cycles
-        // (cycleSwipeLeft/cycleSwipeRight). The count guard stays so an
-        // accidental catalog change is caught in CI.
-        assertEquals(33, FloatingBallCatalog.ACTIONS.size)
+        // (cycleSwipeLeft/cycleSwipeRight); v172 quickSave. The count guard stays
+        // so an accidental catalog change is caught in CI.
+        assertEquals(34, FloatingBallCatalog.ACTIONS.size)
         assertEquals("recentSession1", FloatingBallCatalog.DEFAULT_BINDINGS["upThenRight"])
         assertEquals("recentSession2", FloatingBallCatalog.DEFAULT_BINDINGS["upRightThenDown"])
         assertEquals("recentSession3", FloatingBallCatalog.DEFAULT_BINDINGS["upLeftThenRight"])
+    }
+
+    @Test
+    fun `batch v172 adds quickSave without touching defaults`() {
+        assertTrue("missing action quickSave", "quickSave" in FloatingBallCatalog.ACTION_IDS)
+        // v150 policy: catalog growth never rebinds an existing gesture.
+        assertTrue(FloatingBallCatalog.DEFAULT_BINDINGS.values.none { it == "quickSave" })
     }
 
     @Test

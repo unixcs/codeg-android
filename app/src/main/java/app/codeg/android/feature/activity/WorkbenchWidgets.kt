@@ -285,14 +285,24 @@ private fun QuickCard(
     }
 }
 
-/** 快捷入口行：快速任务 / 项目 / 搜索 + 新建会话主按钮（批v153：会话卡与底栏
- *  重复，工作台补「创建任务」直达）。 */
+/**
+ * 批v172 补充1: the quick-row catalog — id + label res, fixed display order.
+ * Shared with 设置→工作台's per-card toggles so the two can never drift.
+ */
+internal val WORKBENCH_QUICK_CARDS: List<Pair<String, Int>> = listOf(
+    "quickTask" to R.string.workbench_quick_task,
+    "folders" to R.string.workbench_quick_folders,
+    "search" to R.string.workbench_quick_search,
+    "quickSave" to R.string.workbench_quick_save,
+    "newSession" to R.string.workbench_new_session,
+)
+
+/** 快捷入口行（批v153：会话卡与底栏重复，工作台补「创建任务」直达；批v172
+ *  补充1：每张卡可在设置里单独隐藏，[visibleCards] 只认上面的 catalog id）。 */
 @Composable
 internal fun WorkbenchQuickRow(
-    onQuickTask: () -> Unit,
-    onOpenFolders: () -> Unit,
-    onOpenSearch: () -> Unit,
-    onOpenNewSession: () -> Unit,
+    visibleCards: List<String>,
+    onQuickAction: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = CodegTheme.colors
@@ -301,32 +311,35 @@ internal fun WorkbenchQuickRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        QuickCard(Icons.Rounded.Assignment, stringResource(R.string.workbench_quick_task), onQuickTask, Modifier.weight(1f))
-        QuickCard(Icons.Rounded.FolderOpen, stringResource(R.string.workbench_quick_folders), onOpenFolders, Modifier.weight(1f))
-        QuickCard(Icons.Rounded.Search, stringResource(R.string.workbench_quick_search), onOpenSearch, Modifier.weight(1f))
-        // Primary action: same frosted-chip language as the ball size chips.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier
-                .weight(1.4f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(colors.accent)
-                .clickable(onClick = onOpenNewSession)
-                .padding(horizontal = 8.dp, vertical = 14.dp),
-        ) {
-            Icon(Icons.Rounded.Add, contentDescription = null, tint = colors.onAccent, modifier = Modifier.size(20.dp))
-            LabelSystemScale {
-                Text(
-                    text = stringResource(R.string.workbench_new_session),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = colors.onAccent,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    // 批v153（第3轮可及性审查）：同屏 QuickCard 全带省略，主按钮漏网
-                    // ——EN/fontScale 2.0 下会在字符中间硬切。
-                    overflow = TextOverflow.Ellipsis,
-                )
+        if ("quickTask" in visibleCards) QuickCard(Icons.Rounded.Assignment, stringResource(R.string.workbench_quick_task), { onQuickAction("quickTask") }, Modifier.weight(1f))
+        if ("folders" in visibleCards) QuickCard(Icons.Rounded.FolderOpen, stringResource(R.string.workbench_quick_folders), { onQuickAction("folders") }, Modifier.weight(1f))
+        if ("search" in visibleCards) QuickCard(Icons.Rounded.Search, stringResource(R.string.workbench_quick_search), { onQuickAction("search") }, Modifier.weight(1f))
+        if ("quickSave" in visibleCards) QuickCard(Icons.Rounded.Save, stringResource(R.string.workbench_quick_save), { onQuickAction("quickSave") }, Modifier.weight(1f))
+        if ("newSession" in visibleCards) {
+            // Primary action: same frosted-chip language as the ball size chips.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .weight(1.4f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(colors.accent)
+                    .clickable { onQuickAction("newSession") }
+                    .padding(horizontal = 8.dp, vertical = 14.dp),
+            ) {
+                Icon(Icons.Rounded.Add, contentDescription = null, tint = colors.onAccent, modifier = Modifier.size(20.dp))
+                LabelSystemScale {
+                    Text(
+                        text = stringResource(R.string.workbench_new_session),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.onAccent,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        // 批v153（第3轮可及性审查）：同屏 QuickCard 全带省略，主按钮漏网
+                        // ——EN/fontScale 2.0 下会在字符中间硬切。
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -623,10 +636,8 @@ internal fun WorkbenchHeader(
     attentionCollapsed: Boolean,
     onToggleOverview: () -> Unit,
     onToggleAttention: () -> Unit,
-    onQuickTask: () -> Unit,
-    onOpenFolders: () -> Unit,
-    onOpenSearch: () -> Unit,
-    onOpenNewSession: () -> Unit,
+    quickCards: List<String>,
+    onQuickAction: (String) -> Unit,
     onOpenTasks: (TaskSegment) -> Unit,
     onOpenInteraction: (PendingInteraction) -> Unit,
     onOpenAutomations: () -> Unit,
@@ -648,7 +659,11 @@ internal fun WorkbenchHeader(
                     onOpenDevices = onOpenDevices,
                     onOpenUsage = onOpenUsage,
                 )
-                WorkbenchQuickRow(onQuickTask, onOpenFolders, onOpenSearch, onOpenNewSession)
+                // 全隐藏时不渲染行：零高 Row 在 spacedBy(10) 里仍会撑出一段
+                // 空隙（本文件 :637 注释的同款坑）。
+                if (quickCards.isNotEmpty()) {
+                    WorkbenchQuickRow(quickCards, onQuickAction)
+                }
             }
         }
         WorkbenchAttentionCard(

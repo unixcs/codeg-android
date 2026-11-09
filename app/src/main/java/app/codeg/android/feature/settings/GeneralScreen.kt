@@ -64,6 +64,7 @@ import app.codeg.android.core.designsystem.theme.AppFont
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.theme.LightSurface
 import app.codeg.android.core.model.AgentType
+import app.codeg.android.feature.activity.WORKBENCH_QUICK_CARDS
 import app.codeg.android.feature.floatingball.FONT_STEPS
 import app.codeg.android.feature.floatingball.stepFontScale
 import app.codeg.android.feature.main.HomeTab
@@ -272,6 +273,21 @@ fun GeneralContent(
                 checked = appSettings.workbenchAttentionExpandedDefault,
                 onChange = viewModel::setWorkbenchAttentionDefaultExpanded,
             )
+            // 批v172 补充1: 快捷卡管理——5 张卡（含新「快速保存」）逐卡开关，
+            // 与 WorkbenchWidgets.WORKBENCH_QUICK_CARDS 同一 catalog，不会漂移。
+            WORKBENCH_QUICK_CARDS.forEach { (cardId, labelRes) ->
+                ToggleRow(
+                    title = stringResource(labelRes),
+                    subtitle = stringResource(R.string.workbench_card_toggle_hint),
+                    checked = cardId in appSettings.workbenchQuickCards,
+                    onChange = { on ->
+                        val current = appSettings.workbenchQuickCards
+                        viewModel.setWorkbenchQuickCards(
+                            if (on) (current + cardId).distinct() else current - cardId,
+                        )
+                    },
+                )
+            }
         }
         // 批v160 W8: 会话交互提醒——智能体等确认（权限/提问/计划）时发系统通知；
         // 可选的前台服务把监听带进后台；电池白名单引导给国产 ROM 兜底。

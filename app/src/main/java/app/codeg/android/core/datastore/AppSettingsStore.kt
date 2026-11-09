@@ -137,6 +137,14 @@ data class AppSettings(
     /** P0: remember the board form's 「创建后立即开始」 choice (default off —
      *  a tap on 创建任务 must not silently start a run). */
     val taskAutoStartDefault: Boolean = false,
+    /** 批v172 补充1: which workbench quick-row cards are visible, in their fixed
+     *  catalog order ("quickTask"/"folders"/"search"/"quickSave"/"newSession").
+     *  Unknown/stale ids are ignored at the widget layer. */
+    val workbenchQuickCards: List<String> = DEFAULT_WORKBENCH_QUICK_CARDS,
+    /** 批v172 D7: the quick-save sheet's last-used device + root-relative dir,
+     *  re-prefilled on the next open (dir only honoured when the device matches). */
+    val quickSaveLastServer: String = "",
+    val quickSaveLastDir: String = "",
 ) {
     companion object {
         // 批v150 §2.1 克制的青蓝：持久化层默认值必须与 AccentPalette.DEFAULT 的
@@ -145,6 +153,9 @@ data class AppSettings(
         const val DEFAULT_ACCENT = "teal"
         const val DEFAULT_LIGHT_SURFACE = "default"
         const val DEFAULT_APP_FONT = "system"
+        /** 批v172 补充1: the pre-v172 quick row (4 cards) is the no-pref default;
+         *  quickSave stays opt-in via settings so the row never crowds unprompted. */
+        val DEFAULT_WORKBENCH_QUICK_CARDS = listOf("quickTask", "folders", "search", "newSession")
         // The app opens on the workbench unless the user picked another start tab.
         const val DEFAULT_START_TAB = "activity"
         const val DEFAULT_FLOAT_BALL_SIZE = "medium"
@@ -278,6 +289,14 @@ class AppSettingsStore @Inject constructor(
             dispatchDefaultFolderName = prefs[DISPATCH_DEFAULT_FOLDER_NAME] ?: "",
             dispatchDefaultAgent = prefs[DISPATCH_DEFAULT_AGENT] ?: "",
             taskAutoStartDefault = prefs[TASK_AUTOSTART_DEFAULT] ?: false,
+            // Missing key = the pre-v172 default four (upgrade must not change the
+            // row); an existing key — even an empty string, i.e. all cards off —
+            // is the user's explicit choice.
+            workbenchQuickCards = prefs[WORKBENCH_QUICK_CARDS]
+                ?.split(',')?.filter { it.isNotBlank() }
+                ?: AppSettings.DEFAULT_WORKBENCH_QUICK_CARDS,
+            quickSaveLastServer = prefs[QUICK_SAVE_LAST_SERVER] ?: "",
+            quickSaveLastDir = prefs[QUICK_SAVE_LAST_DIR] ?: "",
         ).also { latest = it }
     }
 
@@ -327,6 +346,20 @@ class AppSettingsStore @Inject constructor(
     /** 批v172 D5: body font; the theme layer coerces unknown ids. */
     suspend fun setAppFont(id: String) {
         dataStore.edit { it[APP_FONT_ID] = id }
+    }
+
+    /** 批v172 补充1: the workbench quick-row's visible cards (fixed catalog
+     *  order at the widget layer; unknown ids stored verbatim, ignored on read). */
+    suspend fun setWorkbenchQuickCards(cards: List<String>) {
+        dataStore.edit { it[WORKBENCH_QUICK_CARDS] = cards.filter { id -> id.isNotBlank() }.joinToString(",") }
+    }
+
+    /** 批v172 D7: persist the quick-save sheet's last device + dir in one write. */
+    suspend fun setQuickSaveLast(serverId: String, dir: String) {
+        dataStore.edit {
+            it[QUICK_SAVE_LAST_SERVER] = serverId
+            it[QUICK_SAVE_LAST_DIR] = dir
+        }
     }
 
     /** Persist the bottom-tab order as an ordered list of route names. */
@@ -621,6 +654,9 @@ class AppSettingsStore @Inject constructor(
         val TASKHUB_FONT_SCALE = floatPreferencesKey("taskhub_font_scale")
         val LIGHT_SURFACE_ID = stringPreferencesKey("light_surface_id")
         val APP_FONT_ID = stringPreferencesKey("app_font_id")
+        val WORKBENCH_QUICK_CARDS = stringPreferencesKey("workbench_quick_cards")
+        val QUICK_SAVE_LAST_SERVER = stringPreferencesKey("quick_save_last_server")
+        val QUICK_SAVE_LAST_DIR = stringPreferencesKey("quick_save_last_dir")
         val FLOAT_BALL_POS = stringPreferencesKey("float_ball_pos")
         val FLOAT_BALL_BINDINGS = stringPreferencesKey("float_ball_bindings")
         val DISPATCH_DEFAULT_DEVICE = stringPreferencesKey("dispatch_default_device")

@@ -74,6 +74,9 @@ fun DirectoryBrowserSheet(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
     showRoot: Boolean = false,
+    /** 批v172 D7: open directly on an absolute path (quick-save's last dir)
+     *  instead of loading home first. */
+    initialPath: String? = null,
 ) {
     val colors = CodegTheme.colors
     val scope = rememberCoroutineScope()
@@ -81,7 +84,7 @@ fun DirectoryBrowserSheet(
     var dirs by remember { mutableStateOf<List<DirectoryEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) { path = loadHome() }
+    LaunchedEffect(Unit) { path = initialPath ?: loadHome() }
     LaunchedEffect(path) {
         if (path.isNotEmpty()) {
             loading = true

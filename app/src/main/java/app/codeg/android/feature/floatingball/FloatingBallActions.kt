@@ -36,6 +36,10 @@ object FloatingBallCatalog {
         "quickSearch" to R.string.ball_action_quick_search,
         // 批v151: the global new-session sheet (device → folder, then jump).
         "quickNewSession" to R.string.ball_action_quick_new_session,
+        // 批v172 D7: the quick-save-to-markdown sheet, bindable like the other
+        // quick-center actions (gestures only — panel cards stay the hard-coded
+        // four; no default binding per the v150 growth policy).
+        "quickSave" to R.string.ball_action_quick_save,
         "tabChats" to R.string.ball_action_tab_chats,
         "tabFolders" to R.string.ball_action_tab_folders,
         "tabActivity" to R.string.ball_action_tab_activity,
