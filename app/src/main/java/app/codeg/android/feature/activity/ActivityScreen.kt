@@ -88,8 +88,6 @@ fun ActivityScreen(
     onOpenAllChats: () -> Unit = {},
     quickCards: List<String> = emptyList(),
     onQuickAction: (String) -> Unit = {},
-    // 批v153: 快捷行的「创建任务」卡直达球的快速任务 sheet。
-    onQuickTask: () -> Unit = {},
     // 批v152: the stat cards jump into a SPECIFIC task-board segment (running /
     // needs-you); the shell routes the request through ServerRepository.
     onOpenTasks: (TaskSegment) -> Unit = {},

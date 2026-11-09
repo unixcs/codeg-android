@@ -84,11 +84,15 @@ fun DirectoryBrowserSheet(
     var dirs by remember { mutableStateOf<List<DirectoryEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) { path = initialPath ?: loadHome() }
+    LaunchedEffect(Unit) { path = runCatching { initialPath ?: loadHome() }.getOrDefault("") }
     LaunchedEffect(path) {
         if (path.isNotEmpty()) {
             loading = true
-            dirs = loadDirs(path)
+            // 批v172c 审查R2-2: quick-save reopens the browser directly on the
+            // persisted last dir, which may have since been deleted — an
+            // unguarded loadDirs crashed the app on first frame. Fall back to an
+            // empty listing (".." still renders, so the user can walk out).
+            dirs = runCatching { loadDirs(path) }.getOrDefault(emptyList())
             loading = false
         }
     }
@@ -101,7 +105,7 @@ fun DirectoryBrowserSheet(
                     IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.dirbrowser_close), tint = colors.textPrimary) }
                 },
                 actions = {
-                    IconButton(onClick = { scope.launch { path = loadHome() } }) {
+                    IconButton(onClick = { scope.launch { path = runCatching { loadHome() }.getOrDefault("") } }) {
                         Icon(Icons.Rounded.Home, contentDescription = stringResource(R.string.dirbrowser_home), tint = colors.textSecondary)
                     }
                 },

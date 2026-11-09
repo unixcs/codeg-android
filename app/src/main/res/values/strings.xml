@@ -1507,7 +1507,6 @@
     <string name="quick_save_name_placeholder">Becomes &lt;title&gt;.md</string>
     <string name="quick_save_content">Content</string>
     <string name="quick_save_save">Save</string>
-    <string name="quick_save_saving">Saving…</string>
     <string name="quick_save_choose_dir">Save here</string>
     <string name="quick_save_saved">Saved to %1$s</string>
     <string name="quick_save_no_device">No device available — add one in device management first.</string>

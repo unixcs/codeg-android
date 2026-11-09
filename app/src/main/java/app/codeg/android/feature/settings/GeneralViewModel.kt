@@ -385,10 +385,6 @@ class GeneralViewModel @Inject constructor(
         appSettingsStore.setWorkbenchQuickCards(cards)
     }
 
-    /** 批v172 D7: the quick-save sheet's last-used device + directory. */
-    fun setQuickSaveLast(serverId: String, dir: String) = launchPersist {
-        appSettingsStore.setQuickSaveLast(serverId, dir)
-    }
 
     /** 批v172 D3: per-interface font scales (0 = follow global). */
     fun setSessionFontScale(scale: Float) = launchPersist {

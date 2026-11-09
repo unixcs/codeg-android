@@ -1044,23 +1044,34 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         }
     }
 
+    // 批v172c 审查R2-3: the one common closer for all five shell-level sheets.
+    val closeQuickSheets: () -> Unit = {
+        showQuickIdea = false
+        showQuickTask = false
+        showQuickHandoff = false
+        showQuickNewSession = false
+        showQuickSave = false
+    }
+
     val onBallAction: (String) -> Unit = { id ->
         when (id) {
             "newSession" -> openNewTask()
             // 批v150 quick-center actions (panel 2×2 cards): idea/task/handoff
             // open shell-level sheets; search is the demoted push surface.
-            "quickIdea" -> { showQuickSave = false; showQuickIdea = true }
-            // quickTask/quickNewSession 共用宿主 B（QuickActionViewModel）——互斥
-            // 打开（第1轮派发审查修正）：一张 sheet 的 loadTarget 会清掉另一张
-            // 正在填的目录/Agent 列表，不能同屏叠开。
-            "quickTask" -> { showQuickNewSession = false; showQuickSave = false; showQuickTask = true }
-            "quickHandoff" -> { showQuickSave = false; showQuickHandoff = true }
+            // 批v172c 审查R2-3: 五张 shell 级 sheet 统一「开一张、关其余四张」
+            // 的互斥闭包——运行期 sheet scrim 本就挡住了 activity 窗口（叠开
+            // 不可达），但零散的关集是埋雷：新入口一加就会两开。
+            "quickIdea" -> { closeQuickSheets(); showQuickIdea = true }
+            // quickTask/quickNewSession 共用宿主 B（QuickActionViewModel）——
+            // 一张 sheet 的 loadTarget 会清掉另一张正在填的目录/Agent 列表。
+            "quickTask" -> { closeQuickSheets(); showQuickTask = true }
+            "quickHandoff" -> { closeQuickSheets(); showQuickHandoff = true }
             "quickSearch" -> pushSurface(ROUTE_SEARCH)
             // 批v151: global new-session sheet — pick device, then folder, then jump.
-            "quickNewSession" -> { showQuickTask = false; showQuickSave = false; showQuickNewSession = true }
+            "quickNewSession" -> { closeQuickSheets(); showQuickNewSession = true }
             // 批v172 D7: quick-save is sheet-hosted like the other quick-center
             // actions; own VM (no host-B contention), still one sheet at a time.
-            "quickSave" -> { showQuickTask = false; showQuickNewSession = false; showQuickSave = true }
+            "quickSave" -> { closeQuickSheets(); showQuickSave = true }
             // 批v152: Chats is a tab again — the ball entry goes through enterTab
             // (All-devices on entry); folders/search stay pushes. 批v160: the ball
             // is free navigation — never records, clears any pending return.
@@ -1798,8 +1809,9 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
         // 第1轮审查修正：跳转没走成时（单飞被占 / 迟到回调）回执兜底——
         // "创建了但没下文"至少留下一条全局可见记录。
         // 批v172 D7: the ball's quick-save sheet — title + body + device + folder
-        // → <标题>.md on the device. Owns its VM (no host-B contention); the
-        // show* flags above keep it exclusive with the other quick sheets.
+        // → <标题>.md on the device. The VM here resolves to the activity scope
+        // (InboxScreen's host gets its own back-entry-scoped instance); the
+        // closeQuickSheets() closures keep it exclusive with the other sheets.
         if (showQuickSave) {
             QuickSaveSheet(onDismiss = { showQuickSave = false })
         }

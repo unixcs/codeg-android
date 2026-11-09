@@ -103,11 +103,6 @@ class QuickSaveViewModel @Inject constructor(
     /** The client for a saved profile, or null when its token is missing. */
     suspend fun clientFor(profile: ServerProfile): CodegClient? = repository.client(profile)
 
-    /** Persist last-used (device, dir) in one write after a successful save. */
-    fun rememberLast(serverId: String, dir: String) {
-        viewModelScope.launch { settingsStore.setQuickSaveLast(serverId, dir) }
-    }
-
     /**
      * 批v172 D7: the full chain runs on [viewModelScope] so sliding the sheet
      * away mid-save can't strand a half-written file — the sheet reads the
@@ -260,7 +255,10 @@ fun QuickSaveSheet(
             val profile = profiles.firstOrNull { it.id == serverId } ?: return@LaunchedEffect
             val c = viewModel.clientFor(profile)
             client = c
-            if (c != null) rootPath = runCatching { c.getHomeDirectory() }.getOrNull()
+            if (c != null) {
+                rootPath = runCatching { c.getHomeDirectory() }.getOrNull()
+                if (rootPath == null) error = rootError
+            }
         }
     }
 
@@ -269,6 +267,7 @@ fun QuickSaveSheet(
     var pendingSaveAt by rememberSaveable { mutableStateOf<Int?>(null) }
     val savedToastTemplate = stringResource(R.string.quick_save_saved)
     val genericError = stringResource(R.string.quick_save_err_generic)
+    val rootError = stringResource(R.string.quick_save_err_root)
     LaunchedEffect(saveSeq) {
         val at = pendingSaveAt ?: return@LaunchedEffect
         if (saveSeq > at) {
@@ -328,7 +327,7 @@ fun QuickSaveSheet(
                     value = profiles.firstOrNull { it.id == serverId }?.name,
                     placeholder = pickDevice,
                     onClick = { showDeviceSheet = true },
-                    enabled = profiles.isNotEmpty(),
+                    enabled = profiles.isNotEmpty() && !saving,
                 )
                 PickerField(
                     icon = Icons.Rounded.FolderOpen,
@@ -341,7 +340,7 @@ fun QuickSaveSheet(
                     placeholder = loadingLabel,
                     valueNote = null,
                     onClick = { if (client != null && rootPath != null) showDirBrowser = true },
-                    enabled = client != null && rootPath != null,
+                    enabled = client != null && rootPath != null && !saving,
                 )
                 OutlinedTextField(
                     value = title,

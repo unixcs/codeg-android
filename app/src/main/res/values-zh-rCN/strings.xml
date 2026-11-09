@@ -1493,7 +1493,6 @@
     <string name="quick_save_name_placeholder">保存为 &lt;标题&gt;.md</string>
     <string name="quick_save_content">内容</string>
     <string name="quick_save_save">保存</string>
-    <string name="quick_save_saving">保存中…</string>
     <string name="quick_save_choose_dir">保存到这里</string>
     <string name="quick_save_saved">已保存到 %1$s</string>
     <string name="quick_save_no_device">暂无可用设备，请先在设备管理里添加。</string>
