@@ -1163,6 +1163,10 @@ class SessionDetailViewModel @Inject constructor(
                                 handleStreamEnded(gen, frame.reason)
                             }
                         }
+                        // 批v173 C1: firehose frames (StreamFrame.Channel) are not
+                        // this screen's concern — explicit branch keeps the sealed
+                        // when exhaustive (a Kotlin 1.7+ compile error otherwise).
+                        is StreamFrame.Channel -> Unit
                     }
                 }
             } catch (e: CancellationException) {

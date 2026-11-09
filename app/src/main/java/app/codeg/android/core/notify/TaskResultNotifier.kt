@@ -247,6 +247,10 @@ class TaskResultNotifier @Inject constructor(
     }
 
     private suspend fun onAutomationSettled(serverId: String, settled: RunSettled) {
+        // Quick gate on the cached snapshot BEFORE the network lookup: with the
+        // toggle off, every run_settled must not spend an automationGet. The
+        // authoritative re-check inside the lock stays.
+        if (!settings.notifyTaskResultsEnabled) return
         val (automationName, serverName) = resolveAutomationContext(serverId, settled.automationId)
         synchronized(lock) {
             if (!settings.notifyTaskResultsEnabled) return

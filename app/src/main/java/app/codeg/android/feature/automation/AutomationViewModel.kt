@@ -140,6 +140,10 @@ class AutomationViewModel @Inject constructor(
     private var generation = 0
     private var lastSeenTick = -1
 
+    /** 批v173 C1 审查R1: the board re-entry edge — must survive across
+     *  collectLatest restarts to be detectable (the TaskHubViewModel pattern). */
+    private var lastActive = false
+
     /** Live visible profiles for the editor's device chips — the loader
      *  deliberately leaves targets.profiles empty (a dead device must never
      *  blank the chips); same resubscribe loop as the dispatch hosts. */
@@ -195,13 +199,17 @@ class AutomationViewModel @Inject constructor(
                         true
                 }
                 .collectLatest { input ->
-                    if (input.tick > 0 && input.tick != lastSeenTick) {
-                        lastSeenTick = input.tick
-                        fetchAll()
-                    }
+                    // 批v173 C1 审查R1: tick 分支与 task hub 同形——push 落在
+                    // 隐藏/后台时只记账不拉取（每 run 约 2-3 发帧，无闸会每帧
+                    // 白拉一轮全设备）。重进屏幕由 entered 边立即补一轮，不用
+                    // 等下一个 60s beat。
+                    val tickNew = input.tick > 0 && input.tick != lastSeenTick
+                    if (tickNew) lastSeenTick = input.tick
+                    val entered = input.active && !lastActive
+                    lastActive = input.active
                     // 初始拉取并入 active 分支：段不可见时不白拉全设备。
                     if (input.active && input.fg) {
-                        if (input.tick == 0) fetchAll()
+                        if (input.tick == 0 || tickNew || entered) fetchAll()
                         while (currentCoroutineContext().isActive) {
                             delay(POLL_INTERVAL_MS)
                             fetchAll()

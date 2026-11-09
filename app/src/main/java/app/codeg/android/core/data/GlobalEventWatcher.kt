@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -86,12 +88,19 @@ class GlobalEventWatcher @Inject constructor(
     private suspend fun loop() {
         // Profile set drives the fan: add/remove/hide a device and every
         // runtime restarts (collectLatest cancels the previous generation).
-        repository.visibleProfiles.collectLatest { profiles ->
-            coroutineScope {
-                profiles.forEach { profile -> launch { watchProfile(profile) } }
-                awaitCancellation()
+        // distinctUntilChanged keeps cosmetic profile edits (rename, token
+        // re-save) from tearing down every device's live socket. A DataStore
+        // read failure degrades to "no devices this round" — the bare collect
+        // would otherwise reach the uncaught path and kill the process.
+        repository.visibleProfiles
+            .distinctUntilChanged()
+            .catch { emit(emptyList()) }
+            .collectLatest { profiles ->
+                coroutineScope {
+                    profiles.forEach { profile -> launch { watchProfile(profile) } }
+                    awaitCancellation()
+                }
             }
-        }
     }
 
     private suspend fun watchProfile(profile: ServerProfile) {
@@ -106,7 +115,10 @@ class GlobalEventWatcher @Inject constructor(
             // frames() is cold and never throws: it terminates with Closed
             // (graceful or error) — the loop then reconnects with backoff.
             stream.frames().collect { frame ->
-                if (frame is StreamFrame.Ready) backoffMs = RECONNECT_MIN_MS
+                // No backoff reset on Ready: a server that completes the
+                // handshake but dies seconds later must keep climbing, not
+                // hammer at 1s forever. The lived>=BACKOFF_RESET_MS check
+                // below is the only reset path.
                 if (frame is StreamFrame.Channel && frame.channel in WATCHED) {
                     _events.tryEmit(ServerEvent(profile.id, frame.channel, frame.payload))
                 }
