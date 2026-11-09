@@ -74,6 +74,9 @@ private val CodegTypeBase = Typography(
 fun codegTypography(appFont: FontFamily?): Typography {
     if (appFont == null) return CodegTypeBase
     return CodegTypeBase.copy(
+        // headlineSmall too: the only headline/display consumer in the app
+        // (Settings About app name) — display*/other headline* stay stock.
+        headlineSmall = CodegTypeBase.headlineSmall.copy(fontFamily = appFont),
         titleLarge = CodegTypeBase.titleLarge.copy(fontFamily = appFont),
         titleMedium = CodegTypeBase.titleMedium.copy(fontFamily = appFont),
         titleSmall = CodegTypeBase.titleSmall.copy(fontFamily = appFont),

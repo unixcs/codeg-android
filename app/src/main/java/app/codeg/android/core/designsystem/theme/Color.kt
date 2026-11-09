@@ -148,11 +148,21 @@ fun codegColors(
             success = Color(0xFF0F946B),
             // 浅色警告色加深（第1轮可及性审查修正）：#B07A10 在浅底上 3.4:1，
             // 12sp 小字不达 AA；#8A650B ≈5:1。暗色侧不变。
-            warning = Color(0xFF8A650B),
+            // 批v172 D4: tinted paper drops #8A650B to 4.06-4.44:1 — #7E5C0A
+            // holds ≈4.7:1 on the worst tinted paper.
+            warning = if (lightSurface.tinted) Color(0xFF7E5C0A) else Color(0xFF8A650B),
             selectedBg = if (classicLook) accentColor else Color(0xFF1C1C1C).copy(alpha = 0.10f),
             selectedBorder = if (classicLook) accentColor else Color.Black.copy(alpha = 0.10f),
             selectedText = if (classicLook) onAccent else Color(0xFF1C1C1C),
-            selectedSubText = if (classicLook) onAccent.copy(alpha = 0.85f) else Color(0xFF616161),
+            // 批v172 D4: tinted paper drops #616161 on selectedBg to 3.90-4.25:1
+            // at 11-12sp — #565656 holds ≈4.6:1 on the worst (sage) composite.
+            selectedSubText = if (classicLook) {
+                onAccent.copy(alpha = 0.85f)
+            } else if (lightSurface.tinted) {
+                Color(0xFF565656)
+            } else {
+                Color(0xFF616161)
+            },
         )
     }
 }

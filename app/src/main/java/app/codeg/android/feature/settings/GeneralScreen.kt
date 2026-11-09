@@ -1291,7 +1291,7 @@ fun FontAndLookContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 ),
                 onClick = { fontSheet = true },
             )
-            // 批v172 D4: 浅色纸面四选——sheet 的 hint 注明深色模式忽略该设置。
+            // 批v172 D4: 浅色纸面四选——行的 note 注明深色模式忽略该设置。
             ChoiceRow(
                 title = stringResource(R.string.general_surface_title),
                 value = stringResource(
