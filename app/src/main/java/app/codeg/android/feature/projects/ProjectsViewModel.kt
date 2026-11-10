@@ -83,7 +83,16 @@ class ProjectsViewModel @Inject constructor(
         val endpoint = "${profile.id}|${profile.baseUrl}"
         val changed = endpoint != loadedEndpoint
         loadedEndpoint = endpoint
-        client = repository.client(profile)
+        // 批v175 复审: the collector body is NOT covered by the retryWhen above
+        // (that only re-arms the upstream flow) — a DataStore/SecretStore failure
+        // here used to kill the process on tab entry (v130 crash class).
+        client = try {
+            repository.client(profile)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
         if (changed) _ui.update { ProjectsUiState() }
         fetch(initial = true)
     }
@@ -180,7 +189,16 @@ class ProjectsViewModel @Inject constructor(
         val c = client ?: return "No server selected"
         return try {
             c.cloneRepository(url, targetDir, credentials)
-            runCatching { c.openFolder(targetDir) }
+            // 批v175 复审必修: runCatching swallowed CancellationException — a page
+            // leave during this RPC let the cancelled coroutine continue into
+            // fetch() and strand `refreshing = true` in the VM: PullToRefresh
+            // spins forever, refresh() gated off by isBusy until a device switch.
+            try {
+                c.openFolder(targetDir)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
             fetch(initial = false)
             null
         } catch (e: CancellationException) {

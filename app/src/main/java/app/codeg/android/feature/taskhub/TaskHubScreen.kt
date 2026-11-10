@@ -350,10 +350,15 @@ fun TaskHubScreen(
         }
         pendingFollow = null
     }
-    LaunchedEffect(pendingStep, boardLayout, kanbanColumns) {
+    LaunchedEffect(pendingStep, kanbanColumns) {
         val (_, step) = pendingStep ?: return@LaunchedEffect
         // 批v167: same act-first/clear-last ordering as pendingSegment — the
         // clear used to run before the page animation and cancelled it.
+        // 批v175 复审: boardLayout is read LIVE (VM), not keyed — keying on it
+        // restarted this effect when a chip tap flipped to list mid-animation,
+        // and the restart re-applied the step ON TOP of the chip's fresh focus
+        // (the list landed one status over). Same fix family as the settle-sync
+        // effect above; [pendingStep]'s seq makes every event restart anyway.
         if (automationMode) {
             // 批v161.3 R3: on the automation pane a swipe used to silently page
             // the HIDDEN kanban behind it — drop the step there (the gesture has
@@ -364,7 +369,7 @@ fun TaskHubScreen(
         }
         // A single page (tablet, or 4 columns resolving to one page) has nowhere
         // to page to — step the highlight instead of swallowing the gesture.
-        if (boardLayout == TASK_BOARD_LIST || pageCount <= 1) {
+        if (viewModel.settings.value.taskBoardLayout == TASK_BOARD_LIST || pageCount <= 1) {
             viewModel.setFocusIndex(segmentStepIndex(viewModel.focusIndex.value ?: 0, step))
         } else {
             runCatching {

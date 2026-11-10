@@ -688,16 +688,40 @@ class SessionListViewModel @Inject constructor(
     val activeProjectId: StateFlow<String?> = projectRepo.activeProjectId
 
     fun toggleProjectMembership(projectId: String, ref: app.codeg.android.core.datastore.SessionRef, member: Boolean) {
-        viewModelScope.launch { projectRepo.setMembership(projectId, ref, member) }
+        // 批v175 复审: a DataStore write failure must not kill the process from a
+        // row long-press (v130 crash class — same guard the Search VM's copies got).
+        viewModelScope.launch {
+            try {
+                projectRepo.setMembership(projectId, ref, member)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun createProject(name: String, onCreated: (app.codeg.android.core.datastore.SessionProject) -> Unit = {}) {
-        viewModelScope.launch { onCreated(projectRepo.create(name)) }
+        viewModelScope.launch {
+            val created = try {
+                projectRepo.create(name)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            onCreated(created)
+        }
     }
 
-    private suspend fun clientFor(serverId: String): CodegClient? {
+    /** A client for the OWNING device of a row — null on any resolution failure;
+     *  cancellation still propagates (v130 crash class guard, same as Search VM). */
+    private suspend fun clientFor(serverId: String): CodegClient? = try {
         val profile = repository.profiles.first().firstOrNull { it.id == serverId } ?: return null
-        return repository.client(profile)
+        repository.client(profile)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
     }
 
     private fun AggregateUiState.updateServer(

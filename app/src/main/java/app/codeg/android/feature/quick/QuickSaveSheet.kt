@@ -189,23 +189,25 @@ class QuickSaveViewModel @Inject constructor(
         val name = uniqueName(base, taken)
         client.createFileTreeEntry(rootPath, relDir, name, "file")
         val relNew = if (relDir.isEmpty()) name else "$relDir/$name"
-        val edit = try {
-            client.readFileForEdit(rootPath, relNew)
+        // 批v175 复审: EVERYTHING after createFileTreeEntry can fail (read-back,
+        // read-only check, content write — the biggest payload, likeliest to
+        // drop). A failure used to leave a 0-byte orphan named after the title,
+        // and the retry then picked name-2.md (two files, the emptier one
+        // holding the right name). Best-effort cleanup on any post-create
+        // failure before rethrowing; cancellation stops without cleanup.
+        try {
+            val edit = client.readFileForEdit(rootPath, relNew)
+            check(!edit.readOnly) { "read-only file" }
+            client.saveFileContent(rootPath, relNew, content, edit.etag)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // 批v175 审查: the empty entry is already on the server — surfacing
-            // the failure used to leave a 0-byte orphan named after the title,
-            // and the retry then picked name-2.md (two files, the emptier one
-            // holding the right name). Best-effort cleanup before rethrowing.
             try {
                 client.deleteFileTreeEntry(rootPath, relNew)
             } catch (_: Exception) {
             }
             throw e
         }
-        check(!edit.readOnly) { "read-only file" }
-        client.saveFileContent(rootPath, relNew, content, edit.etag)
         return relNew
     }
 
@@ -334,8 +336,9 @@ fun QuickSaveSheet(
         client = null
         rootPath = null
         rootError = null
-        // 批v175 审查: a device switch must not keep the PREVIOUS device's save
-        // failure banner up — the new device never failed anything.
+        // 批v175 审查: a device switch (or a Retry — same keys) must not keep a
+        // STALE banner up: the previous device's save failure or an already-
+        // dismissed save attempt has no business surviving a root re-resolve.
         saveError = null
         val c = viewModel.clientFor(profile)
         client = c

@@ -102,7 +102,7 @@ fun SearchScreen(
     var pendingRename by remember(ui.serverId) { mutableStateOf<Pair<String, ConversationSummary>?>(null) }
     // 批v174 P3: 添加到项目 target — (owning device, conversation), same shape
     // as the Chats screen's.
-    var addToTarget by remember { mutableStateOf<Pair<String, ConversationSummary>?>(null) }
+    var addToTarget by remember(ui.serverId) { mutableStateOf<Pair<String, ConversationSummary>?>(null) }
     // 批v162 P1: 「加入任务板」 from a search hit — the fastest path for an old
     // session the user just found by name.
     val boardMenu = rememberBoardTrackMenu()
