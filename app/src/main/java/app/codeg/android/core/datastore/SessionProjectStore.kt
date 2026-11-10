@@ -91,7 +91,16 @@ class SessionProjectStore @Inject constructor(
         dataStore.edit { prefs ->
             val map = decodeMembers(prefs[MEMBERS]).toMutableMap()
             val refs = (map[projectId] ?: emptyList()).filterNot { it.key == ref.key }
-            map[projectId] = if (member) refs + ref else refs
+            // 批v175 审查: an un-member write on an unknown/now-empty project used
+            // to upsert a permanent `projectId → []` entry — removeRefKey prunes
+            // empties, this path now honors the same contract.
+            if (member) {
+                map[projectId] = refs + ref
+            } else if (refs.isNotEmpty()) {
+                map[projectId] = refs
+            } else {
+                map.remove(projectId)
+            }
             prefs[MEMBERS] = encodeMembers(map)
         }
     }

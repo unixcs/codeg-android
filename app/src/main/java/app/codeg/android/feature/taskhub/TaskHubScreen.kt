@@ -285,12 +285,18 @@ fun TaskHubScreen(
     // A user swipe lands on the next page: move the highlight to that page's
     // first column, but never override a deliberate chip tap whose segment is
     // already visible on the page it lands on.
-    LaunchedEffect(pagerState, kanbanColumns, boardLayout) {
+    LaunchedEffect(pagerState, kanbanColumns) {
         snapshotFlow { pagerState.settledPage }.collect { page ->
             // 批v174 P1: in list mode the pager is not composed and its settled
             // page is a stale leftover — syncing it here used to yank the focus
             // back to page 0 on every return-to-screen. Kanban only.
-            if (boardLayout == TASK_BOARD_LIST) return@collect
+            // 批v175 审查必修: the layout must be read LIVE (VM), not keyed —
+            // keying on boardLayout restarted this effect on every list⇄kanban
+            // flip, and snapshotFlow's restart emission carries the STALE settled
+            // page: a chip tap made in list mode was reset to page 0 the moment
+            // the user switched back to the kanban. Exactly the override P1 was
+            // written to kill, one trigger later.
+            if (viewModel.settings.value.taskBoardLayout == TASK_BOARD_LIST) return@collect
             // All four columns on one page: there is no page→status hop to
             // follow, and mapping a stale settled page after a rotation would
             // move the highlight for no reason. Chip taps own it here.

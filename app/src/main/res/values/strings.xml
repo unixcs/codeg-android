@@ -1522,6 +1522,8 @@
     <string name="quick_save_err_root">Couldn\'t resolve the device\'s home directory.</string>
     <!-- 批v174 N4: an out-of-workspace browser pick (the old silent root reset). -->
     <string name="quick_save_err_outside">That folder is outside the device\'s workspace — pick a folder inside it.</string>
+    <!-- 批v175 审查: the quick-save body field now enforces the file editor's 2M-char ceiling. -->
+    <string name="quick_save_err_too_large">Content is too large (max 2,000,000 characters) — split it into smaller files.</string>
     <string name="quick_save_err_generic">Save failed. Your text is kept — try again.</string>
     <string name="inbox_menu_save_md">Save as Markdown</string>
     <string name="ball_action_quick_save">Quick save (as Markdown)</string>

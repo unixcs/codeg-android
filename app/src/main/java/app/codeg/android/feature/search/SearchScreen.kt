@@ -384,7 +384,9 @@ private fun ActionErrorBanner(message: String, onDismiss: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Rounded.Close, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(16.dp))
+            // 批v175 审查: the banner's only dismissal needs a name — TalkBack read
+            // "unlabeled" and the user couldn't close the error.
+            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close), tint = colors.textTertiary, modifier = Modifier.size(16.dp))
         }
     }
 }

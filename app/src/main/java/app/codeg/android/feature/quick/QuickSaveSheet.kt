@@ -109,8 +109,16 @@ class QuickSaveViewModel @Inject constructor(
     // 双击防抖：一次保存只落一个文件。
     private val inFlight = AtomicBoolean(false)
 
-    /** The client for a saved profile, or null when its token is missing. */
-    suspend fun clientFor(profile: ServerProfile): CodegClient? = repository.client(profile)
+    /** The client for a saved profile; null when its token is missing or the
+     *  backing stores can't be read (批v175 审查: cancellation still propagates —
+     *  the old unguarded copy turned a sheet close mid-read into a crash). */
+    suspend fun clientFor(profile: ServerProfile): CodegClient? = try {
+        repository.client(profile)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
 
     /**
      * 批v172 D7: the full chain runs on [viewModelScope] so sliding the sheet
@@ -136,7 +144,15 @@ class QuickSaveViewModel @Inject constructor(
                 } else {
                     val rootPath = client.getHomeDirectory()
                     val relNew = saveTo(client, rootPath, relDir, title, content)
-                    settingsStore.setQuickSaveLast(serverId, relDir)
+                    // 批v175 审查: remembering the last dir is best-effort — inside
+                    // this try a DataStore failure used to report an ALREADY-WRITTEN
+                    // file as failed, and the retry then landed name-2.md next to it.
+                    try {
+                        settingsStore.setQuickSaveLast(serverId, relDir)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                    }
                     // 批v174 N5: hand the sheet the absolute path (same join as the
                     // SessionDetailViewModel upload path — trim the double slash).
                     QuickSaveOutcome.Saved(
@@ -173,7 +189,21 @@ class QuickSaveViewModel @Inject constructor(
         val name = uniqueName(base, taken)
         client.createFileTreeEntry(rootPath, relDir, name, "file")
         val relNew = if (relDir.isEmpty()) name else "$relDir/$name"
-        val edit = client.readFileForEdit(rootPath, relNew)
+        val edit = try {
+            client.readFileForEdit(rootPath, relNew)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 批v175 审查: the empty entry is already on the server — surfacing
+            // the failure used to leave a 0-byte orphan named after the title,
+            // and the retry then picked name-2.md (two files, the emptier one
+            // holding the right name). Best-effort cleanup before rethrowing.
+            try {
+                client.deleteFileTreeEntry(rootPath, relNew)
+            } catch (_: Exception) {
+            }
+            throw e
+        }
         check(!edit.readOnly) { "read-only file" }
         client.saveFileContent(rootPath, relNew, content, edit.etag)
         return relNew
@@ -247,6 +277,11 @@ fun QuickSaveSheet(
     // a silent dead state (error gone, save still disabled, zero explanation).
     val missingTokenLabel = stringResource(R.string.sessions_missing_token)
     val retryLabel = stringResource(R.string.common_retry)
+    // 批v175 审查: the body field had no length cap — a >2MB paste froze the
+    // text field (Compose chokes far below the server's 50 MB limit; the file
+    // editor caps at 2M chars for the same reason) and rememberSaveable had to
+    // serialize the whole thing on rotation.
+    val tooLargeError = stringResource(R.string.quick_save_err_too_large)
 
     var title by rememberSaveable { mutableStateOf(initialTitle) }
     var content by rememberSaveable { mutableStateOf(initialContent) }
@@ -299,10 +334,24 @@ fun QuickSaveSheet(
         client = null
         rootPath = null
         rootError = null
+        // 批v175 审查: a device switch must not keep the PREVIOUS device's save
+        // failure banner up — the new device never failed anything.
+        saveError = null
         val c = viewModel.clientFor(profile)
         client = c
         if (c != null) {
-            rootPath = runCatching { c.getHomeDirectory() }.getOrNull()
+            // 批v175 审查: runCatching swallowed CancellationException — a retry/
+            // device-switch cancelling the old effect let its tail write a root
+            // error AFTER the new effect had cleared it (a permanent fake
+            // 「无法获取根目录」banner next to a working save button). Cancelled
+            // coroutines must stop, not report failure.
+            rootPath = try {
+                c.getHomeDirectory()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
             if (rootPath == null) rootError = rootErrorLabel
         } else {
             rootError = missingTokenLabel
@@ -322,10 +371,12 @@ fun QuickSaveSheet(
                     // to paste it into a conversation and have the agent load the
                     // file as context (FolderFilesView's copy-path precedent).
                     clipboard.setText(AnnotatedString(outcome.absPath))
+                    // 批v175 审查: the long absolute path wraps 2-3 lines and
+                    // LENGTH_SHORT (~2s) died before the conclusion was readable.
                     Toast.makeText(
                         context,
                         savedToastTemplate.format(outcome.absPath),
-                        Toast.LENGTH_SHORT,
+                        Toast.LENGTH_LONG,
                     ).show()
                     onDismiss()
                 }
@@ -433,9 +484,13 @@ fun QuickSaveSheet(
                     PrimaryButton(
                         text = stringResource(R.string.quick_save_save),
                         onClick = {
-                            pendingSaveAt = saveSeq
-                            saveError = null
-                            viewModel.save(serverId, relDir, title, content)
+                            if (content.length > MAX_QUICK_SAVE_CHARS) {
+                                saveError = tooLargeError
+                            } else {
+                                pendingSaveAt = saveSeq
+                                saveError = null
+                                viewModel.save(serverId, relDir, title, content)
+                            }
                         },
                         enabled = title.isNotBlank() && client != null && rootPath != null && !saving,
                         loading = saving,
@@ -502,3 +557,7 @@ private fun relPathOrNull(rootPath: String, absPath: String): String? = when {
     absPath.startsWith("$rootPath/") -> absPath.removePrefix("$rootPath/").trim('/')
     else -> null
 }
+
+/** 批v175 审查: Compose text fields choke far below the server's 50 MB limit —
+ *  FolderFilesView's editor enforces the same 2M-char ceiling (MAX_EDIT_CHARS). */
+private const val MAX_QUICK_SAVE_CHARS = 2_000_000

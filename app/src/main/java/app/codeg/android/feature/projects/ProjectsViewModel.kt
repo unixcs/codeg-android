@@ -3,7 +3,6 @@ package app.codeg.android.feature.projects
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.core.data.ServerRepository
-import app.codeg.android.core.data.isLiveFresh
 import app.codeg.android.core.datastore.AppSettings
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
@@ -20,6 +19,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -37,10 +38,14 @@ class ProjectsViewModel @Inject constructor(
     private val _ui = MutableStateFlow(ProjectsUiState())
     val ui: StateFlow<ProjectsUiState> = _ui.asStateFlow()
 
-    /** 批v174 P2: app settings mirror for the layout toggle (same shape as the
-     *  task hub's). Eagerly so the very first frame already knows the layout. */
-    val settings: StateFlow<AppSettings> = appSettingsStore.settings
-        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings.INITIAL)
+    /** 批v174 P2: the projects layout preference, NARROWED to the single field
+     *  this screen reads (批v175 审查): the whole-AppSettings Eagerly mirror made
+     *  every unrelated settings write (quick-save last dir, theme, font size…)
+     *  recompose the whole screen. Eagerly keeps the very first frame correct. */
+    val projectListColumns: StateFlow<Int> = appSettingsStore.settings
+        .map { it.projectListColumns }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings.DEFAULT_PROJECT_LIST_COLUMNS)
 
     /** 批v174 P2: flip the projects layout (1 = single list, 2 = card grid). */
     fun setProjectListColumns(columns: Int) {
@@ -110,7 +115,16 @@ class ProjectsViewModel @Inject constructor(
     fun openFolder(path: String, onResult: (String?) -> Unit) {
         val c = client ?: return onResult("No server selected")
         viewModelScope.launch {
-            val err = runCatching { c.openFolder(path) }.exceptionOrNull()?.displayMessage()
+            // 批v175 审查: runCatching turned a cancelled call into a fake error
+            // message shown to the user; cancellation must just stop the work.
+            val err = try {
+                c.openFolder(path)
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.displayMessage()
+            }
             if (err == null) fetch(initial = false)
             onResult(err)
         }
@@ -131,12 +145,31 @@ class ProjectsViewModel @Inject constructor(
     }
 
     /** The server's home directory (for the filesystem browser's initial location). */
-    suspend fun homeDirectory(): String =
-        client?.let { runCatching { it.getHomeDirectory() }.getOrNull() } ?: "/"
+    suspend fun homeDirectory(): String {
+        val c = client ?: return "/"
+        // 批v175 审查: runCatching swallowed CancellationException — a browser
+        // closed mid-RPC degraded to "/" and the next clone/dir listing could
+        // start from the wrong root.
+        return try {
+            c.getHomeDirectory()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            "/"
+        }
+    }
 
     /** Subdirectories of [path] (browser; dirs only). */
-    suspend fun listDirectories(path: String): List<app.codeg.android.core.model.DirectoryEntry> =
-        client?.let { runCatching { it.listDirectoryEntries(path) }.getOrDefault(emptyList()) } ?: emptyList()
+    suspend fun listDirectories(path: String): List<app.codeg.android.core.model.DirectoryEntry> {
+        val c = client ?: return emptyList()
+        return try {
+            c.listDirectoryEntries(path)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     /** Clone a repo, then register the new folder. Returns an error message or null on success. */
     suspend fun clone(
@@ -150,6 +183,8 @@ class ProjectsViewModel @Inject constructor(
             runCatching { c.openFolder(targetDir) }
             fetch(initial = false)
             null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.displayMessage()
         }
@@ -165,8 +200,4 @@ data class ProjectsUiState(
     val error: String? = null,
 ) {
     val isBusy: Boolean get() = loading || refreshing
-    // R2D#2: freshness-gated like every other "running" surface — the power-off
-    // corpse must not inflate the project card's 运行中 count forever.
-    fun runningCount(folderId: Int): Int =
-        conversations.count { it.folderId == folderId && it.isLiveFresh() }
 }

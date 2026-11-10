@@ -107,11 +107,30 @@ class SearchViewModel @Inject constructor(
     val projectMembers: StateFlow<Map<String, List<SessionRef>>> = projectRepo.members
 
     fun toggleProjectMembership(projectId: String, ref: SessionRef, member: Boolean) {
-        viewModelScope.launch { projectRepo.setMembership(projectId, ref, member) }
+        // 批v175 审查: a DataStore write failure must not kill the process from a
+        // row long-press — submit()/clearRecent() have guarded their store writes
+        // this way since the v130 crash class; these passthroughs were the gap.
+        viewModelScope.launch {
+            try {
+                projectRepo.setMembership(projectId, ref, member)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun createProject(name: String, onCreated: (SessionProject) -> Unit = {}) {
-        viewModelScope.launch { onCreated(projectRepo.create(name)) }
+        viewModelScope.launch {
+            val created = try {
+                projectRepo.create(name)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            onCreated(created)
+        }
     }
 
     private var client: CodegClient? = null
@@ -355,10 +374,18 @@ class SearchViewModel @Inject constructor(
     //  on `error`, and runAggregateSearch never writes it — writing it here would
     //  wipe the whole merged list behind a page-sized InlineError (review 必修).
 
-    /** A client for the OWNING device of a row — ids are server-local. */
-    private suspend fun clientFor(serverId: String): CodegClient? {
+    /** A client for the OWNING device of a row — ids are server-local. Null on
+     *  any resolution failure (the DataStore/SecretStore reads behind these two
+     *  calls can throw — 批v175 审查: this unguarded copy of the Chats VM's helper
+     *  turned a row long-press into a process kill on a storage hiccup);
+     *  cancellation still propagates. */
+    private suspend fun clientFor(serverId: String): CodegClient? = try {
         val profile = repository.profiles.first().firstOrNull { it.id == serverId } ?: return null
-        return repository.client(profile)
+        repository.client(profile)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
     }
 
     /** Optimistic pin/unpin on the row's owning device. Touches both result
@@ -398,6 +425,24 @@ class SearchViewModel @Inject constructor(
                         actionError = e.displayMessage(),
                     )
                 }
+                return@launch
+            }
+            // 批v175 审查必修: a search round that raced this RPC (started before
+            // it, committed after the optimistic write) overwrote both slices from
+            // a pre-action server snapshot — the acked pin used to stay lost until
+            // the next full round. Re-apply it on top of whatever is on screen now
+            // (renameAt has patched post-ack all along; pin/delete now match).
+            _ui.update { st ->
+                st.copy(
+                    results = st.results.map {
+                        if (st.serverId == serverId && it.id == conversation.id) it.copy(pinnedAt = stamp) else it
+                    },
+                    allResults = st.allResults.map { hit ->
+                        if (hit.serverId == serverId && hit.conversation.id == conversation.id)
+                            hit.copy(conversation = hit.conversation.copy(pinnedAt = stamp))
+                        else hit
+                    },
+                )
             }
         }
     }
@@ -420,8 +465,6 @@ class SearchViewModel @Inject constructor(
             }
             try {
                 c.deleteConversation(conversation.id)
-                projectRepo.removeRef(serverId, conversation.id)
-                repository.notifyConversationsChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -442,7 +485,29 @@ class SearchViewModel @Inject constructor(
                         actionError = e.displayMessage(),
                     )
                 }
+                return@launch
             }
+            // Server acked. The post-success duties are best-effort and MUST NOT
+            // resurrect the row: a DataStore hiccup in membership cleanup used to
+            // roll the delete back on screen and report failure for a conversation
+            // the server had already dropped (批v175 审查).
+            try {
+                projectRepo.removeRef(serverId, conversation.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            // 批v175 审查必修: a racing search round may have re-materialized the
+            // deleted row from a pre-delete server snapshot — re-remove on ack so
+            // the dead row can't outlive the RPC (no conversationsChanged collector
+            // lives here; the self-heal Chats gets does not exist on this screen).
+            _ui.update { st ->
+                st.copy(
+                    results = st.results.filterNot { st.serverId == serverId && it.id == conversation.id },
+                    allResults = st.allResults.filterNot { it.serverId == serverId && it.conversation.id == conversation.id },
+                )
+            }
+            repository.notifyConversationsChanged()
         }
     }
 
@@ -521,7 +586,10 @@ class SearchViewModel @Inject constructor(
             return
         }
         if (epoch != searchEpoch) return // superseded while the request was in flight
-        _ui.update { it.copy(results = results, searching = false) }
+        // 单响应内去重（批v175 审查必修，与聚合路径同规）：代码库已认定服务端可能
+        // 在单响应里返回重复会话 id（聚合写侧 620 行有同一句防崩），单模式漏了——
+        // 撞上就是 LazyColumn duplicate-key 整屏崩溃。
+        _ui.update { it.copy(results = results.distinctBy { c -> c.id }, searching = false) }
         // Persisting the term is best-effort: a recents write must never turn a
         // successful search into an error page.
         try {

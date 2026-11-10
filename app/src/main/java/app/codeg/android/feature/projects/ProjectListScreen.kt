@@ -71,6 +71,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.common.RelativeTime
+import app.codeg.android.core.data.isLiveFresh
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.FolderBadge
 import app.codeg.android.core.designsystem.component.GlassCard
@@ -91,9 +92,11 @@ fun ProjectListScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
     // 批v174 P2: the projects layout — 1 = the classic grouped list, 2 = a card
-    // grid (2 cards per row on phones, 3 on tablets). Persisted in AppSettings.
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val columns = settings.projectListColumns.coerceIn(1, 2)
+    // grid (2 cards per row on phones, 3 on tablets). Persisted in AppSettings;
+    // 批v175 审查: the VM narrows the flow to this one field so unrelated settings
+    // writes don't recompose the screen.
+    val projectListColumns by viewModel.projectListColumns.collectAsStateWithLifecycle()
+    val columns = projectListColumns.coerceIn(1, 2)
     val configuration = LocalConfiguration.current
     var menuOpen by remember { mutableStateOf(false) }
     var showBrowser by remember { mutableStateOf(false) }
@@ -102,6 +105,16 @@ fun ProjectListScreen(
     var actionFolder by remember { mutableStateOf<FolderDetail?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // 批v175 审查: the sort and the per-folder running counts used to be
+    // recomputed on EVERY recomposition (25s poll, any settings write) and each
+    // card re-scanned all conversations (O(F×C)) — hoist behind remember, keyed
+    // on the exact inputs.
+    val sortedFoldersList = remember(ui.folders) { sortedFolders(ui.folders) }
+    val runningByFolder = remember(ui.conversations) {
+        ui.conversations.filter { it.isLiveFresh() }
+            .groupBy { it.folderId }
+            .mapValues { (_, live) -> live.size }
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -177,10 +190,10 @@ fun ProjectListScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            gridItems(sortedFolders(ui.folders), key = { it.id }) { folder ->
+                            gridItems(sortedFoldersList, key = { it.id }) { folder ->
                                 FolderCard(
                                     folder,
-                                    ui.runningCount(folder.id),
+                                    runningByFolder[folder.id] ?: 0,
                                     onLongClick = { actionFolder = folder },
                                     onClick = { onOpenFolder(folder.id) },
                                 )
@@ -197,12 +210,11 @@ fun ProjectListScreen(
                             // single card inside the lazy list is fine.
                             item {
                                 GlassCard(padding = 0.dp) {
-                                    val list = sortedFolders(ui.folders)
-                                    list.forEachIndexed { index, folder ->
+                                    sortedFoldersList.forEachIndexed { index, folder ->
                                         if (index > 0) {
                                             HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(start = 66.dp))
                                         }
-                                        FolderRow(folder, ui.runningCount(folder.id), onLongClick = { actionFolder = folder }) { onOpenFolder(folder.id) }
+                                        FolderRow(folder, runningByFolder[folder.id] ?: 0, onLongClick = { actionFolder = folder }) { onOpenFolder(folder.id) }
                                     }
                                 }
                             }
@@ -321,9 +333,13 @@ private fun FolderCard(
 ) {
     val colors = CodegTheme.colors
     val tile = colorFromHex(folder.color) ?: colors.accent
-    GlassCard {
+    // 批v175 审查必修: GlassCard's default 16dp padding sat OUTSIDE the clickable
+    // modifier — a dead band around every card's edge ignored taps/long-presses
+    // (the single-column rows already use padding 0 + inner padding for exactly
+    // this reason). Padding moved after combinedClickable: the whole card answers.
+    GlassCard(padding = 0.dp) {
         Column(
-            Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(2.dp),
+            Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -347,7 +363,11 @@ private fun FolderCard(
                 overflow = TextOverflow.Ellipsis,
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                folder.gitBranch?.let { BranchPill(it) }
+                // 批v175 审查必修: a long branch name had no width cap and squeezed
+                // the running pill / last-opened time out of the card entirely —
+                // the card then claims an idle project that is actually running.
+                // fill=false keeps short names hug-sized.
+                folder.gitBranch?.let { Box(Modifier.weight(1f, fill = false)) { BranchPill(it) } }
                 if (running > 0) {
                     RunningPill(running)
                 } else {
