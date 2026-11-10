@@ -1560,6 +1560,13 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         onOpenAggregateRow = { serverId, conversationId ->
                             openAggregateRow(serverId, conversationId)
                         },
+                        // 批v174 P3: 「添加到会话」 rides the owning-device single-flight
+                        // dance (same as the Chats aggregate), 管理 routes to the real
+                        // projects destination (v160: push, Back returns here).
+                        onHandoff = { serverId, folderId, ref ->
+                            handoffTo(serverId) { nav.navigate(handoffRoute(folderId, ref)) }
+                        },
+                        onManageProjects = { nav.navigate(ROUTE_SESSION_PROJECTS) },
                         swipeLeft = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeLeftAction) else null,
                         swipeRight = if (appSettings.sessionSwipeEnabled) SessionSwipeAction.from(appSettings.sessionSwipeRightAction) else null,
                     )

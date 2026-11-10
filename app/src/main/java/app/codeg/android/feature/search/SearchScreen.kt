@@ -51,10 +51,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.data.DeviceLoad
 import app.codeg.android.core.data.DeviceLoadStatus
+import app.codeg.android.core.datastore.SessionRef
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.feature.sessions.AddToProjectSheet
 import app.codeg.android.feature.sessions.SessionDeleteDialog
 import app.codeg.android.feature.sessions.SessionRenameDialog
 import app.codeg.android.feature.sessions.SessionRow
@@ -76,15 +78,30 @@ fun SearchScreen(
      *  list) lock that direction per the shared row's resolution rules. */
     swipeLeft: SessionSwipeAction? = null,
     swipeRight: SessionSwipeAction? = null,
+    // 批v174 P3: the row menu now carries the full 7-item catalog like the Chats
+    // rows — 「添加到会话」 hands the reference to a NEW task on the owning device
+    // (same single-flight dance as the Chats aggregate), and the project sheet's
+    // 管理 jump routes to the real destination.
+    onHandoff: (serverId: String, folderId: Int, reference: String) -> Unit = { _, _, _ -> },
+    onManageProjects: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val query by viewModel.query.collectAsStateWithLifecycle()
     val recent by viewModel.recent.collectAsStateWithLifecycle()
+    // 批v174 P3: project passthroughs for the 添加到项目 sheet.
+    val projects by viewModel.sessionProjects.collectAsStateWithLifecycle()
+    val members by viewModel.projectMembers.collectAsStateWithLifecycle()
     // Keyed on the owning device: a floating-ball device switch while a dialog is
     // open must discard it — the held id is server-local and would hit the wrong device.
-    var pendingDelete by remember(ui.serverId) { mutableStateOf<ConversationSummary?>(null) }
-    var pendingRename by remember(ui.serverId) { mutableStateOf<ConversationSummary?>(null) }
+    // 批v174 P3: the held pair carries its own serverId now, so both modes' dialogs
+    // route through the same At() actions; the remember key stays as a belt-and-braces
+    // discard on a device switch.
+    var pendingDelete by remember(ui.serverId) { mutableStateOf<Pair<String, ConversationSummary>?>(null) }
+    var pendingRename by remember(ui.serverId) { mutableStateOf<Pair<String, ConversationSummary>?>(null) }
+    // 批v174 P3: 添加到项目 target — (owning device, conversation), same shape
+    // as the Chats screen's.
+    var addToTarget by remember { mutableStateOf<Pair<String, ConversationSummary>?>(null) }
     // 批v162 P1: 「加入任务板」 from a search hit — the fastest path for an old
     // session the user just found by name.
     val boardMenu = rememberBoardTrackMenu()
@@ -230,9 +247,15 @@ fun SearchScreen(
                                         // no per-device label map; the owning device name
                                         // is the identity that matters here.
                                         folderName = null,
-                                        onTogglePin = null,
-                                        onDelete = null,
-                                        onRename = null,
+                                        // 批v174 P3: the merged list no longer withholds
+                                        // actions — every callback routes to the row's
+                                        // OWNING device (ids are server-local, the At()
+                                        // trio resolves the right client per row).
+                                        onTogglePin = { viewModel.setPinnedAt(hit.serverId, hit.conversation, !hit.conversation.isPinned) },
+                                        onHandoff = { ref -> onHandoff(hit.serverId, hit.conversation.folderId, ref) },
+                                        onDelete = { pendingDelete = hit.serverId to hit.conversation },
+                                        onAddToProject = { addToTarget = hit.serverId to hit.conversation },
+                                        onRename = { pendingRename = hit.serverId to hit.conversation },
                                         serverName = hit.serverName,
                                         onBoard = boardMenu.isOnBoard(hit.serverId, hit.conversation.id),
                                         onToggleBoard = {
@@ -246,17 +269,23 @@ fun SearchScreen(
                         }
                     } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                         items(ui.results, key = { it.id }) { c ->
+                            // 批v174 P3: the dialogs and the project sheet hold the
+                            // owning device too (ui.serverId can be null only while
+                            // no device is selected — then there are no rows anyway).
+                            val sid = ui.serverId
                             SessionRow(
                                 c,
                                 onClick = { viewModel.submit(); onOpenConversation(c.id) },
                                 modifier = Modifier.animateItem(),
                                 folderName = ui.folderNames[c.folderId],
-                                onTogglePin = { viewModel.setPinned(c, !c.isPinned) },
-                                onDelete = { pendingDelete = c },
-                                onRename = { pendingRename = c },
+                                onTogglePin = sid?.let { s -> { viewModel.setPinnedAt(s, c, !c.isPinned) } },
+                                onHandoff = sid?.let { s -> { ref -> onHandoff(s, c.folderId, ref) } },
+                                onDelete = sid?.let { s -> { pendingDelete = s to c } },
+                                onAddToProject = sid?.let { s -> { addToTarget = s to c } },
+                                onRename = sid?.let { s -> { pendingRename = s to c } },
                                 onBoard = boardMenu.isOnBoard(ui.serverId.orEmpty(), c.id),
-                                onToggleBoard = ui.serverId?.let { sid ->
-                                    { boardMenu.toggle(sid, c.id, c.folderId) }
+                                onToggleBoard = ui.serverId?.let { sid2 ->
+                                    { boardMenu.toggle(sid2, c.id, c.folderId) }
                                 },
                                 swipeLeftAction = swipeLeft,
                                 swipeRightAction = swipeRight,
@@ -268,24 +297,44 @@ fun SearchScreen(
         }
     }
 
-    pendingDelete?.let { conversation ->
+    // 批v174 P3: both modes' dialogs route through the same At() actions — the
+    // held pair names the OWNING device, so no mode fork at the confirm site.
+    pendingDelete?.let { (serverId, conversation) ->
         SessionDeleteDialog(
             onConfirm = {
-                viewModel.delete(conversation)
+                viewModel.deleteAt(serverId, conversation)
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null },
         )
     }
 
-    pendingRename?.let { conversation ->
+    pendingRename?.let { (serverId, conversation) ->
         SessionRenameDialog(
             initialTitle = conversation.trimmedTitle.orEmpty(),
             onConfirm = { title ->
-                viewModel.rename(conversation, title)
+                viewModel.renameAt(serverId, conversation, title)
                 pendingRename = null
             },
             onDismiss = { pendingRename = null },
+        )
+    }
+
+    // 批v174 P3: the 添加到项目 sheet — same wiring as the Chats screen's.
+    addToTarget?.let { (serverId, conversation) ->
+        val ref = SessionRef(serverId, conversation.id)
+        AddToProjectSheet(
+            targetTitle = conversation.trimmedTitle ?: "#${conversation.id}",
+            projects = projects,
+            memberOf = members.filterValues { refs -> refs.any { it.key == ref.key } }.keys,
+            memberCount = { project -> members[project.id]?.size ?: 0 },
+            onToggle = { projectId, member -> viewModel.toggleProjectMembership(projectId, ref, member) },
+            onCreate = viewModel::createProject,
+            onManage = {
+                addToTarget = null
+                onManageProjects()
+            },
+            onDismiss = { addToTarget = null },
         )
     }
 }

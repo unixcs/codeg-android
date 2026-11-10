@@ -6,9 +6,12 @@ import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
 import app.codeg.android.core.data.DeviceLoad
 import app.codeg.android.core.data.DeviceLoadStatus
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.data.SessionProjectRepository
 import app.codeg.android.core.data.aggregateDeviceSignature
 import app.codeg.android.core.datastore.RecentSearchesStore
 import app.codeg.android.core.datastore.ServerProfile
+import app.codeg.android.core.datastore.SessionProject
+import app.codeg.android.core.datastore.SessionRef
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.network.ApiError
 import app.codeg.android.core.network.CodegClient
@@ -34,6 +37,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.Instant
 import javax.inject.Inject
 
 /** Per-device response cap inside an aggregate search round (批v151). The merge
@@ -55,6 +59,13 @@ data class SearchHit(
     val serverName: String,
 )
 
+/** The merged list's deterministic order (ties break by serverId then id so two
+ *  devices' identical timestamps can't swap rows between frames). Extracted so
+ *  the row-restore paths keep the same order as a fresh merge (批v174 P3). */
+private val HIT_ORDER = compareByDescending<SearchHit> { it.conversation.updatedAt }
+    .thenBy { it.serverId }
+    .thenBy { it.conversation.id }
+
 /**
  * Merge per-device search slices into one recency-sorted list (批v151). Pure —
  * unit-tested in MergeSearchResultsTest. Ties (identical updatedAt, ids are
@@ -67,11 +78,7 @@ data class SearchHit(
  */
 fun mergeSearchResults(perDevice: List<SearchDeviceResults>): List<SearchHit> =
     perDevice.flatMap { d -> d.conversations.map { SearchHit(it, d.serverId, d.serverName) } }
-        .sortedWith(
-            compareByDescending<SearchHit> { it.conversation.updatedAt }
-                .thenBy { it.serverId }
-                .thenBy { it.conversation.id },
-        )
+        .sortedWith(HIT_ORDER)
 
 /** Global conversation search: debounced server query + persisted recent terms. Port of iOS `SearchView`. */
 @OptIn(FlowPreview::class)
@@ -79,6 +86,9 @@ fun mergeSearchResults(perDevice: List<SearchDeviceResults>): List<SearchHit> =
 class SearchViewModel @Inject constructor(
     private val repository: ServerRepository,
     private val recentStore: RecentSearchesStore,
+    // 批v174 P3: the 添加到项目 sheet's store (same single-instance passthrough
+    // shape as the Chats VM).
+    private val projectRepo: SessionProjectRepository,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -89,6 +99,21 @@ class SearchViewModel @Inject constructor(
 
     val recent: StateFlow<List<String>> =
         recentStore.searches.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // ---- 批v174 P3: project passthroughs for the 添加到项目 sheet (hoisted,
+    //  one instance per screen — same shape as the Chats VM's). ----
+
+    val sessionProjects: StateFlow<List<SessionProject>> = projectRepo.projects
+
+    val projectMembers: StateFlow<Map<String, List<SessionRef>>> = projectRepo.members
+
+    fun toggleProjectMembership(projectId: String, ref: SessionRef, member: Boolean) {
+        viewModelScope.launch { projectRepo.setMembership(projectId, ref, member) }
+    }
+
+    fun createProject(name: String, onCreated: (SessionProject) -> Unit = {}) {
+        viewModelScope.launch { onCreated(projectRepo.create(name)) }
+    }
 
     private var client: CodegClient? = null
 
@@ -320,86 +345,121 @@ class SearchViewModel @Inject constructor(
             emptyMap()
         }
 
-    /** Optimistic pin/unpin on a search-result row; failure reverts.
-     *  The revert is epoch-gated: if the device changed while the RPC was out, the
-     *  snapshot it captured belongs to the previous device and must not be written
-     *  back over the new device's rows.
-     *  批v151 defense-in-depth: All-mode rows carry server-local ids from OTHER
-     *  devices — the screen hides the actions, the VM refuses to run them against
-     *  whatever device happens to be selected. */
-    fun setPinned(conversation: ConversationSummary, pinned: Boolean) {
-        if (_ui.value.allMode) return
-        val active = client ?: return
-        val epoch = searchEpoch
-        val previous = _ui.value.results
-        _ui.update { state ->
-            state.copy(
-                results = state.results.map {
-                    if (it.id == conversation.id) it.copy(pinnedAt = if (pinned) java.time.Instant.now() else null) else it
-                },
-            )
-        }
+    // ---- 批v174 P3: per-OWNING-device row actions (All-mode rows carry their
+    //  serverId; the single rows are pinned to the selected device, so the dialogs
+    //  hold a (serverId, conversation) pair and BOTH modes route through this
+    //  trio — one code path, no mode forks at the call site). Same optimistic-
+    //  then-persist shape as the Chats aggregate: resolve a client for the row's
+    //  OWN device, mutate just that row (never a captured whole-list snapshot —
+    //  R1-5), rethrow cancellation, surface failures as the screen error.
+
+    /** A client for the OWNING device of a row — ids are server-local. */
+    private suspend fun clientFor(serverId: String): CodegClient? {
+        val profile = repository.profiles.first().firstOrNull { it.id == serverId } ?: return null
+        return repository.client(profile)
+    }
+
+    /** Optimistic pin/unpin on the row's owning device. Touches both result
+     *  slices (the row may be visible in either mode). */
+    fun setPinnedAt(serverId: String, conversation: ConversationSummary, pinned: Boolean) {
         viewModelScope.launch {
+            val c = clientFor(serverId) ?: return@launch
+            val previous = conversation.pinnedAt
+            val stamp = if (pinned) Instant.now() else null
+            _ui.update { st ->
+                st.copy(
+                    results = st.results.map {
+                        if (st.serverId == serverId && it.id == conversation.id) it.copy(pinnedAt = stamp) else it
+                    },
+                    allResults = st.allResults.map { hit ->
+                        if (hit.serverId == serverId && hit.conversation.id == conversation.id)
+                            hit.copy(conversation = hit.conversation.copy(pinnedAt = stamp))
+                        else hit
+                    },
+                )
+            }
             try {
-                active.setPinned(conversation.id, pinned)
+                c.setPinned(conversation.id, pinned)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (epoch == searchEpoch) {
-                    _ui.update { it.copy(results = previous, error = e.displayMessage()) }
+                _ui.update { st ->
+                    st.copy(
+                        results = st.results.map {
+                            if (st.serverId == serverId && it.id == conversation.id) it.copy(pinnedAt = previous) else it
+                        },
+                        allResults = st.allResults.map { hit ->
+                            if (hit.serverId == serverId && hit.conversation.id == conversation.id)
+                                hit.copy(conversation = hit.conversation.copy(pinnedAt = previous))
+                            else hit
+                        },
+                        error = e.displayMessage(),
+                    )
                 }
             }
         }
     }
 
-    /**
-     * Delete a search-result conversation. Removes the row locally first (the results
-     * list only refreshes on a new debounced query), then persists; failure restores.
-     * The restore is epoch-gated (see [setPinned]).
-     */
-    fun delete(conversation: ConversationSummary) {
-        if (_ui.value.allMode) return
-        val active = client ?: return
-        val epoch = searchEpoch
-        val previous = _ui.value.results
-        _ui.update { state ->
-            state.copy(results = state.results.filterNot { it.id == conversation.id })
-        }
+    /** Optimistic delete on the owning device + the Chats-parity post-success
+     *  duties: project-membership cleanup and a conversations-changed ping so
+     *  the other list surfaces converge. Failure restores just this row. */
+    fun deleteAt(serverId: String, conversation: ConversationSummary) {
         viewModelScope.launch {
+            val c = clientFor(serverId) ?: return@launch
+            val prevResult = _ui.value.results.firstOrNull { _ui.value.serverId == serverId && it.id == conversation.id }
+            val prevHit = _ui.value.allResults.firstOrNull { it.serverId == serverId && it.conversation.id == conversation.id }
+            _ui.update { st ->
+                st.copy(
+                    results = st.results.filterNot { st.serverId == serverId && it.id == conversation.id },
+                    allResults = st.allResults.filterNot { it.serverId == serverId && it.conversation.id == conversation.id },
+                )
+            }
             try {
-                active.deleteConversation(conversation.id)
+                c.deleteConversation(conversation.id)
+                projectRepo.removeRef(serverId, conversation.id)
+                repository.notifyConversationsChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (epoch == searchEpoch) {
-                    _ui.update { it.copy(results = previous, error = e.displayMessage()) }
+                _ui.update { st ->
+                    st.copy(
+                        // The single slice may belong to a DIFFERENT device by now (the
+                        // switch wipes results, but the error can land between) — never
+                        // re-insert a stale server-local id into the new device's list.
+                        results = if (prevResult != null && st.serverId == serverId && st.results.none { it.id == conversation.id }) st.results + prevResult else st.results,
+                        allResults = if (prevHit != null && st.allResults.none { it.serverId == serverId && it.conversation.id == conversation.id })
+                            (st.allResults + prevHit).sortedWith(HIT_ORDER)
+                        else st.allResults,
+                        error = e.displayMessage(),
+                    )
                 }
             }
         }
     }
 
-    /**
-     * Rename a search-result conversation (batch v133). Awaits the server, patches
-     * the row in place; failure surfaces the error (nothing was changed locally).
-     * Both writes are epoch-gated: the row patched is the one that was on screen when
-     * the edit started, not whatever device's row now carries the same id.
-     */
-    fun rename(conversation: ConversationSummary, title: String) {
-        if (_ui.value.allMode) return
-        val active = client ?: return
-        val epoch = searchEpoch
+    /** Rename on the owning device; the row patch lands after the server acks
+     *  (same as the single-device [rename]). */
+    fun renameAt(serverId: String, conversation: ConversationSummary, title: String) {
         viewModelScope.launch {
+            val c = clientFor(serverId) ?: return@launch
             try {
-                active.renameConversation(conversation.id, title)
-                if (epoch == searchEpoch) {
-                    _ui.update { state -> state.copy(results = state.results.map {
-                        if (it.id == conversation.id) it.copy(title = title) else it
-                    }) }
+                c.renameConversation(conversation.id, title)
+                _ui.update { st ->
+                    st.copy(
+                        results = st.results.map {
+                            if (st.serverId == serverId && it.id == conversation.id) it.copy(title = title) else it
+                        },
+                        allResults = st.allResults.map { hit ->
+                            if (hit.serverId == serverId && hit.conversation.id == conversation.id)
+                                hit.copy(conversation = hit.conversation.copy(title = title))
+                            else hit
+                        },
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (epoch == searchEpoch) _ui.update { it.copy(error = e.displayMessage()) }
+                _ui.update { it.copy(error = e.displayMessage()) }
             }
         }
     }
