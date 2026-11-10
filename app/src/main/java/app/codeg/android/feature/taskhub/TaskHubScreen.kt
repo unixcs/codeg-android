@@ -228,8 +228,17 @@ fun TaskHubScreen(
     )
     val listColumns = appSettings.taskBoardListColumns.coerceIn(1, 2)
     val pageCount = taskBoardPageCount(kanbanColumns)
-    val pagerState = rememberPagerState(pageCount = { pageCount })
-    var focusIndex by rememberSaveable { mutableStateOf(0) }
+    // 批v174 P1: the focused column lives in the ViewModel (null = never
+    // explicitly chosen) so a detail-sheet round trip can no longer reset it.
+    // The two auto-writers below (settle sync + anchoring) only fire while it
+    // is still null; explicit taps/swipes always win. Cold start keeps the
+    // old default (anchoring decides, else 0).
+    val focusState by viewModel.focusIndex.collectAsStateWithLifecycle()
+    val focusIndex = focusState ?: 0
+    val pagerState = rememberPagerState(
+        initialPage = segmentPageIndex(focusState ?: 0, kanbanColumns),
+        pageCount = { pageCount },
+    )
     // Jump requests (a status chip, the task that just moved columns) and the
     // shell's swipe steps funnel through these two hand-offs, so the gesture
     // collector never captures a stale layout.
@@ -276,28 +285,32 @@ fun TaskHubScreen(
     // A user swipe lands on the next page: move the highlight to that page's
     // first column, but never override a deliberate chip tap whose segment is
     // already visible on the page it lands on.
-    LaunchedEffect(pagerState, kanbanColumns) {
+    LaunchedEffect(pagerState, kanbanColumns, boardLayout) {
         snapshotFlow { pagerState.settledPage }.collect { page ->
+            // 批v174 P1: in list mode the pager is not composed and its settled
+            // page is a stale leftover — syncing it here used to yank the focus
+            // back to page 0 on every return-to-screen. Kanban only.
+            if (boardLayout == TASK_BOARD_LIST) return@collect
             // All four columns on one page: there is no page→status hop to
             // follow, and mapping a stale settled page after a rotation would
             // move the highlight for no reason. Chip taps own it here.
             if (pageCount <= 1) return@collect
-            if (segmentPageIndex(focusIndex, kanbanColumns) != page) {
-                focusIndex = (page * kanbanColumns).coerceIn(0, SEGMENT_ORDER.lastIndex)
+            if (segmentPageIndex(viewModel.focusIndex.value ?: 0, kanbanColumns) != page) {
+                viewModel.setFocusIndex((page * kanbanColumns).coerceIn(0, SEGMENT_ORDER.lastIndex))
             }
         }
     }
     // The column count changed (setting flip / rotation): keep the focused
     // column in view instead of leaving the pager on a page that may vanish.
     LaunchedEffect(kanbanColumns) {
-        val target = segmentPageIndex(focusIndex, kanbanColumns)
+        val target = segmentPageIndex(viewModel.focusIndex.value ?: 0, kanbanColumns)
         if (target != pagerState.currentPage) runCatching { pagerState.scrollToPage(target) }
     }
     // Switching from list back to kanban must open on the status the user was
     // reading, not on whatever page the pager happened to be left at.
     LaunchedEffect(boardLayout) {
         if (boardLayout == TASK_BOARD_LIST) return@LaunchedEffect
-        val target = segmentPageIndex(focusIndex, kanbanColumns)
+        val target = segmentPageIndex(viewModel.focusIndex.value ?: 0, kanbanColumns)
         if (target != pagerState.currentPage) runCatching { pagerState.scrollToPage(target) }
     }
     LaunchedEffect(pendingSegment, boardLayout, kanbanColumns) {
@@ -309,7 +322,7 @@ fun TaskHubScreen(
         // Clearing after the work makes the key-reset restart a harmless no-op.
         automationMode = false
         val index = SEGMENT_ORDER.indexOf(segment).coerceAtLeast(0)
-        focusIndex = index
+        viewModel.setFocusIndex(index)
         // 批v167 拍板（方案A）: a stat tap means "show this segment's LIST" —
         // explicit navigation always lands in list mode (one segment per view,
         // the bar IS the tab row). Workbench stat cards share this path; the
@@ -325,7 +338,7 @@ fun TaskHubScreen(
     LaunchedEffect(pendingFollow, boardLayout, kanbanColumns) {
         val segment = pendingFollow ?: return@LaunchedEffect
         val index = SEGMENT_ORDER.indexOf(segment).coerceAtLeast(0)
-        focusIndex = index
+        viewModel.setFocusIndex(index)
         if (boardLayout != TASK_BOARD_LIST) {
             runCatching { pagerState.animateScrollToPage(segmentPageIndex(index, kanbanColumns)) }
         }
@@ -346,7 +359,7 @@ fun TaskHubScreen(
         // A single page (tablet, or 4 columns resolving to one page) has nowhere
         // to page to — step the highlight instead of swallowing the gesture.
         if (boardLayout == TASK_BOARD_LIST || pageCount <= 1) {
-            focusIndex = segmentStepIndex(focusIndex, step)
+            viewModel.setFocusIndex(segmentStepIndex(viewModel.focusIndex.value ?: 0, step))
         } else {
             runCatching {
                 pagerState.animateScrollToPage(pageStepIndex(pagerState.currentPage, step, pageCount))
@@ -360,6 +373,12 @@ fun TaskHubScreen(
     // user back off an intentionally-viewed empty column.
     var anchoredColumns by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(ui.hasLoaded, board, kanbanColumns) {
+        // 批v174 P1: the user's column choice always wins — anchoring exists
+        // only for the never-touched state (VM focus == null). This effect used
+        // to re-arm on every return-to-screen (plain remember) and, with the
+        // pager dormant on page 0 in list mode, yank the focus back to the
+        // first non-empty page.
+        if (viewModel.focusIndex.value != null) return@LaunchedEffect
         if (!ui.hasLoaded || anchoredColumns == kanbanColumns) return@LaunchedEffect
         // An empty board must not spend the one-shot: the first poll that
         // brings rows is exactly the moment the anchor exists for.
@@ -373,7 +392,7 @@ fun TaskHubScreen(
         if (visibleEmpty) {
             val page = initialKanbanPage(board, kanbanColumns)
             if (page != pagerState.currentPage) runCatching { pagerState.scrollToPage(page) }
-            focusIndex = (page * kanbanColumns).coerceIn(0, SEGMENT_ORDER.lastIndex)
+            viewModel.setFocusIndex((page * kanbanColumns).coerceIn(0, SEGMENT_ORDER.lastIndex))
         }
         anchoredColumns = kanbanColumns
     }

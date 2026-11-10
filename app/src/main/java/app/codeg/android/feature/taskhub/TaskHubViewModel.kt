@@ -14,6 +14,7 @@ import app.codeg.android.core.data.DeviceLoadStatus
 import app.codeg.android.core.data.GlobalEventWatcher
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.BoardConversationEntry
+import app.codeg.android.core.data.SEGMENT_ORDER
 import app.codeg.android.core.data.TaskBoardData
 import app.codeg.android.core.data.TaskBoardEntry
 import app.codeg.android.core.data.TaskSegment
@@ -153,6 +154,19 @@ class TaskHubViewModel @Inject constructor(
 
     fun consumeActedLandedSegment() {
         _actedLandedSegment.value = null
+    }
+
+    // 批v174 P1: focused board column, hoisted from the screen so a detail-sheet
+    // round trip can no longer reset it. null = never explicitly chosen; the
+    // screen's two auto-writers (pager settle sync + empty-page anchoring) only
+    // fire while null, explicit taps/swipes always win. In-memory on purpose —
+    // cold start falls back to anchoring (拍板 A: 返回不丢，冷启动回默认列).
+    private val _focusIndex = MutableStateFlow<Int?>(null)
+    val focusIndex: StateFlow<Int?> = _focusIndex.asStateFlow()
+
+    /** Explicit column selection (chip tap / swipe step / card-follow / pager settle). */
+    fun setFocusIndex(index: Int) {
+        _focusIndex.value = index.coerceIn(0, SEGMENT_ORDER.lastIndex)
     }
 
     private val foreground = (appContext as CodegApplication).appForeground
