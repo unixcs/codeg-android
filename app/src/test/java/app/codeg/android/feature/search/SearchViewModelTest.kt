@@ -169,7 +169,7 @@ class SearchViewModelTest {
             store.select("a")
         }
         // 批v174 P3: the VM gained the SessionProjectRepository (添加到项目 sheet) —
-        # direct construction, bypassing Hilt's @ApplicationScope qualifier.
+        // direct construction, bypassing Hilt's @ApplicationScope qualifier.
         val projectRepo = SessionProjectRepository(SessionProjectStore(dataStore), scope)
         return World(store, recents, secrets, SearchViewModel(repository, recents, projectRepo), http, scope)
     }
