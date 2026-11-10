@@ -1501,9 +1501,12 @@
     <string name="quick_save_content">内容</string>
     <string name="quick_save_save">保存</string>
     <string name="quick_save_choose_dir">保存到这里</string>
-    <string name="quick_save_saved">已保存到 %1$s</string>
+    <!-- 批v174 N5：Toast 直接给绝对路径（剪贴板里同样是它——粘进对话即可让 agent 读文件） -->
+    <string name="quick_save_saved">已保存到 %1$s，路径已复制</string>
     <string name="quick_save_no_device">暂无可用设备，请先在设备管理里添加。</string>
     <string name="quick_save_err_root">无法获取设备的根目录。</string>
+    <!-- 批v174 N4：浏览器选到工作区之外（旧的静默重置根目录） -->
+    <string name="quick_save_err_outside">所选目录在设备工作区之外，请选工作区内的目录。</string>
     <string name="quick_save_err_generic">保存失败，内容已保留，可重试。</string>
     <string name="inbox_menu_save_md">保存为 Markdown</string>
     <string name="ball_action_quick_save">快速保存（存为 .md）</string>

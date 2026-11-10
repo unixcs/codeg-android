@@ -29,8 +29,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -62,8 +64,10 @@ import kotlinx.coroutines.launch
 
 /** One finished save run, consumed by the sheet via [QuickSaveViewModel.saveSeq]. */
 sealed interface QuickSaveOutcome {
-    /** [relPath] is workspace-relative ("notes/idea.md"). */
-    data class Saved(val deviceName: String, val relPath: String) : QuickSaveOutcome
+    /** [relPath] is workspace-relative ("notes/idea.md"); [absPath] is the
+     *  device-absolute path the sheet copies to the clipboard (批v174 N5 —
+     *  paste it into a conversation so the agent can load the file directly). */
+    data class Saved(val deviceName: String, val relPath: String, val absPath: String) : QuickSaveOutcome
 
     /** [message] is the server/client text when there is one (kept for diagnosis). */
     data class Failed(val message: String?) : QuickSaveOutcome
@@ -133,7 +137,13 @@ class QuickSaveViewModel @Inject constructor(
                     val rootPath = client.getHomeDirectory()
                     val relNew = saveTo(client, rootPath, relDir, title, content)
                     settingsStore.setQuickSaveLast(serverId, relDir)
-                    QuickSaveOutcome.Saved(profile.name, relNew)
+                    // 批v174 N5: hand the sheet the absolute path (same join as the
+                    // SessionDetailViewModel upload path — trim the double slash).
+                    QuickSaveOutcome.Saved(
+                        profile.name,
+                        relNew,
+                        "${rootPath.trimEnd('/')}/${relNew.trimStart('/')}",
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -216,23 +226,37 @@ fun QuickSaveSheet(
     val saveResult by viewModel.saveResult.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
     val context = LocalContext.current
+    // 批v174 N5: the save success copies the file's absolute path (clipboard
+    // precedent: FolderFilesView's 复制绝对路径).
+    val clipboard = LocalClipboardManager.current
 
     val pickDevice = stringResource(R.string.quick_save_pick_device)
     val loadingLabel = stringResource(R.string.common_loading)
     val rootFolderLabel = stringResource(R.string.quick_save_folder_root)
-    // Hoisted with the labels above: the (serverId, profiles) LaunchedEffect
-    // below consumes rootError, and Kotlin locals must be declared before use
+    // Hoisted with the labels above: the (serverId, …) LaunchedEffect below
+    // consumes rootErrorLabel, and Kotlin locals must be declared before use
     // (the old spot under the saveSeq effect was a forward reference —
     // 终审必修, cloud Verify would have failed the build).
     val savedToastTemplate = stringResource(R.string.quick_save_saved)
     val genericError = stringResource(R.string.quick_save_err_generic)
-    val rootError = stringResource(R.string.quick_save_err_root)
+    val rootErrorLabel = stringResource(R.string.quick_save_err_root)
+    // 批v174 N4: an out-of-workspace browser pick used to fall back silently
+    // to the root dir — now it says so (FolderFilesView 同款口径).
+    val outsideErrorLabel = stringResource(R.string.quick_save_err_outside)
+    val retryLabel = stringResource(R.string.common_retry)
 
     var title by rememberSaveable { mutableStateOf(initialTitle) }
     var content by rememberSaveable { mutableStateOf(initialContent) }
-    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    // 批v174 N4: the two failure classes are separate — the ROOT state (home
+    // resolution failed; shows with a retry) and the SAVE state (save failed /
+    // bad dir pick; the message is kept). Neither clears the other; a successful
+    // root re-resolve clears the root state.
+    var rootError by rememberSaveable { mutableStateOf<String?>(null) }
+    var saveError by rememberSaveable { mutableStateOf<String?>(null) }
     var serverId by rememberSaveable { mutableStateOf("") }
     var relDir by rememberSaveable { mutableStateOf("") }
+    // 批v174 N4: bump to re-resolve root after a failure (the Retry button).
+    var rootRetry by rememberSaveable { mutableStateOf(0) }
     // Per-open link state: remember (not saveable) — a rotation re-resolves
     // via the LaunchedEffect below instead of resurrecting a stale client.
     var client by remember { mutableStateOf<CodegClient?>(null) }
@@ -260,17 +284,23 @@ fun QuickSaveSheet(
         }
     }
     // 设备选定 → 解析 client + home 根（旋转后 remember 丢失也走这里重取）。
-    LaunchedEffect(serverId, profiles) {
+    // 批v174 N4: keys drop the raw profiles list — profile-object re-emissions
+    // (token edits, settings writes) used to re-run the effect and BLIP the
+    // resolved link (client/root wiped → re-fetched → loading flash). A boolean
+    // "profiles arrived" gate still re-runs once on the rotation/late-arrival
+    // path, and [rootRetry] lets the Retry button drive a re-resolve.
+    val haveProfiles = profiles.isNotEmpty()
+    LaunchedEffect(serverId, rootRetry, haveProfiles) {
+        if (serverId.isBlank() || !haveProfiles) return@LaunchedEffect
+        val profile = profiles.firstOrNull { it.id == serverId } ?: return@LaunchedEffect
         client = null
         rootPath = null
-        if (serverId.isNotBlank()) {
-            val profile = profiles.firstOrNull { it.id == serverId } ?: return@LaunchedEffect
-            val c = viewModel.clientFor(profile)
-            client = c
-            if (c != null) {
-                rootPath = runCatching { c.getHomeDirectory() }.getOrNull()
-                if (rootPath == null) error = rootError
-            }
+        rootError = null
+        val c = viewModel.clientFor(profile)
+        client = c
+        if (c != null) {
+            rootPath = runCatching { c.getHomeDirectory() }.getOrNull()
+            if (rootPath == null) rootError = rootErrorLabel
         }
     }
 
@@ -283,9 +313,13 @@ fun QuickSaveSheet(
             pendingSaveAt = null
             when (val outcome = saveResult) {
                 is QuickSaveOutcome.Saved -> {
+                    // 批v174 N5: copy the ABSOLUTE path first — the entire point is
+                    // to paste it into a conversation and have the agent load the
+                    // file as context (FolderFilesView's copy-path precedent).
+                    clipboard.setText(AnnotatedString(outcome.absPath))
                     Toast.makeText(
                         context,
-                        savedToastTemplate.format("${outcome.deviceName} · ${outcome.relPath}"),
+                        savedToastTemplate.format(outcome.absPath),
                         Toast.LENGTH_SHORT,
                     ).show()
                     onDismiss()
@@ -293,7 +327,7 @@ fun QuickSaveSheet(
                 is QuickSaveOutcome.Failed -> {
                     // 无 message 的失败（设备/token 缺失）给本地化兜底文案；
                     // 有 message 的原样展示（FolderFilesView 同口径，可诊断）。
-                    error = outcome.message ?: genericError
+                    saveError = outcome.message ?: genericError
                 }
                 null -> Unit
             }
@@ -375,8 +409,17 @@ fun QuickSaveSheet(
                         color = colors.textTertiary,
                     )
                 }
-                if (error != null) {
-                    Text(error!!, color = colors.danger, style = MaterialTheme.typography.bodySmall)
+                if (rootError != null) {
+                    // 批v174 N4: the root state shows WITH a retry — a transient
+                    // acp_connect hiccup no longer dead-ends the sheet (the old
+                    // single error text had no way back except closing and reopening).
+                    Text(rootError!!, color = colors.danger, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { rootRetry++ }) {
+                        Text(retryLabel)
+                    }
+                }
+                if (saveError != null) {
+                    Text(saveError!!, color = colors.danger, style = MaterialTheme.typography.bodySmall)
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onDismiss) {
@@ -386,7 +429,7 @@ fun QuickSaveSheet(
                         text = stringResource(R.string.quick_save_save),
                         onClick = {
                             pendingSaveAt = saveSeq
-                            error = null
+                            saveError = null
                             viewModel.save(serverId, relDir, title, content)
                         },
                         enabled = title.isNotBlank() && client != null && rootPath != null && !saving,
@@ -428,7 +471,16 @@ fun QuickSaveSheet(
                 loadHome = { c.getHomeDirectory() },
                 loadDirs = { p -> c.listDirectoryEntries(p) },
                 onSelect = { abs ->
-                    relDir = relPathOrNull(root, abs) ?: ""
+                    // 批v174 N4: an out-of-workspace pick now SAYS so and keeps the
+                    // previous dir — the old `?: ""` silently reset the picker to
+                    // the root, which was the "目录总被重置" complaint's other half.
+                    val rel = relPathOrNull(root, abs)
+                    if (rel == null) {
+                        saveError = outsideErrorLabel
+                    } else {
+                        saveError = null
+                        relDir = rel
+                    }
                     showDirBrowser = false
                 },
                 onDismiss = { showDirBrowser = false },

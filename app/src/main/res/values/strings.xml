@@ -1515,9 +1515,13 @@
     <string name="quick_save_content">Content</string>
     <string name="quick_save_save">Save</string>
     <string name="quick_save_choose_dir">Save here</string>
-    <string name="quick_save_saved">Saved to %1$s</string>
+    <!-- 批v174 N5: the toast now carries the ABSOLUTE path (the clipboard already
+         holds it — the point is to paste it into a conversation as context). -->
+    <string name="quick_save_saved">Saved to %1$s — path copied</string>
     <string name="quick_save_no_device">No device available — add one in device management first.</string>
     <string name="quick_save_err_root">Couldn\'t resolve the device\'s home directory.</string>
+    <!-- 批v174 N4: an out-of-workspace browser pick (the old silent root reset). -->
+    <string name="quick_save_err_outside">That folder is outside the device\'s workspace — pick a folder inside it.</string>
     <string name="quick_save_err_generic">Save failed. Your text is kept — try again.</string>
     <string name="inbox_menu_save_md">Save as Markdown</string>
     <string name="ball_action_quick_save">Quick save (as Markdown)</string>
