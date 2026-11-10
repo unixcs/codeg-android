@@ -86,6 +86,10 @@ data class AppSettings(
     /** 批v161: list mode's column count — 1 (default, the classic single list)
      *  or 2 (a denser two-column grid). */
     val taskBoardListColumns: Int = DEFAULT_TASK_BOARD_LIST_COLUMNS,
+    /** 批v174 P2: the projects tab's layout — 1 (the classic single grouped
+     *  list) or 2 (a card grid; actual columns scale with width, 2 on phones
+     *  / 3 on tablets). Default 2 per 拍板 P2 (卡片网格 + 顶栏切换 + 记忆). */
+    val projectListColumns: Int = DEFAULT_PROJECT_LIST_COLUMNS,
     /** 批v160 W9: the top chip row's dimension on 动态/会话 — "devices" (default,
      *  the pre-v160 row) or "projects" (全部 + project chips + 未添加). */
     val sessionChipMode: String = DEFAULT_SESSION_CHIP_MODE,
@@ -170,6 +174,9 @@ data class AppSettings(
         const val DEFAULT_TASK_BOARD_LAYOUT = TASK_BOARD_KANBAN
         const val DEFAULT_TASK_BOARD_KANBAN_COLUMNS = 2
         const val DEFAULT_TASK_BOARD_LIST_COLUMNS = 1
+        // 批v174 P2: the projects tab defaults to the card grid (拍板 P2) — the
+        // top-bar toggle flips back to the single grouped list.
+        const val DEFAULT_PROJECT_LIST_COLUMNS = 2
         const val DEFAULT_SESSION_CHIP_MODE = SESSION_CHIP_DEVICES
         const val DEFAULT_SESSION_SWIPE_LEFT = "copy"
         const val DEFAULT_SESSION_SWIPE_RIGHT = "board"
@@ -254,6 +261,8 @@ class AppSettingsStore @Inject constructor(
                 ?: AppSettings.DEFAULT_TASK_BOARD_KANBAN_COLUMNS).coerceIn(1, 2),
             taskBoardListColumns = (prefs[TASK_BOARD_LIST_COLUMNS]
                 ?: AppSettings.DEFAULT_TASK_BOARD_LIST_COLUMNS).coerceIn(1, 2),
+            projectListColumns = (prefs[PROJECT_LIST_COLUMNS]
+                ?: AppSettings.DEFAULT_PROJECT_LIST_COLUMNS).coerceIn(1, 2),
             sessionChipMode = prefs[SESSION_CHIP_MODE]?.takeIf { it in SESSION_CHIP_MODES }
                 ?: AppSettings.DEFAULT_SESSION_CHIP_MODE,
             sessionSwipeLeftAction = sanitizeSessionSwipeAction(
@@ -554,6 +563,11 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[TASK_BOARD_LIST_COLUMNS] = columns.coerceIn(1, 2) }
     }
 
+    /** 批v174 P2: persist the projects tab's layout (1 = single list, 2 = card grid). */
+    suspend fun setProjectListColumns(columns: Int) {
+        dataStore.edit { it[PROJECT_LIST_COLUMNS] = columns.coerceIn(1, 2) }
+    }
+
     /** Persist the font-scale multiplier (coerced to the usable band on read too). */
     suspend fun setFontScale(scale: Float) {
         dataStore.edit { it[FONT_SCALE] = scale.coerceIn(0.5f, 2f) }
@@ -674,6 +688,7 @@ class AppSettingsStore @Inject constructor(
         val TASK_BOARD_LAYOUT = stringPreferencesKey("task_board_layout")
         val TASK_BOARD_KANBAN_COLUMNS = intPreferencesKey("task_board_kanban_columns")
         val TASK_BOARD_LIST_COLUMNS = intPreferencesKey("task_board_list_columns")
+        val PROJECT_LIST_COLUMNS = intPreferencesKey("project_list_columns")
         val SESSION_CHIP_MODE = stringPreferencesKey("session_chip_mode")
         val SESSION_SWIPE_LEFT_ACTION = stringPreferencesKey("session_swipe_left_action")
         val SESSION_SWIPE_RIGHT_ACTION = stringPreferencesKey("session_swipe_right_action")

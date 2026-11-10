@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.isLiveFresh
+import app.codeg.android.core.datastore.AppSettings
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.ConversationSummary
 import app.codeg.android.core.model.FolderDetail
@@ -14,10 +16,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -26,10 +30,22 @@ import javax.inject.Inject
 @HiltViewModel
 class ProjectsViewModel @Inject constructor(
     private val repository: ServerRepository,
+    // 批v174 P2: owns the projects layout preference (single list ⇄ card grid).
+    private val appSettingsStore: AppSettingsStore,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(ProjectsUiState())
     val ui: StateFlow<ProjectsUiState> = _ui.asStateFlow()
+
+    /** 批v174 P2: app settings mirror for the layout toggle (same shape as the
+     *  task hub's). Eagerly so the very first frame already knows the layout. */
+    val settings: StateFlow<AppSettings> = appSettingsStore.settings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings.INITIAL)
+
+    /** 批v174 P2: flip the projects layout (1 = single list, 2 = card grid). */
+    fun setProjectListColumns(columns: Int) {
+        viewModelScope.launch { appSettingsStore.setProjectListColumns(columns) }
+    }
 
     private var client: CodegClient? = null
     private var loadedEndpoint: String? = null

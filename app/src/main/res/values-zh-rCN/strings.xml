@@ -179,6 +179,9 @@
 
     <!-- Projects / Folders -->
     <string name="projects_add">添加</string>
+    <!-- 批v174 P2：顶栏布局切换（图标指向点击后切换成的形态） -->
+    <string name="projects_columns_list">列表</string>
+    <string name="projects_columns_cards">卡片网格</string>
     <string name="projects_open_folder">打开文件夹</string>
     <string name="projects_open_this_folder">打开此文件夹</string>
     <string name="projects_clone_repo">克隆仓库</string>

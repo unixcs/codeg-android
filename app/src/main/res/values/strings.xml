@@ -179,6 +179,9 @@
 
     <!-- Projects / Folders -->
     <string name="projects_add">Add</string>
+    <!-- 批v174 P2: the top-bar layout toggle (icon shows what the tap switches to). -->
+    <string name="projects_columns_list">List</string>
+    <string name="projects_columns_cards">Card grid</string>
     <string name="projects_open_folder">Open Folder</string>
     <string name="projects_open_this_folder">Open This Folder</string>
     <string name="projects_clone_repo">Clone Repository</string>

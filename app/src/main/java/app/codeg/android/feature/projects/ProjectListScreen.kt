@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.AltRoute
@@ -24,13 +27,16 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -52,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -83,6 +90,11 @@ fun ProjectListScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
+    // 批v174 P2: the projects layout — 1 = the classic grouped list, 2 = a card
+    // grid (2 cards per row on phones, 3 on tablets). Persisted in AppSettings.
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val columns = settings.projectListColumns.coerceIn(1, 2)
+    val configuration = LocalConfiguration.current
     var menuOpen by remember { mutableStateOf(false) }
     var showBrowser by remember { mutableStateOf(false) }
     var showClone by remember { mutableStateOf(false) }
@@ -102,6 +114,19 @@ fun ProjectListScreen(
                     containerColor = Color.Transparent,
                     titleContentColor = colors.textPrimary,
                 ),
+                actions = {
+                    // 批v174 P2: list ⇄ card-grid toggle (same icon language as the
+                    // inbox's column toggle: the icon shows what the tap SWITCHES to).
+                    IconButton(onClick = { viewModel.setProjectListColumns(if (columns == 2) 1 else 2) }) {
+                        Icon(
+                            if (columns == 2) Icons.Rounded.ViewAgenda else Icons.Rounded.GridView,
+                            contentDescription = stringResource(
+                                if (columns == 2) R.string.projects_columns_list else R.string.projects_columns_cards,
+                            ),
+                            tint = colors.textSecondary,
+                        )
+                    }
+                },
             )
         },
         floatingActionButton = {
@@ -141,22 +166,44 @@ fun ProjectListScreen(
                         EmptyState(Icons.Rounded.FolderOpen, stringResource(R.string.projects_empty_title), stringResource(R.string.projects_empty_message))
                     }
                 else -> PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
-                    LazyColumn(
-                        Modifier.fillMaxSize(),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp),
-                    ) {
-                        // One continuous grouped surface holding every folder as a
-                        // borderless row split by inset hairlines — the iOS grouped-list
-                        // look, matching the Settings tab. Folder counts are small, so a
-                        // single card inside the lazy list is fine.
-                        item {
-                            GlassCard(padding = 0.dp) {
-                                val list = sortedFolders(ui.folders)
-                                list.forEachIndexed { index, folder ->
-                                    if (index > 0) {
-                                        HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(start = 66.dp))
+                    if (columns == 2) {
+                        // 批v174 P2: the card grid — same glass-card language as the
+                        // list, one standalone card per folder. Tablet-width (>= 600dp)
+                        // gets a third column.
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(if (configuration.screenWidthDp >= 600) 3 else 2),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            gridItems(sortedFolders(ui.folders), key = { it.id }) { folder ->
+                                FolderCard(
+                                    folder,
+                                    ui.runningCount(folder.id),
+                                    onLongClick = { actionFolder = folder },
+                                    onClick = { onOpenFolder(folder.id) },
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            Modifier.fillMaxSize(),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp),
+                        ) {
+                            // One continuous grouped surface holding every folder as a
+                            // borderless row split by inset hairlines — the iOS grouped-list
+                            // look, matching the Settings tab. Folder counts are small, so a
+                            // single card inside the lazy list is fine.
+                            item {
+                                GlassCard(padding = 0.dp) {
+                                    val list = sortedFolders(ui.folders)
+                                    list.forEachIndexed { index, folder ->
+                                        if (index > 0) {
+                                            HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(start = 66.dp))
+                                        }
+                                        FolderRow(folder, ui.runningCount(folder.id), onLongClick = { actionFolder = folder }) { onOpenFolder(folder.id) }
                                     }
-                                    FolderRow(folder, ui.runningCount(folder.id), onLongClick = { actionFolder = folder }) { onOpenFolder(folder.id) }
                                 }
                             }
                         }
@@ -255,6 +302,59 @@ private fun FolderRow(
             folder.lastOpenedAt?.let { Text(RelativeTime.compact(it), fontSize = 11.sp, color = colors.textTertiary) }
         }
         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(18.dp))
+    }
+}
+
+/**
+ * 批v174 P2: one folder as a standalone card in the grid — the [FolderRow]
+ * content re-flowed vertically: badge + name on top, then the mono path, then
+ * branch pill + running pill / last-opened time. Click and long-press semantics
+ * are identical to the row (open / [FolderActionSheet]).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FolderCard(
+    folder: FolderDetail,
+    running: Int,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    val tile = colorFromHex(folder.color) ?: colors.accent
+    GlassCard {
+        Column(
+            Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(2.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FolderBadge(color = tile, size = 40.dp)
+                Text(
+                    folder.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(
+                folder.path,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                color = colors.textTertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                folder.gitBranch?.let { BranchPill(it) }
+                if (running > 0) {
+                    RunningPill(running)
+                } else {
+                    folder.lastOpenedAt?.let { Text(RelativeTime.compact(it), fontSize = 11.sp, color = colors.textTertiary) }
+                }
+            }
+        }
     }
 }
 
