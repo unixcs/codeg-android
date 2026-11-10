@@ -243,6 +243,9 @@ fun QuickSaveSheet(
     // 批v174 N4: an out-of-workspace browser pick used to fall back silently
     // to the root dir — now it says so (FolderFilesView 同款口径).
     val outsideErrorLabel = stringResource(R.string.quick_save_err_outside)
+    // 批v174 审查建议③: a Retry against a dead profile/token must not land in
+    // a silent dead state (error gone, save still disabled, zero explanation).
+    val missingTokenLabel = stringResource(R.string.sessions_missing_token)
     val retryLabel = stringResource(R.string.common_retry)
 
     var title by rememberSaveable { mutableStateOf(initialTitle) }
@@ -301,6 +304,8 @@ fun QuickSaveSheet(
         if (c != null) {
             rootPath = runCatching { c.getHomeDirectory() }.getOrNull()
             if (rootPath == null) rootError = rootErrorLabel
+        } else {
+            rootError = missingTokenLabel
         }
     }
 

@@ -68,14 +68,15 @@ import app.codeg.android.feature.sessions.rememberBoardTrackMenu
 fun SearchScreen(
     onOpenConversation: (Int) -> Unit,
     // 批v151 All mode: the device bar's 全部 chip enters the aggregate fan-out.
-    // Rows render merged hits with their owning device; pin/rename/delete are
-    // withheld (server-local ids must not be mutated from the merged list) and a
-    // row open rides the owning-device handoff, exactly like the Chats aggregate.
+    // Rows render merged hits with their owning device; a row open rides the
+    // owning-device handoff, exactly like the Chats aggregate.
+    // 批v174 P3: the merged rows' actions are no longer withheld — every callback
+    // routes to the row's OWNING device via the VM's At() trio.
     allMode: Boolean = false,
     onOpenAggregateRow: (serverId: String, conversationId: Int) -> Unit = { _, id -> onOpenConversation(id) },
     /** 批v168: swipe bindings from Settings, already resolved to null ("off").
-     *  Rows without the matching capability (pin/rename/delete on the merged
-     *  list) lock that direction per the shared row's resolution rules. */
+     *  Each direction resolves against the row's own callbacks (all present
+     *  since 批v174 P3), so the settings bindings act on both modes. */
     swipeLeft: SessionSwipeAction? = null,
     swipeRight: SessionSwipeAction? = null,
     // 批v174 P3: the row menu now carries the full 7-item catalog like the Chats
@@ -237,6 +238,13 @@ fun SearchScreen(
                             if (failed.isNotEmpty()) {
                                 UnreachableDevicesBanner(failed)
                             }
+                            // 批v174 P3(审查必修): a row-action failure shows as a
+                            // dismissable banner — the full-screen error gate reads
+                            // `error`, which the aggregate round never writes; letting
+                            // action failures land there would wipe the merged list.
+                            ui.actionError?.let {
+                                ActionErrorBanner(it, onDismiss = viewModel::dismissActionError)
+                            }
                             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                                 items(ui.allResults, key = { "${it.serverId}:${it.conversation.id}" }) { hit ->
                                     SessionRow(
@@ -268,6 +276,11 @@ fun SearchScreen(
                             }
                         }
                     } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                        // 批v174 P3(审查必修): same banner slot as the All branch —
+                        // single rows route through the same At() trio now.
+                        ui.actionError?.let {
+                            item(key = "action-error") { ActionErrorBanner(it, onDismiss = viewModel::dismissActionError) }
+                        }
                         items(ui.results, key = { it.id }) { c ->
                             // 批v174 P3: the dialogs and the project sheet hold the
                             // owning device too (ui.serverId can be null only while
@@ -352,6 +365,28 @@ private fun UnreachableDevicesBanner(failed: List<DeviceLoad>) {
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
+}
+
+/** 批v174 P3(审查必修): row-action failure banner — dismissable, list stays on
+ *  screen (Chats-aggregate parity: the row itself carries the optimistic revert). */
+@Composable
+private fun ActionErrorBanner(message: String, onDismiss: () -> Unit) {
+    val colors = CodegTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            message,
+            fontSize = 12.sp,
+            color = colors.warning,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Rounded.Close, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(16.dp))
+        }
+    }
 }
 
 @Composable

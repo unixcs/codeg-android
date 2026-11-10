@@ -71,10 +71,9 @@ private val HIT_ORDER = compareByDescending<SearchHit> { it.conversation.updated
  * unit-tested in MergeSearchResultsTest. Ties (identical updatedAt, ids are
  * server-local) break by serverId then conversation id so the order is
  * deterministic across recompositions; otherwise two devices' identical
- * timestamps could swap rows between frames and jitter the list. Pinned rows do
- * NOT float here: the aggregate answers "what matches, most recent first", and
- * pinning is a single-device view concern (row actions are disabled in All
- * mode — a server-local id must never be mutated from the merged list).
+ * timestamps could swap rows between frames and jitter the list.
+ * 批v174 P3: row actions now work on the merged list too (per-OWNING-device),
+ * so this doc's old "actions are disabled in All mode" clause is gone.
  */
 fun mergeSearchResults(perDevice: List<SearchDeviceResults>): List<SearchHit> =
     perDevice.flatMap { d -> d.conversations.map { SearchHit(it, d.serverId, d.serverName) } }
@@ -351,7 +350,10 @@ class SearchViewModel @Inject constructor(
     //  trio — one code path, no mode forks at the call site). Same optimistic-
     //  then-persist shape as the Chats aggregate: resolve a client for the row's
     //  OWN device, mutate just that row (never a captured whole-list snapshot —
-    //  R1-5), rethrow cancellation, surface failures as the screen error.
+    //  R1-5), rethrow cancellation. Failures land in [SearchUiState.actionError],
+    //  NOT the search-round [error]: the screen gates the full-screen error page
+    //  on `error`, and runAggregateSearch never writes it — writing it here would
+    //  wipe the whole merged list behind a page-sized InlineError (review 必修).
 
     /** A client for the OWNING device of a row — ids are server-local. */
     private suspend fun clientFor(serverId: String): CodegClient? {
@@ -393,7 +395,7 @@ class SearchViewModel @Inject constructor(
                                 hit.copy(conversation = hit.conversation.copy(pinnedAt = previous))
                             else hit
                         },
-                        error = e.displayMessage(),
+                        actionError = e.displayMessage(),
                     )
                 }
             }
@@ -402,11 +404,13 @@ class SearchViewModel @Inject constructor(
 
     /** Optimistic delete on the owning device + the Chats-parity post-success
      *  duties: project-membership cleanup and a conversations-changed ping so
-     *  the other list surfaces converge. Failure restores just this row. */
+     *  the other list surfaces converge. Failure restores just this row (in
+     *  place, not appended at the tail). */
     fun deleteAt(serverId: String, conversation: ConversationSummary) {
         viewModelScope.launch {
             val c = clientFor(serverId) ?: return@launch
-            val prevResult = _ui.value.results.firstOrNull { _ui.value.serverId == serverId && it.id == conversation.id }
+            val prevResultIdx = _ui.value.results.indexOfFirst { _ui.value.serverId == serverId && it.id == conversation.id }
+            val prevResult = prevResultIdx.takeIf { it >= 0 }?.let { _ui.value.results[it] }
             val prevHit = _ui.value.allResults.firstOrNull { it.serverId == serverId && it.conversation.id == conversation.id }
             _ui.update { st ->
                 st.copy(
@@ -422,15 +426,20 @@ class SearchViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 _ui.update { st ->
+                    // The single slice may belong to a DIFFERENT device by now (the
+                    // switch wipes results, but the error can land between) — never
+                    // re-insert a stale server-local id into the new device's list.
+                    val restoredResults = if (prevResult != null && st.serverId == serverId && st.results.none { it.id == conversation.id }) {
+                        val list = st.results.toMutableList()
+                        list.add(prevResultIdx.coerceAtMost(list.size), prevResult)
+                        list
+                    } else st.results
                     st.copy(
-                        // The single slice may belong to a DIFFERENT device by now (the
-                        // switch wipes results, but the error can land between) — never
-                        // re-insert a stale server-local id into the new device's list.
-                        results = if (prevResult != null && st.serverId == serverId && st.results.none { it.id == conversation.id }) st.results + prevResult else st.results,
+                        results = restoredResults,
                         allResults = if (prevHit != null && st.allResults.none { it.serverId == serverId && it.conversation.id == conversation.id })
                             (st.allResults + prevHit).sortedWith(HIT_ORDER)
                         else st.allResults,
-                        error = e.displayMessage(),
+                        actionError = e.displayMessage(),
                     )
                 }
             }
@@ -438,7 +447,7 @@ class SearchViewModel @Inject constructor(
     }
 
     /** Rename on the owning device; the row patch lands after the server acks
-     *  (same as the single-device [rename]). */
+     *  (same as the Chats aggregate, which also pings the other surfaces). */
     fun renameAt(serverId: String, conversation: ConversationSummary, title: String) {
         viewModelScope.launch {
             val c = clientFor(serverId) ?: return@launch
@@ -456,12 +465,18 @@ class SearchViewModel @Inject constructor(
                         },
                     )
                 }
+                repository.notifyConversationsChanged()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _ui.update { it.copy(error = e.displayMessage()) }
+                _ui.update { it.copy(actionError = e.displayMessage()) }
             }
         }
+    }
+
+    /** 批v174 P3: clear the row-action failure banner (the screen's ✕). */
+    fun dismissActionError() {
+        _ui.update { it.copy(actionError = null) }
     }
 
     private suspend fun runSingleSearch(raw: String, epoch: Long) {
@@ -476,7 +491,8 @@ class SearchViewModel @Inject constructor(
         // 批v153 R4（R2 修复的镜像）：client 为空时 resolveClient 是悬挂点——
         // searching 声明必须先于它，否则重解析的数帧里屏上停留上一轮的
         // "无匹配"空态（R2 只给 runAggregateSearch 前移了这行）。
-        _ui.update { it.copy(searching = true, query = q, error = null, noDevice = false) }
+        // 批v174 P3: a fresh round also drops a stale row-action banner.
+        _ui.update { it.copy(searching = true, query = q, error = null, actionError = null, noDevice = false) }
         val c = client ?: currentProfile?.let { profile ->
             // Commit the re-resolved client only while this search is still current: a
             // device switch during the token read must not be overwritten by the
@@ -540,7 +556,7 @@ class SearchViewModel @Inject constructor(
         // gate keys on `searching`, and visibleProfiles.first() can suspend on a
         // DataStore read; entering All would otherwise flash the "all devices
         // skipped" empty state for the frames before the flag landed.
-        _ui.update { it.copy(searching = true, query = q, error = null, noDevice = false) }
+        _ui.update { it.copy(searching = true, query = q, error = null, actionError = null, noDevice = false) }
         val scope = try {
             repository.visibleProfiles.first().filter { it.includeInAll }
         } catch (e: CancellationException) {
@@ -640,4 +656,9 @@ data class SearchUiState(
     val deviceStates: List<DeviceLoad> = emptyList(),
     /** Mirror of ServerRepository.searchAll at the last mode transition. */
     val allMode: Boolean = false,
+    // 批v174 P3: row-action failures (pin/delete/rename on a hit). Kept OFF the
+    // search-round [error] on purpose — the screen renders `error` as a
+    // full-screen gate that would wipe the merged list; this one shows as a
+    // dismissable banner above the rows (Chats-aggregate parity).
+    val actionError: String? = null,
 )
