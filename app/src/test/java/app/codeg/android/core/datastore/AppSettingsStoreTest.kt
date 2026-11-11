@@ -54,13 +54,16 @@ class AppSettingsStoreTest {
     }
 
     @Test
-    fun `session alert defaults are notify on and keepalive off`() {
+    fun `session alert defaults are notify on and keepalive on`() {
         // 批v160 W8: the "agent needs you" notification ships ON (it is the point
-        // of the batch); the battery-costing foreground service ships OFF —
-        // opting in is the user's call, never a default.
+        // of the batch). 批v176: the keep-alive foreground service also ships ON —
+        // a killed process is blind to every event stream, and notifications are
+        // the feature's whole point (the persistent LOW-priority row can be
+        // dismissed); users who explicitly opt out keep their stored value.
         val s = AppSettings()
         assertTrue(s.notifyInteractiveEnabled)
-        assertFalse(s.keepAliveEnabled)
+        assertTrue(s.keepAliveEnabled)
+        assertTrue(s.notifyTaskHeadsUp)
     }
 
     @Test

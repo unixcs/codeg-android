@@ -13,6 +13,7 @@ import app.codeg.android.core.model.FolderDetail
 import app.codeg.android.core.model.FolderVisibility
 import app.codeg.android.core.network.CodegClient
 import app.codeg.android.core.network.displayMessage
+import app.codeg.android.core.notify.TaskResultNotifier
 import app.codeg.android.di.ApplicationScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -44,6 +45,8 @@ class GeneralViewModel @Inject constructor(
     private val draftFolderPrefs: DraftFolderPrefsStore,
     /** 批v160 W9: the settings section's project list (names + order editing). */
     val sessionProjectRepo: SessionProjectRepository,
+    /** 批v176: 「发测试通知」 posts through the real notifier's channel path. */
+    private val taskResultNotifier: TaskResultNotifier,
     @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
 
@@ -353,6 +356,16 @@ class GeneralViewModel @Inject constructor(
     /** 系统级通知体系: 任务完成提醒 toggle. */
     fun setNotifyTaskResultsEnabled(enabled: Boolean) = launchPersist {
         appSettingsStore.setNotifyTaskResultsEnabled(enabled)
+    }
+
+    /** 批v176: 任务完成 · 悬浮提醒 toggle (HIGH vs DEFAULT channel choice). */
+    fun setNotifyTaskHeadsUp(enabled: Boolean) = launchPersist {
+        appSettingsStore.setNotifyTaskHeadsUp(enabled)
+    }
+
+    /** 批v176: 「发测试通知」 — one real notification through the live path. */
+    fun sendTestNotification() {
+        runCatching { taskResultNotifier.postTestNotification() }
     }
 
     /** 系统级通知体系: 设备离线提醒 toggle. */

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDropUp
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.SwipeLeft
 import androidx.compose.material.icons.rounded.SwipeRight
@@ -1035,21 +1036,35 @@ fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 checked = appSettings.notifyTaskResultsEnabled,
                 onChange = { on -> gatedChange(on, viewModel::setNotifyTaskResultsEnabled) },
             )
+            // 批v176: 任务完成 · 悬浮提醒 — channel choice for the task-results
+            // class (HIGH banner vs DEFAULT shade-only). Meaningless with the
+            // class itself off, hence the gate; toggling it needs no runtime
+            // permission of its own (it restyles an already-permitted channel).
+            ToggleRow(
+                title = stringResource(R.string.settings_notify_task_heads_up),
+                subtitle = stringResource(R.string.settings_notify_task_heads_up_subtitle),
+                checked = appSettings.notifyTaskHeadsUp,
+                onChange = viewModel::setNotifyTaskHeadsUp,
+                enabled = appSettings.notifyTaskResultsEnabled,
+            )
             ToggleRow(
                 title = stringResource(R.string.settings_notify_device_events),
                 subtitle = stringResource(R.string.settings_notify_device_events_subtitle),
                 checked = appSettings.notifyDeviceEventsEnabled,
                 onChange = { on -> gatedChange(on, viewModel::setNotifyDeviceEventsEnabled) },
             )
+            // 批v176: the keep-alive listener feeds EVERY alert class now, not
+            // just the interactive one — gate on any alert toggle being on.
+            val keepAliveRelevant = notifyOn || appSettings.notifyTaskResultsEnabled
             ToggleRow(
                 title = stringResource(R.string.notify_keepalive_title),
                 subtitle = stringResource(
-                    if (notifyOn) R.string.notify_keepalive_subtitle else R.string.notify_keepalive_disabled_subtitle,
+                    if (keepAliveRelevant) R.string.notify_keepalive_subtitle else R.string.notify_keepalive_disabled_subtitle,
                 ),
                 checked = appSettings.keepAliveEnabled,
                 onChange = viewModel::setKeepAliveEnabled,
                 // Without notifications there is nothing to keep alive.
-                enabled = notifyOn,
+                enabled = keepAliveRelevant,
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.notify_battery_title)) },
@@ -1086,8 +1101,64 @@ fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
                     }
                 },
             )
+            // 批v176: 「发测试通知」 — one real notification through the live
+            // channel path, so 悬浮/锁屏 behaviour is verifiable on the spot
+            // instead of waiting for a real task to finish.
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.notify_test_action)) },
+                supportingContent = { Text(stringResource(R.string.notify_test_action_subtitle)) },
+                trailingContent = {
+                    Icon(
+                        Icons.Rounded.NotificationsActive,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                modifier = Modifier.clickable { viewModel.sendTestNotification() },
+            )
             // 系统级通知体系: point at the system notification settings for the
             // per-channel sound/style knobs (importance, vibration, sound).
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.notify_system_settings_title)) },
+                supportingContent = { Text(stringResource(R.string.notify_system_settings_subtitle)) },
+                trailingContent = {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                modifier = Modifier.clickable {
+                    // Per-channel knobs (incl. MIUI's lock-screen sub-switch)
+                    // live here; fall back to the app details page like battery.
+                    val intents = listOf(
+                        android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS,
+                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    )
+                    intents.firstNotNullOfOrNull { action ->
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    action,
+                                    android.net.Uri.parse("package:${context.packageName}"),
+                                ),
+                            )
+                        }.getOrNull()
+                    }
+                },
+            )
             Text(
                 stringResource(R.string.notify_channels_hint),
                 fontSize = 12.sp,
@@ -1108,11 +1179,31 @@ fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 }
             }
             if (!canFullScreen) {
+                // 批v176: the hint is now the JUMP — one tap lands on the FSI
+                // grant page (the block only renders on 34+, where the action
+                // exists); app details as the fallback for odd ROMs.
                 Text(
                     stringResource(R.string.notify_fsi_hint),
                     fontSize = 12.sp,
                     color = colors.textTertiary,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                    modifier = Modifier
+                        .clickable {
+                            val intents = listOf(
+                                android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            )
+                            intents.firstNotNullOfOrNull { action ->
+                                runCatching {
+                                    context.startActivity(
+                                        android.content.Intent(
+                                            action,
+                                            android.net.Uri.parse("package:${context.packageName}"),
+                                        ),
+                                    )
+                                }.getOrNull()
+                            }
+                        }
+                        .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
                 )
             }
         }

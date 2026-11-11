@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
@@ -96,6 +98,38 @@ class TaskResultWatcher @Inject constructor(
     private var pollJob: Job? = null
     private val refCount = AtomicInteger(0)
 
+    /** 批v176: serializes [pollOnce] — the 30s loop and a [poke]-triggered
+     *  round can otherwise interleave mid-body and diff two rounds against the
+     *  SAME baseline (double-emitting one transition) or corrupt the
+     *  outage bookkeeping. Concurrency is mutual exclusion, not reordering. */
+    private val pollMutex = Mutex()
+
+    /** 批v176: the debounced poke job — active means a round is already due. */
+    private var pokeJob: Job? = null
+
+    /**
+     * 批v176: WS push (`task://changed` on the firehose) → an immediate poll
+     * instead of waiting up to [POLL_INTERVAL_MS] for the next tick. Debounced:
+     * a burst of pushes (every task status flip fires one) collapses into one
+     * round per debounce window; [pollOnce] diffs against the baseline, so
+     * redundant rounds emit nothing. Safe to call from any thread / while the
+     * loop is stopped (a poke before start just does one standalone round).
+     */
+    @Synchronized
+    fun poke() {
+        if (pokeJob?.isActive == true) return
+        pokeJob = scope.launch {
+            kotlinx.coroutines.delay(POKE_DEBOUNCE_MS)
+            try {
+                pollOnce()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Same tolerance as the loop: one bad round must not kill the poke path.
+            }
+        }
+    }
+
     /** Idempotent: N holders share one running watcher. The @Synchronized
      *  closes the check-then-act race (批v161.3 R2): two start()s (or a
      *  start/stop pair) interleaving on the refcount could launch two loops or
@@ -128,7 +162,11 @@ class TaskResultWatcher @Inject constructor(
         }
     }
 
-    private suspend fun pollOnce() {
+    /** 批v176: the loop and [poke] both funnel here; the mutex keeps their
+     *  rounds from interleaving (see the field kdoc). */
+    private suspend fun pollOnce() = pollMutex.withLock { pollOnceLocked() }
+
+    private suspend fun pollOnceLocked() {
         val profiles = repository.profiles.first()
             .filter { it.visible && it.includeInAll }
         // Nothing aggregated → nothing to watch, and nothing may be misreported.
@@ -195,5 +233,9 @@ class TaskResultWatcher @Inject constructor(
         /** Same cadence as [app.codeg.android.core.data.InteractiveRequestWatcher]
          *  — the two polls ride the same 30s heartbeat. */
         const val POLL_INTERVAL_MS = 30_000L
+
+        /** 批v176: poke debounce — pushes inside this window collapse into one
+         *  extra round; anything slower falls through to the regular tick. */
+        const val POKE_DEBOUNCE_MS = 1_000L
     }
 }

@@ -34,9 +34,13 @@ import javax.inject.Singleton
 /**
  * System notifications for "work finished somewhere" (系统级通知体系) — the
  * second tier of the notification stack [InteractiveNotifier] opened: task-board
- * outcomes and turn completions on the IMPORTANCE_DEFAULT `task_results`
- * channel (shade + sound, never heads-up), device-outage alerts on the silent
- * LOW `device_events` channel.
+ * outcomes and turn completions ride `task_results` (IMPORTANCE_DEFAULT, shade
+ * only) or — 批v176, when 任务完成·悬浮提醒 is on — the HIGH
+ * `task_results_priority` twin (banner/heads-up + lock-screen). All three
+ * result chains post with [NotificationCompat.VISIBILITY_PUBLIC] (readable on
+ * the lock screen) and the [GROUP_TASK_RESULTS] group with a live summary, so
+ * a batch of finishes collapses to one expandable row. Device-outage alerts
+ * stay on the silent LOW `device_events` channel, ungrouped.
  *
  * Sources are three hot event streams ([TaskResultWatcher.taskTransitions],
  * [InteractiveRequestWatcher.turnComplete], [TaskResultWatcher.deviceDown]) —
@@ -63,6 +67,11 @@ import javax.inject.Singleton
  * leaving a shade row for a disabled class. The whole 判定+notify+record of
  * each handler is therefore one [lock] critical section (cleanup takes the
  * same lock), closing the window.
+ *
+ * 批v176: the firehose's `task://changed` frames reach the automation collector
+ * below and POKE [TaskResultWatcher] into an immediate poll — a finished task
+ * announces in seconds instead of at the next 30s tick. The poll diff itself
+ * stays the event source (baseline dedupe); the poke only shortens the wait.
  *
  * Notification ids must be STABLE ACROSS PROCESSES (same contract as
  * [InteractiveNotifier.notificationId]): pure hash formulas, never a counter.
@@ -122,6 +131,9 @@ class TaskResultNotifier @Inject constructor(
                         val nm = notificationManager()
                         postedResults.values.forEach(nm::cancel)
                         postedResults.clear()
+                        // 批v176: the group summary is the last row left standing
+                        // once every child is cancelled — take it down too.
+                        nm.cancel(GROUP_SUMMARY_ID)
                     }
                 }
                 if (!current.notifyDeviceEventsEnabled && previous.notifyDeviceEventsEnabled) {
@@ -157,6 +169,10 @@ class TaskResultNotifier @Inject constructor(
         // guards post+record, never a network call.
         appScope.launch {
             globalEvents.events.collect { event ->
+                // 批v176: task://changed on the same firehose — poke the poller
+                // so a finished task announces in seconds (debounced inside the
+                // watcher); the poll diff stays the authoritative event source.
+                if (event.channel == GlobalEventWatcher.CHANNEL_TASK) watcher.poke()
                 if (event.channel != GlobalEventWatcher.CHANNEL_AUTOMATION) return@collect
                 val settled = parseRunSettled(event.payload) ?: return@collect
                 if (settled.status !in NOTIFYABLE_RUN_STATUSES) return@collect
@@ -165,6 +181,14 @@ class TaskResultNotifier @Inject constructor(
             }
         }
     }
+
+    /** 批v176: which channel result notifications post on — the HIGH twin when
+     *  任务完成·悬浮提醒 is on (banner + lock-screen), the original DEFAULT one
+     *  as the shade-only fallback. Reads the hot settings copy; callers run
+     *  under [lock]. */
+    private fun resultChannel(): String =
+        if (settings.notifyTaskHeadsUp) InteractiveNotifier.CHANNEL_TASK_RESULTS_PRIORITY
+        else InteractiveNotifier.CHANNEL_TASK_RESULTS
 
     private fun onTaskTransition(transition: TaskTransition) = synchronized(lock) {
         if (!settings.notifyTaskResultsEnabled) return
@@ -178,11 +202,15 @@ class TaskResultNotifier @Inject constructor(
         val text = ctx.getString(
             if (transition.to == "done") R.string.notify_task_done else R.string.notify_task_failed,
         )
-        val notification = NotificationCompat.Builder(ctx, InteractiveNotifier.CHANNEL_TASK_RESULTS)
+        val notification = NotificationCompat.Builder(ctx, resultChannel())
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(ellipsis(transition.title))
             .setContentText("$text · ${transition.serverName}")
             .setContentIntent(boardContentIntent(ctx))
+            // 批v176: readable on the lock screen (names the task, no content)
+            // + group so a batch of finishes collapses to one expandable row.
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setGroup(GROUP_TASK_RESULTS)
             .setAutoCancel(true)
             // Re-posts for the same task (a re-run landing in the same id) must
             // stay silent after the first alert, like the interactive builder.
@@ -193,6 +221,7 @@ class TaskResultNotifier @Inject constructor(
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify task result failed: ${it.message}") }
         putCapped(postedResults, "${transition.serverId}|${transition.taskId}", id)
+        postGroupSummary(ctx)
     }
 
     private fun onTurnComplete(event: TurnCompleteEvent) = synchronized(lock) {
@@ -206,13 +235,15 @@ class TaskResultNotifier @Inject constructor(
         val id = turnNotificationId(event.serverId, event.conversationId)
         val title = event.conversationTitle?.takeIf { it.isNotBlank() }
             ?: ctx.getString(R.string.notify_turn_title)
-        val notification = NotificationCompat.Builder(ctx, InteractiveNotifier.CHANNEL_TASK_RESULTS)
+        val notification = NotificationCompat.Builder(ctx, resultChannel())
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(ellipsis(title))
             .setContentText(ctx.getString(R.string.notify_turn_done))
             .setContentIntent(
                 conversationContentIntent(ctx, event.serverId, event.conversationId),
             )
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setGroup(GROUP_TASK_RESULTS)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
@@ -220,6 +251,7 @@ class TaskResultNotifier @Inject constructor(
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify turn complete failed: ${it.message}") }
         putCapped(postedResults, "turn|${event.serverId}|${event.conversationId}", id)
+        postGroupSummary(ctx)
     }
 
     /** 批v173 C7: resolve the automation's display name (and the device's) at
@@ -267,11 +299,13 @@ class TaskResultNotifier @Inject constructor(
                 else R.string.notify_automation_failed,
             )
             val text = serverName?.takeIf { it.isNotBlank() }?.let { "$outcome · $it" } ?: outcome
-            val notification = NotificationCompat.Builder(ctx, InteractiveNotifier.CHANNEL_TASK_RESULTS)
+            val notification = NotificationCompat.Builder(ctx, resultChannel())
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                 .setContentTitle(ellipsis(title))
                 .setContentText(text)
                 .setContentIntent(boardContentIntent(ctx))
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setGroup(GROUP_TASK_RESULTS)
                 .setAutoCancel(true)
                 .setOnlyAlertOnce(true)
                 .setCategory(NotificationCompat.CATEGORY_STATUS)
@@ -279,6 +313,7 @@ class TaskResultNotifier @Inject constructor(
             runCatching { notificationManager().notify(id, notification) }
                 .onFailure { Log.w(TAG, "notify automation settled failed: ${it.message}") }
             putCapped(postedResults, "automation|$serverId|${settled.runId}", id)
+            postGroupSummary(ctx)
         }
     }
 
@@ -291,6 +326,9 @@ class TaskResultNotifier @Inject constructor(
             .setContentTitle(event.serverName)
             .setContentText(ctx.getString(R.string.notify_device_offline))
             .setContentIntent(boardContentIntent(ctx))
+            // 批v176: an outage alert you can't read on the lock screen loses
+            // most of its point — show it (it names the device, no content).
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SYSTEM)
@@ -315,6 +353,50 @@ class TaskResultNotifier @Inject constructor(
 
     private fun notificationManager(): NotificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    /** 批v176: refresh the result group's summary (caller holds [lock] and just
+     *  posted a grouped child; [ctx] is the localized wrapper). One summary per
+     *  group: collapsed batches show it as the single row, expanded shows the
+     *  children. Silent — the children carry the alert; without this the first
+     *  summary post would double-alert alongside the child. The system
+     *  auto-dismisses the summary when its last child is dismissed. */
+    private fun postGroupSummary(ctx: Context) {
+        val count = postedResults.size
+        if (count <= 0) return
+        val summary = NotificationCompat.Builder(ctx, resultChannel())
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(ctx.getString(R.string.notify_group_summary_title))
+            .setContentText(ctx.getString(R.string.notify_group_summary_text, count))
+            .setContentIntent(boardContentIntent(ctx))
+            .setGroup(GROUP_TASK_RESULTS)
+            .setGroupSummary(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .build()
+        runCatching { notificationManager().notify(GROUP_SUMMARY_ID, summary) }
+            .onFailure { Log.w(TAG, "notify group summary failed: ${it.message}") }
+    }
+
+    /** 批v176: the settings page's 「发测试通知」 — one real notification through
+     *  the same channel-selection path the live chains use, so heads-up /
+     *  lock-screen behaviour can be verified on the spot. Deliberately NOT
+     *  grouped: a diagnostic must not pollute the result group's ledger. */
+    fun postTestNotification() {
+        val ctx = LocaleManager.wrapReadOnly(context)
+        val notification = NotificationCompat.Builder(ctx, resultChannel())
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(ctx.getString(R.string.notify_test_title))
+            .setContentText(ctx.getString(R.string.notify_test_text))
+            .setContentIntent(boardContentIntent(ctx))
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .build()
+        runCatching { notificationManager().notify(TEST_NOTIFICATION_ID, notification) }
+            .onFailure { Log.w(TAG, "notify test failed: ${it.message}") }
+    }
 
     /** Task board deep link — `codeg://tab/tasks` (MainShell routes it to
      *  HomeTab.TASKS; request code distinct from the other notifiers'). */
@@ -369,6 +451,18 @@ class TaskResultNotifier @Inject constructor(
 
         /** Outstanding-post ledger cap (批v161.3 R2). */
         private const val POSTED_CAP = 128
+
+        /** 批v176: Android notification group key for every result chain — a
+         *  batch of finishes collapses under one expandable row. */
+        private const val GROUP_TASK_RESULTS = "task_results"
+
+        /** Stable group-summary notification id (53 ≠ 37/41/43/47 multipliers
+         *  and ≠ any 31· hash family member by a practical margin). */
+        private val GROUP_SUMMARY_ID = 53 * GROUP_TASK_RESULTS.hashCode()
+
+        /** 批v176: fixed id for the diagnostic test notification (a re-post
+         *  replaces the previous test instead of stacking). */
+        private val TEST_NOTIFICATION_ID = 59 * "test_notification".hashCode()
 
         /** Notification content titles render on one line — keep the truncation
          *  tight so the shade never has to ellipsize a runaway task title. */

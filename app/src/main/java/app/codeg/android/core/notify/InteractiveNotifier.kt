@@ -126,10 +126,24 @@ class InteractiveNotifier @Inject constructor(
         val taskResults = NotificationChannel(
             CHANNEL_TASK_RESULTS,
             localized.getString(R.string.notif_channel_task_results),
-            // Second-tier semantics: the shade + sound, never heads-up.
+            // Second-tier semantics: the shade + sound, never heads-up. Now the
+            // "just the shade" fallback — heads-up rides the PRIORITY channel
+            // below (批v176; the system refuses importance upgrades on an
+            // existing channel, hence the new id).
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
             description = localized.getString(R.string.notif_channel_task_results_desc)
+            enableVibration(true)
+        }
+        // 批v176: heads-up twin of task_results. Channels are immutable in
+        // importance once created, so "task finished" floating alerts get their
+        // own id instead of mutating the old channel.
+        val taskResultsPriority = NotificationChannel(
+            CHANNEL_TASK_RESULTS_PRIORITY,
+            localized.getString(R.string.notif_channel_task_results_priority),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = localized.getString(R.string.notif_channel_task_results_priority_desc)
             enableVibration(true)
         }
         val deviceEvents = NotificationChannel(
@@ -148,7 +162,9 @@ class InteractiveNotifier @Inject constructor(
             description = localized.getString(R.string.notif_channel_keepalive_desc)
         }
         runCatching {
-            nm.createNotificationChannels(listOf(interactive, taskResults, deviceEvents, keepAlive))
+            nm.createNotificationChannels(
+                listOf(interactive, taskResults, taskResultsPriority, deviceEvents, keepAlive),
+            )
         }
     }
 
@@ -247,6 +263,11 @@ class InteractiveNotifier @Inject constructor(
     companion object {
         const val CHANNEL_INTERACTIVE = "interactive_requests"
         const val CHANNEL_TASK_RESULTS = "task_results"
+
+        /** 批v176: heads-up twin of [CHANNEL_TASK_RESULTS] — HIGH importance makes
+         *  "task finished" float as a banner. Separate id because the system
+         *  refuses to raise a channel's importance after creation. */
+        const val CHANNEL_TASK_RESULTS_PRIORITY = "task_results_priority"
         const val CHANNEL_DEVICE_EVENTS = "device_events"
         const val CHANNEL_KEEPALIVE = "service_keepalive"
 

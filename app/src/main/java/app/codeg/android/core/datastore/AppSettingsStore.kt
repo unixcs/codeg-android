@@ -66,13 +66,20 @@ data class AppSettings(
     /** 系统级通知体系: task-board outcomes (done / failed) + turn completions
      *  posted on the task_results channel. Default ON. */
     val notifyTaskResultsEnabled: Boolean = true,
+    /** 批v176: 任务完成 · 悬浮提醒 — ON posts result notifications on the HIGH
+     *  `task_results_priority` channel (banner + lock-screen), OFF falls back to
+     *  the DEFAULT `task_results` channel (shade only). Default ON. */
+    val notifyTaskHeadsUp: Boolean = true,
     /** 系统级通知体系: device-offline alerts on the silent device_events channel.
      *  Default ON. */
     val notifyDeviceEventsEnabled: Boolean = true,
     /** 批v160 W8: keep the interaction listener alive in the background via a
-     *  foreground service (dataSync). Default OFF — it costs battery; users on
-     *  aggressive OEM ROMs opt in. */
-    val keepAliveEnabled: Boolean = false,
+     *  foreground service (dataSync). 批v176 default ON: notifications are the
+     *  feature's whole point and a killed process is blind to every event
+     *  stream; the owner is a single user who prefers reliability, and the
+     *  persistent LOW-priority shade row can be dismissed. Users who explicitly
+     *  turned it off keep their stored value. */
+    val keepAliveEnabled: Boolean = true,
     /** 批v160 W5: the Tasks tab's horizontal-swipe semantics — "segments" =
      *  step between the board's four kanban columns (default), "devices" =
      *  the cross-device sequence (the pre-v160 behavior). */
@@ -251,8 +258,9 @@ class AppSettingsStore @Inject constructor(
             inboxColumns = (prefs[INBOX_COLUMNS] ?: AppSettings.DEFAULT_INBOX_COLUMNS).coerceIn(1, 2),
             notifyInteractiveEnabled = prefs[NOTIFY_INTERACTIVE_ENABLED] ?: true,
             notifyTaskResultsEnabled = prefs[NOTIFY_TASK_RESULTS_ENABLED] ?: true,
+            notifyTaskHeadsUp = prefs[NOTIFY_TASK_HEADS_UP] ?: true,
             notifyDeviceEventsEnabled = prefs[NOTIFY_DEVICE_EVENTS_ENABLED] ?: true,
-            keepAliveEnabled = prefs[KEEP_ALIVE_ENABLED] ?: false,
+            keepAliveEnabled = prefs[KEEP_ALIVE_ENABLED] ?: true,
             taskSwipeMode = prefs[TASK_SWIPE_MODE]?.takeIf { it in TASK_SWIPE_MODES }
                 ?: AppSettings.DEFAULT_TASK_SWIPE_MODE,
             taskBoardLayout = prefs[TASK_BOARD_LAYOUT]?.takeIf { it in TASK_BOARD_LAYOUTS }
@@ -529,6 +537,11 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[NOTIFY_TASK_RESULTS_ENABLED] = enabled }
     }
 
+    /** 批v176: persist the task-result heads-up toggle (channel choice). */
+    suspend fun setNotifyTaskHeadsUp(enabled: Boolean) {
+        dataStore.edit { it[NOTIFY_TASK_HEADS_UP] = enabled }
+    }
+
     /** 系统级通知体系: persist the device-offline notification toggle. */
     suspend fun setNotifyDeviceEventsEnabled(enabled: Boolean) {
         dataStore.edit { it[NOTIFY_DEVICE_EVENTS_ENABLED] = enabled }
@@ -682,6 +695,7 @@ class AppSettingsStore @Inject constructor(
         val INBOX_COLUMNS = intPreferencesKey("inbox_columns")
         val NOTIFY_INTERACTIVE_ENABLED = booleanPreferencesKey("notify_interactive_enabled")
         val NOTIFY_TASK_RESULTS_ENABLED = booleanPreferencesKey("notify_task_results")
+        val NOTIFY_TASK_HEADS_UP = booleanPreferencesKey("notify_task_heads_up")
         val NOTIFY_DEVICE_EVENTS_ENABLED = booleanPreferencesKey("notify_device_events")
         val KEEP_ALIVE_ENABLED = booleanPreferencesKey("keep_alive_enabled")
         val TASK_SWIPE_MODE = stringPreferencesKey("task_swipe_mode")
