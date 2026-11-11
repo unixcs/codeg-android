@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -26,7 +27,7 @@ data class ServerCommonDir(val label: String, val path: String)
  * must not ride the app-wide settings flow (same reasoning as DeviceAgentPrefs).
  *
  * Empty stored list ⇒ the jump menu falls back to built-in defaults
- * ([DeviceCommonDirsDefaults]); the management screen seeds the defaults as
+ * ([CommonDirsDefaults]); the management screen seeds the defaults as
  * ordinary editable rows, after which the stored list is authoritative.
  */
 @Singleton

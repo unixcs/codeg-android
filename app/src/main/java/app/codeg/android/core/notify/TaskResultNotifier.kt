@@ -220,7 +220,7 @@ class TaskResultNotifier @Inject constructor(
         // POST_NOTIFICATIONS revoked → SecurityException lands here, logged, not fatal.
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify task result failed: ${it.message}") }
-        putCapped(postedResults, "${transition.serverId}|${transition.taskId}", id)
+            .onSuccess { putCapped(postedResults, "${transition.serverId}|${transition.taskId}", id) }
         postGroupSummary(ctx)
     }
 
@@ -250,7 +250,7 @@ class TaskResultNotifier @Inject constructor(
             .build()
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify turn complete failed: ${it.message}") }
-        putCapped(postedResults, "turn|${event.serverId}|${event.conversationId}", id)
+            .onSuccess { putCapped(postedResults, "turn|${event.serverId}|${event.conversationId}", id) }
         postGroupSummary(ctx)
     }
 
@@ -312,7 +312,7 @@ class TaskResultNotifier @Inject constructor(
                 .build()
             runCatching { notificationManager().notify(id, notification) }
                 .onFailure { Log.w(TAG, "notify automation settled failed: ${it.message}") }
-            putCapped(postedResults, "automation|$serverId|${settled.runId}", id)
+                .onSuccess { putCapped(postedResults, "automation|$serverId|${settled.runId}", id) }
             postGroupSummary(ctx)
         }
     }
@@ -335,7 +335,7 @@ class TaskResultNotifier @Inject constructor(
             .build()
         runCatching { notificationManager().notify(id, notification) }
             .onFailure { Log.w(TAG, "notify device down failed: ${it.message}") }
-        putCapped(postedDevice, event.serverId, id)
+            .onSuccess { putCapped(postedDevice, event.serverId, id) }
     }
 
     /** Cap on the outstanding-post ledgers: the key spaces are unbounded in

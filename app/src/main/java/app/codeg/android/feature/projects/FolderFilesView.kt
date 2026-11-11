@@ -41,7 +41,6 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NoteAdd
@@ -101,6 +100,7 @@ import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.DirectoryItem
 import app.codeg.android.core.network.ApiError
 import app.codeg.android.core.network.CodegClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -112,7 +112,8 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
     val colors = CodegTheme.colors
     // 批v176: startPath lets a jump land BELOW/OUTSIDE the workspace root without
     // registering anything; writes still anchor to rootPath and fail cleanly outside.
-    var stack by remember { mutableStateOf(listOf(startPath ?: rootPath)) }
+    // Saveable: the climb-above position survives rotation like preview/edit do.
+    var stack by rememberSaveable { mutableStateOf(listOf(startPath ?: rootPath)) }
     // Saveable: preview/edit survive rotation.
     var previewPath by rememberSaveable { mutableStateOf<String?>(null) }
     var editPath by rememberSaveable { mutableStateOf<String?>(null) }
@@ -157,7 +158,15 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
     val dir = stack.last()
     var result by remember(dir) { mutableStateOf<Result<List<DirectoryItem>>?>(null) }
     var refreshTick by remember(dir) { mutableStateOf(0) }
-    LaunchedEffect(dir, refreshTick) { result = runCatching { client.listDirectoryWithFiles(dir) } }
+    LaunchedEffect(dir, refreshTick) {
+        result = try {
+            Result.success(client.listDirectoryWithFiles(dir))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
     val refresh: () -> Unit = { refreshTick++ }
 
     var actionTarget by remember { mutableStateOf<DirectoryItem?>(null) }
@@ -226,7 +235,9 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
                 dir.substringBeforeLast('/').isEmpty() -> "/"
                 else -> dir.substringBeforeLast('/')
             }
-            val outsideRoot = rootPath.isNotEmpty() && !dir.startsWith(rootPath)
+            // Trailing-slash exact: a sibling like /mnt/Projects/foobar must not pass
+            // a startsWith("/mnt/Projects/foo") probe (批v176 R2).
+            val outsideRoot = rootPath.isNotEmpty() && !(dir == rootPath || dir.startsWith("$rootPath/"))
             Column(Modifier.fillMaxSize()) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -267,10 +278,19 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
                     // computed parent (above the root once startPath/outside browsing).
                     if (stack.size > 1 || parentPath.isNotEmpty()) {
                         item("up") {
-                            Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                                    stack = if (stack.size > 1) stack.dropLast(1) else stack + parentPath
-                                }.padding(8.dp),
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                                // 批v176 R2: pop only when the previous entry IS the
+                                // current dir's parent (undoing a descent); once ABOVE
+                                // the root the previous entry is a CHILD of the current
+                                // dir, so popping here would navigate DOWN — keep
+                                // appending the computed parent instead.
+                                stack = if (stack.size > 1 && stack[stack.size - 2] == parentPath) {
+                                    stack.dropLast(1)
+                                } else {
+                                    stack + parentPath
+                                }
+                            }.padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 Icon(Icons.Rounded.ArrowUpward, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
@@ -340,15 +360,25 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
                         editPath = dir.let { d -> if (d.endsWith("/")) "$d$name" else "$d/$name" }
                         return@runFileAction
                     }
-                    client.createFileTreeEntry(rootPath, relPathOrNull(rootPath, dir) ?: "", name, if (isDir) "dir" else "file")
+                    // 批v176 R2: an outside-root parent must not silently re-root the
+                    // create at the workspace root (relPathOrNull's old `?: ""` did
+                    // exactly that) — refuse with the explicit error instead.
+                    val relDir = relPathOrNull(rootPath, dir)
+                    if (relDir == null) {
+                        actionError = outsideWorkspaceMsg
+                        return@runFileAction
+                    }
+                    client.createFileTreeEntry(rootPath, relDir, name, if (isDir) "dir" else "file")
                     // A file created WITH content: create returns no etag context, so chain a
                     // read-for-edit (fetches a valid etag for the 0-byte file) then a save.
                     // A save failure auto-opens the editor seeded with the pasted text.
                     if (!isDir && content.isNotEmpty()) {
-                        val relNew = (relPathOrNull(rootPath, dir) ?: "").let { if (it.isEmpty()) name else "$it/$name" }
+                        val relNew = if (relDir.isEmpty()) name else "$relDir/$name"
                         try {
                             val edit = client.readFileForEdit(rootPath, relNew)
                             client.saveFileContent(rootPath, relNew, content, edit.etag)
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             actionError = e.message ?: genericErrorMsg
                             editPath = dir.let { d -> if (d.endsWith("/")) "$d$name" else "$d/$name" }
@@ -849,12 +879,22 @@ private fun FilePreview(
     onDismiss: () -> Unit,
 ) {
     val colors = CodegTheme.colors
-    val rel = if (absPath.startsWith("$rootPath/")) absPath.removePrefix("$rootPath/") else absPath.substringAfterLast('/')
+    // 批v176 R2: outside-root paths no longer fall back to a bare filename (the old
+    // substringAfterLast could resolve a same-named file INSIDE the workspace).
+    val rel = relPathOrNull(rootPath, absPath)
+    val outsideMsg = stringResource(R.string.files_outside_workspace)
     var result by remember(absPath) { mutableStateOf<Result<String>?>(null) }
     var loadTick by remember(absPath) { mutableStateOf(0) }
     val reload: () -> Unit = { loadTick++ }
     LaunchedEffect(absPath, loadTick) {
-        result = runCatching { client.readFilePreview(rootPath, rel).content }
+        result = try {
+            if (rel == null) Result.failure(IllegalStateException(outsideMsg))
+            else Result.success(client.readFilePreview(rootPath, rel).content)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
     // Rendered vs raw: Markdown files default to rendered; everything else is raw-only.
     val kind = remember(absPath) { previewKindOf(absPath) }
@@ -924,7 +964,9 @@ private fun FilePreview(
                         when {
                             content.isEmpty() -> EmptyFileState(absPath, onRetry = reload, onEdit = onEdit)
                             rendered && kind == PreviewKind.MARKDOWN -> MarkdownScrollContent(content)
-                            kind == PreviewKind.IMAGE -> ImagePreview(client, rootPath, rel)
+                            // rel is non-null on this branch (a null rel always produced
+                            // the failure above); the fallback only satisfies the compiler.
+                            kind == PreviewKind.IMAGE -> ImagePreview(client, rootPath, rel ?: "")
                             kind == PreviewKind.HTML -> HtmlPreview(absPath.substringAfterLast('/'), content)
                             else -> FileContent(content)
                         }
@@ -1033,6 +1075,8 @@ private fun ImagePreview(client: CodegClient, rootPath: String, rel: String) {
                 bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     ?: throw ApiError.Decoding("Unsupported image format")
                 base64 = b64
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = e.message ?: "Failed to load image"
             }
@@ -1148,7 +1192,11 @@ private fun FileEditorScreen(
 ) {
     val colors = CodegTheme.colors
     val scope = rememberCoroutineScope()
-    val rel = if (absPath.startsWith("$rootPath/")) absPath.removePrefix("$rootPath/") else absPath.substringAfterLast('/')
+    // 批v176 R2: outside-root paths no longer fall back to a bare filename — the old
+    // substringAfterLast could resolve a same-named file INSIDE the workspace, and a
+    // save would overwrite it. null rel = explicit error, no read, no save.
+    val rel = relPathOrNull(rootPath, absPath)
+    val outsideMsg = stringResource(R.string.files_outside_workspace)
     val tooLargeMsg = stringResource(R.string.files_too_large_edit)
 
     var loading by remember { mutableStateOf(true) }
@@ -1165,6 +1213,11 @@ private fun FileEditorScreen(
         scope.launch {
             loading = true
             error = null
+            if (rel == null) {
+                error = outsideMsg
+                loading = false
+                return@launch
+            }
             try {
                 val edit = withContext(Dispatchers.IO) { client.readFileForEdit(rootPath, rel) }
                 if (edit.content.length > MAX_EDIT_CHARS) {
@@ -1185,6 +1238,8 @@ private fun FileEditorScreen(
                         onDirtyChange(true)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = e.message ?: e.javaClass.simpleName
             } finally {
@@ -1208,6 +1263,8 @@ private fun FileEditorScreen(
                 onDirtyChange(false)
                 conflict = false
                 savedFlash = true
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (client.isEtagConflict(e)) {
                     conflict = true
@@ -1222,7 +1279,7 @@ private fun FileEditorScreen(
 
     Column(Modifier.fillMaxSize().background(colors.bg).imePadding()) {
         TopAppBar(
-            title = { Text(rel, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp, fontFamily = FontFamily.Monospace) },
+            title = { Text(rel ?: absPath, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp, fontFamily = FontFamily.Monospace) },
             navigationIcon = {
                 IconButton(onClick = { if (dirty) onDirtyClose() else onClose() }) {
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = colors.textPrimary)

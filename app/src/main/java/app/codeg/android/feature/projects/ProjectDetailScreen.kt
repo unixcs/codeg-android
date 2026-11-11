@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -176,6 +177,8 @@ fun ProjectDetailScreen(
                         onMenuClick = { menuOpen = true },
                     ) { onClose ->
                         val clip = LocalClipboardManager.current
+                        val context = LocalContext.current
+                        val copiedMsg = stringResource(R.string.folders_action_copy_path)
                         if (folder != null) {
                             MenuHeader(stringResource(R.string.jump_section_project))
                             DropdownMenuItem(
@@ -215,7 +218,7 @@ fun ProjectDetailScreen(
                             onClick = {
                                 clip.setText(AnnotatedString(folder?.path ?: ui.browsePath.orEmpty()))
                                 onClose()
-                                Toast.makeText(clip.context, stringResource(R.string.folders_action_copy_path), Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, copiedMsg, Toast.LENGTH_SHORT).show()
                             },
                         )
                         DropdownMenuItem(

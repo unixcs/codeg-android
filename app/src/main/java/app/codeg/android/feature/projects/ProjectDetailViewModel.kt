@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -86,6 +87,10 @@ class ProjectDetailViewModel @Inject constructor(
                 } ?: repository.selectedProfile.first() ?: throw IllegalStateException("No server selected")
                 val client = repository.client(profile) ?: throw IllegalStateException("Missing token for this server")
                 dirsJob?.cancel()
+                // 批v176 R2: drop the previous device's pinned dirs immediately —
+                // the new collector's first emission can lag a frame, and a
+                // device switch must never offer A's dirs while browsing B.
+                _commonDirs.value = emptyList()
                 dirsJob = viewModelScope.launch {
                     commonDirsStore.dirsFor(profile.id).collect { _commonDirs.value = it }
                 }

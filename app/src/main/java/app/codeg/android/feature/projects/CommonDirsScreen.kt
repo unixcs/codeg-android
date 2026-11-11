@@ -148,10 +148,12 @@ class CommonDirsViewModel @Inject constructor(
     private fun seedDefaultsIfEmpty() {
         val id = _selectedId.value ?: return
         if (id in seeding) return
+        // Claim BEFORE launching: two rapid select(id) calls both pass the guard
+        // if the claim rides inside the coroutine (批v176 R2).
+        seeding += id
         viewModelScope.launch {
-            if (store.dirsNow(id).isNotEmpty()) return@launch
-            seeding += id
             try {
+                if (store.dirsNow(id).isNotEmpty()) return@launch
                 val profile = repository.profiles.first().firstOrNull { it.id == id }
                 val home = profile?.let { p ->
                     repository.client(p)?.let { c ->
@@ -172,6 +174,12 @@ class CommonDirsViewModel @Inject constructor(
                         ServerCommonDir("Projects", CommonDirsDefaults.PROJECTS),
                     ),
                 )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best-effort convenience seed: a disk/IO failure must not crash
+                // the process (the store write is the only unguarded suspend call
+                // left, and DataStore edit can throw IOException).
             } finally {
                 seeding -= id
             }
@@ -217,6 +225,8 @@ fun CommonDirsScreen(viewModel: CommonDirsViewModel = hiltViewModel()) {
     // Picked path waiting for its label; null = no dialog.
     var labelDraft by rememberSaveable { mutableStateOf<String?>(null) }
     var labelText by rememberSaveable { mutableStateOf("") }
+    /** Path of the row being renamed (resolved back to a [ServerCommonDir] against
+     *  [dirs] at commit time — a plain String is Bundle-saveable, the object isn't). */
     var renameTarget by rememberSaveable { mutableStateOf<String?>(null) }
 
     val selectedProfile = profiles.firstOrNull { it.id == selectedId }
@@ -265,7 +275,7 @@ fun CommonDirsScreen(viewModel: CommonDirsViewModel = hiltViewModel()) {
     }
 
     // Add / rename label dialog (one dialog at a time: labelDraft = add, renameTarget = rename).
-    val dialogPath = labelDraft ?: renameTarget?.path
+    val dialogPath = labelDraft ?: renameTarget
     if (dialogPath != null) {
         val isRename = labelDraft == null
         AlertDialog(
@@ -286,7 +296,12 @@ fun CommonDirsScreen(viewModel: CommonDirsViewModel = hiltViewModel()) {
             },
             confirmButton = {
                 TextButton(enabled = labelText.isNotBlank(), onClick = {
-                    if (isRename) renameTarget?.let { viewModel.rename(it, labelText) } else labelDraft?.let { viewModel.add(labelText, it) }
+                    if (isRename) {
+                        renameTarget?.let { path -> dirs.firstOrNull { it.path == path } }
+                            ?.let { viewModel.rename(it, labelText) }
+                    } else {
+                        labelDraft?.let { viewModel.add(labelText, it) }
+                    }
                     labelDraft = null
                     renameTarget = null
                 }) { Text(stringResource(R.string.common_save)) }
@@ -333,7 +348,7 @@ fun CommonDirsScreen(viewModel: CommonDirsViewModel = hiltViewModel()) {
                         },
                         trailingContent = {
                             Row {
-                                IconButton(onClick = { labelText = dir.label; renameTarget = dir }) {
+                                IconButton(onClick = { labelText = dir.label; renameTarget = dir.path }) {
                                     Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.common_rename), tint = colors.textTertiary, modifier = Modifier.size(18.dp))
                                 }
                                 IconButton(onClick = { viewModel.remove(dir) }) {

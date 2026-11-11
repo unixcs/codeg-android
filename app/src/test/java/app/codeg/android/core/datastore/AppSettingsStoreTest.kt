@@ -97,6 +97,7 @@ class AppSettingsStoreTest {
         assertEquals(1, keys.count { it == "float_ball_cycle_depth" })
         assertEquals(1, keys.count { it == "notify_interactive_enabled" })
         assertEquals(1, keys.count { it == "notify_task_results" })
+        assertEquals(1, keys.count { it == "notify_task_heads_up" })
         assertEquals(1, keys.count { it == "notify_device_events" })
         assertEquals(1, keys.count { it == "keep_alive_enabled" })
         assertEquals(1, keys.count { it == "task_swipe_mode" })
@@ -318,9 +319,14 @@ class AppSettingsStoreTest {
             s = store.settings.first()
             assertTrue(s.notifyTaskResultsEnabled)
             assertTrue(s.notifyDeviceEventsEnabled)
-            // The untouched interactive/keepalive pair stays at its own values.
+            // The untouched interactive switch stays at its default; keepalive's
+            // default flipped to true in 批v176 (reliability-first), so a fresh
+            // store decodes true — then an explicit OFF roundtrip proves the
+            // setter still persists (the default must not mask a broken write).
             assertTrue(s.notifyInteractiveEnabled)
-            assertFalse(s.keepAliveEnabled)
+            assertTrue(s.keepAliveEnabled)
+            store.setKeepAliveEnabled(false)
+            assertFalse(store.settings.first().keepAliveEnabled)
         } finally {
             scope.cancel()
             tmp.delete()

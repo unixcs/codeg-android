@@ -147,6 +147,9 @@ class TaskResultWatcher @Inject constructor(
         if (n < 0) { refCount.set(0); return }
         pollJob?.cancel()
         pollJob = null
+        // A pending poke would relaunch a poll into a stopped watcher.
+        pokeJob?.cancel()
+        pokeJob = null
     }
 
     private suspend fun pollLoop() {

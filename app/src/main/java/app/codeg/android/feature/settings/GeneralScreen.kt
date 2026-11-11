@@ -1055,7 +1055,11 @@ fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
             )
             // 批v176: the keep-alive listener feeds EVERY alert class now, not
             // just the interactive one — gate on any alert toggle being on.
-            val keepAliveRelevant = notifyOn || appSettings.notifyTaskResultsEnabled
+            // The switch must stay reachable while it's ON (else it locks itself
+            // in the ON state once all alert toggles are off): only the OFF
+            // direction is gated.
+            val keepAliveRelevant =
+                notifyOn || appSettings.notifyTaskResultsEnabled || appSettings.notifyDeviceEventsEnabled
             ToggleRow(
                 title = stringResource(R.string.notify_keepalive_title),
                 subtitle = stringResource(
@@ -1063,8 +1067,9 @@ fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 ),
                 checked = appSettings.keepAliveEnabled,
                 onChange = viewModel::setKeepAliveEnabled,
-                // Without notifications there is nothing to keep alive.
-                enabled = keepAliveRelevant,
+                // Without notifications there is nothing to keep alive — but an
+                // already-on service can always be turned off.
+                enabled = keepAliveRelevant || appSettings.keepAliveEnabled,
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.notify_battery_title)) },
