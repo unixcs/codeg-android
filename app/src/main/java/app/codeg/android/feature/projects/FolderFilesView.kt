@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
@@ -103,9 +104,11 @@ import kotlinx.coroutines.withContext
 /** Recursive file browser with an internal directory stack + file preview. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun FolderFilesView(client: CodegClient, rootPath: String) {
+fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = null) {
     val colors = CodegTheme.colors
-    var stack by remember { mutableStateOf(listOf(rootPath)) }
+    // 批v176: startPath lets a jump land BELOW/OUTSIDE the workspace root without
+    // registering anything; writes still anchor to rootPath and fail cleanly outside.
+    var stack by remember { mutableStateOf(listOf(startPath ?: rootPath)) }
     // Saveable: preview/edit survive rotation.
     var previewPath by rememberSaveable { mutableStateOf<String?>(null) }
     var editPath by rememberSaveable { mutableStateOf<String?>(null) }
@@ -208,6 +211,14 @@ fun FolderFilesView(client: CodegClient, rootPath: String) {
         else -> {
             val items = sortItems(r.getOrDefault(emptyList()))
             val dirName = dir.substringAfterLast('/')
+            // Parent of the current dir ("/" has none) — lets the stack climb ABOVE
+            // the workspace root toward /mnt, mirroring DirectoryBrowserSheet's "..".
+            val parentPath = when {
+                dir == "/" || !dir.contains('/') -> ""
+                dir.substringBeforeLast('/').isEmpty() -> "/"
+                else -> dir.substringBeforeLast('/')
+            }
+            val outsideRoot = rootPath.isNotEmpty() && !dir.startsWith(rootPath)
             Column(Modifier.fillMaxSize()) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -227,11 +238,31 @@ fun FolderFilesView(client: CodegClient, rootPath: String) {
                         onUpload = { showUploadBrowser = true },
                     )
                 }
+                if (outsideRoot) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(Icons.Rounded.Info, null, tint = colors.textTertiary, modifier = Modifier.size(12.dp))
+                        Text(
+                            stringResource(R.string.files_outside_workspace),
+                            fontSize = 10.sp,
+                            color = colors.textTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                    if (stack.size > 1) {
+                    // In-stack back first; at the stack base keep climbing via the
+                    // computed parent (above the root once startPath/outside browsing).
+                    if (stack.size > 1 || parentPath.isNotEmpty()) {
                         item("up") {
                             Row(
-                                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { stack = stack.dropLast(1) }.padding(8.dp),
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                                    stack = if (stack.size > 1) stack.dropLast(1) else stack + parentPath
+                                }.padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 Icon(Icons.Rounded.ArrowUpward, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))

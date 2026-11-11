@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.isLiveFresh
+import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.FolderDetail
 import app.codeg.android.core.model.GitBranchList
 import app.codeg.android.core.model.GitCredentials
@@ -42,7 +43,12 @@ class ProjectDetailViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
+    // 批v176: folderId=-1 + optional path/serverId route args → ephemeral browse
+    // mode (arbitrary path, no workspace registration). Plain "project/{id}" keeps
+    // folderId>0 and behaves exactly as before.
     private val folderId: Int = savedStateHandle.get<Int>("folderId") ?: -1
+    private val routePath: String? = savedStateHandle.get<String>("path")?.takeIf { it.isNotBlank() }
+    private val routeServerId: String? = savedStateHandle.get<String>("serverId")?.takeIf { it.isNotBlank() }
 
     private val _ui = MutableStateFlow(ProjectDetailState(loading = true))
     val ui: StateFlow<ProjectDetailState> = _ui.asStateFlow()
@@ -53,25 +59,51 @@ class ProjectDetailViewModel @Inject constructor(
         _ui.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             try {
-                val profile = repository.selectedProfile.first() ?: throw IllegalStateException("No server selected")
+                // An explicit route serverId pins this page to that device (deep
+                // links, jump menu); if it no longer exists fall back to the global
+                // selection instead of dead-ending.
+                val profile = routeServerId?.let { sid ->
+                    repository.profiles.first().firstOrNull { it.id == sid }
+                } ?: repository.selectedProfile.first() ?: throw IllegalStateException("No server selected")
                 val client = repository.client(profile) ?: throw IllegalStateException("Missing token for this server")
-                val folders = client.listFolders()
-                val folder = folders.firstOrNull { it.id == folderId }
-                    ?: throw IllegalStateException("Folder not found")
-                val conversations = runCatching { client.listConversations(folderIds = listOf(folderId)) }.getOrDefault(emptyList())
-                // Prefer the live branch (the folder list often omits gitBranch); null for non-git dirs.
-                val liveBranch = folder.gitBranch ?: runCatching { client.getGitBranch(folder.path) }.getOrNull()
-                _ui.update {
-                    it.copy(
-                        loading = false,
-                        folder = folder,
-                        client = client,
-                        branch = liveBranch,
-                        // R2D#2: freshness-gated running count (power-off corpse
-                        // must not sit in the header's 运行中 forever).
-                        runningCount = conversations.count { c -> c.isLiveFresh() },
-                        sessionCount = conversations.size,
-                    )
+                if (folderId > 0) {
+                    val folders = client.listFolders()
+                    val folder = folders.firstOrNull { it.id == folderId }
+                        ?: throw IllegalStateException("Folder not found")
+                    val conversations = runCatching { client.listConversations(folderIds = listOf(folderId)) }.getOrDefault(emptyList())
+                    // Prefer the live branch (the folder list often omits gitBranch); null for non-git dirs.
+                    val liveBranch = folder.gitBranch ?: runCatching { client.getGitBranch(folder.path) }.getOrNull()
+                    _ui.update {
+                        it.copy(
+                            loading = false,
+                            folder = folder,
+                            client = client,
+                            profile = profile,
+                            branch = liveBranch,
+                            // R2D#2: freshness-gated running count (power-off corpse
+                            // must not sit in the header's 运行中 forever).
+                            runningCount = conversations.count { c -> c.isLiveFresh() },
+                            sessionCount = conversations.size,
+                            browsePath = null,
+                        )
+                    }
+                } else {
+                    // Ephemeral mode: browse [routePath] (or the device home) without
+                    // registering anything. A home-directory failure surfaces as the
+                    // explicit error + retry — never a silent fallback.
+                    val browsePath = routePath ?: client.getHomeDirectory()
+                    _ui.update {
+                        it.copy(
+                            loading = false,
+                            folder = null,
+                            client = client,
+                            profile = profile,
+                            branch = null,
+                            runningCount = 0,
+                            sessionCount = 0,
+                            browsePath = browsePath,
+                        )
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -347,6 +379,10 @@ data class ProjectDetailState(
     val loading: Boolean = false,
     val folder: FolderDetail? = null,
     val client: CodegClient? = null,
+    /** Device this page is bound to (route serverId, or the global selection). */
+    val profile: ServerProfile? = null,
+    /** Ephemeral browse root (批v176): non-null = arbitrary-path mode, Files tab only. */
+    val browsePath: String? = null,
     val branch: String? = null,
     val runningCount: Int = 0,
     val sessionCount: Int = 0,

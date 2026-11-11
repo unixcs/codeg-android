@@ -1678,9 +1678,25 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 }
             }
 
+            // 批v176: folderId = -1 + path → ephemeral browse of an arbitrary
+            // absolute path (jump menu / cross-device), serverId pins the device
+            // (page-local; the global selection is untouched). Plain "project/{id}"
+            // navigations keep their exact old behavior — query params default null.
             composable(
-                route = "project/{folderId}",
-                arguments = listOf(navArgument("folderId") { type = NavType.IntType }),
+                route = "project/{folderId}?path={path}&serverId={serverId}",
+                arguments = listOf(
+                    navArgument("folderId") { type = NavType.IntType },
+                    navArgument("path") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument("serverId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
             ) {
                 ProjectDetailScreen(onBack = { nav.popBackStack() })
             }

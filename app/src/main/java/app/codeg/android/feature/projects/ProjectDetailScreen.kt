@@ -102,9 +102,9 @@ fun ProjectDetailScreen(
         Box(Modifier.padding(padding).fillMaxSize()) {
             val folder = ui.folder
             when {
-                ui.loading && folder == null ->
+                ui.loading && folder == null && ui.browsePath == null ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
-                folder == null ->
+                folder == null && ui.browsePath == null ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         InlineError(Icons.Rounded.FolderOpen, stringResource(R.string.projects_load_failed), ui.error ?: stringResource(R.string.projects_folder_not_found), viewModel::load)
                     }
@@ -112,23 +112,32 @@ fun ProjectDetailScreen(
                     // 批v176: the old TopAppBar (64dp) + Header (79dp) stacked ate a
                     // third of the viewport before the first file row. One 48dp bar
                     // carries everything the user actually needs here; the path lives
-                    // in the Files tab's dir row + the ⋯ menu's copy action.
+                    // in the Files tab's dir row + the ⋯ menu's copy action. Ephemeral
+                    // browse mode (folder==null) shows only Files — git tabs make no
+                    // sense for an unregistered path — so no tabs row at all.
+                    val ephemeral = folder == null && ui.browsePath != null
                     CompactToolbar(
-                        name = folder.name,
-                        color = colorFromHex(folder.color) ?: colors.accent,
-                        branch = ui.branch,
-                        path = folder.path,
+                        name = folder?.name ?: ui.browsePath?.substringAfterLast('/').orEmpty(),
+                        color = folder?.let { colorFromHex(it.color) } ?: colors.accent,
+                        branch = if (ephemeral) null else ui.branch,
+                        path = folder?.path ?: ui.browsePath.orEmpty(),
                         onBack = onBack,
                         onBranchClick = { showBranchPicker = true },
                     )
-                    SegmentedTabs(tab) { tab = it }
+                    if (!ephemeral) SegmentedTabs(tab) { tab = it }
                     Box(Modifier.fillMaxSize()) {
                         val client = ui.client
                         if (client != null) {
-                            when (tab) {
-                                ProjectTab.FILES -> FolderFilesView(client, folder.path)
-                                ProjectTab.CHANGES -> FolderChangesView(viewModel, client, folder.path, onCommit = { showCommit = true })
-                                ProjectTab.COMMITS -> FolderCommitsView(viewModel, client, folder.path)
+                            if (folder != null) {
+                                when (tab) {
+                                    ProjectTab.FILES -> FolderFilesView(client, folder.path)
+                                    ProjectTab.CHANGES -> FolderChangesView(viewModel, client, folder.path, onCommit = { showCommit = true })
+                                    ProjectTab.COMMITS -> FolderCommitsView(viewModel, client, folder.path)
+                                }
+                            } else {
+                                // Ephemeral: the browsed path anchors writes too —
+                                // ops beyond it fail with the clear outside-workspace error.
+                                FolderFilesView(client, rootPath = ui.browsePath.orEmpty())
                             }
                         }
                     }
