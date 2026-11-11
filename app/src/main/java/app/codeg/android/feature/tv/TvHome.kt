@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -73,10 +74,14 @@ fun TvHome(appViewModel: AppViewModel) {
             ) {
                 Spacer(Modifier.height(8.dp))
                 destinations.forEachIndexed { index, destination ->
+                    // 1.1.0 dropped the old onFocus param — focus-driven pane
+                    // switching comes from onFocusChanged on the item modifier.
                     NavigationDrawerItem(
                         selected = selected == index,
                         onClick = { selected = index },
-                        onFocus = { selected = index },
+                        modifier = Modifier.onFocusChanged { state ->
+                            if (state.isFocused) selected = index
+                        },
                         leadingContent = { Icon(destination.icon, contentDescription = null) },
                     ) {
                         if (drawerValue == DrawerValue.Open) {
