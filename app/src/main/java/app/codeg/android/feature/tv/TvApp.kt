@@ -20,7 +20,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import androidx.tv.material3.darkColors
+import androidx.tv.material3.darkColorScheme
 import app.codeg.android.R
 import app.codeg.android.app.AppViewModel
 
@@ -42,7 +42,7 @@ fun Context.isTvDevice(): Boolean =
 @Composable
 fun TvApp(appViewModel: AppViewModel = hiltViewModel()) {
     val servers by appViewModel.allServers.collectAsStateWithLifecycle()
-    MaterialTheme(colorScheme = darkColors()) {
+    MaterialTheme(colorScheme = darkColorScheme()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
