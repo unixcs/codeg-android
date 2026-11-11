@@ -18,7 +18,7 @@ coreKtx = "1.15.0"
 lifecycle = "2.8.7"
 activityCompose = "1.9.3"
 composeBom = "2024.12.01"
-tvMaterial = "1.1.0"
+tvMaterial = "1.1.0" # M1: 10-foot TV UI
 navigationCompose = "2.8.5"
 datastore = "1.1.1"
 
