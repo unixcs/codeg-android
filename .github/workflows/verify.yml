@@ -32,6 +32,13 @@ jobs:
         # Two workers: four variants compiling at once OOMs the runner.
         run: ./gradlew :app:check :app:assembleDebug :app:assembleRelease --no-daemon --max-workers=2
 
+      - name: Print lint report on failure
+        # AGP lint's console output only carries the FIRST error; the txt report
+        # holds all of them. feat/tv: compose-ui 1.10 lint rules (pulled in by
+        # tv-material) surfaced 8 at once and each fix round costs a full verify.
+        if: failure()
+        run: cat app/build/reports/lint-results-*.txt 2>/dev/null || true
+
       - name: Upload test reports on failure
         # 批v165 rc.3: the rotating-victim TCE flake (批v163) needs the full
         # stack + "Timed out waiting for N ms" message to pin its timer — the

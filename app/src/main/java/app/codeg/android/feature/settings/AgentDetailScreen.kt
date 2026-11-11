@@ -52,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -313,7 +312,6 @@ private fun claudeFooterRes(mode: ClaudeAuthMode): Int = when (mode) {
 @Composable
 private fun CodexSection(state: AgentDetailState, vm: AgentsViewModel) {
     val colors = CodegTheme.colors
-    val context = LocalContext.current
     val d = state.draft
     FormSection(stringResource(R.string.agents_section_configuration)) {
         if (d.codexAuthMode == CodexAuthMode.CHATGPT_SUBSCRIPTION) {
@@ -342,7 +340,7 @@ private fun CodexSection(state: AgentDetailState, vm: AgentsViewModel) {
         SelectField(
             label = stringResource(R.string.agents_field_reasoning_effort),
             value = d.codexReasoningEffort,
-            options = codexReasoningEffortOptions.map { it.value to context.getString(codexEffortLabelRes(it.value)) },
+            options = codexReasoningEffortOptions.map { it.value to stringResource(codexEffortLabelRes(it.value)) },
             onSelect = { e -> vm.editDraft { it.copy(codexReasoningEffort = e) } },
         )
         ToggleRow(stringResource(R.string.agents_codex_enable_websocket), d.codexSupportsWebsockets) { v -> vm.editDraft { it.copy(codexSupportsWebsockets = v) } }

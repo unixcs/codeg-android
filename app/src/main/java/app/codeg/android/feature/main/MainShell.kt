@@ -872,6 +872,9 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     val ballBindings by appViewModel.floatBallBindings.collectAsStateWithLifecycle()
     val ballPos by appViewModel.floatBallPos.collectAsStateWithLifecycle()
     val ballContext = androidx.compose.ui.platform.LocalContext.current
+    // Toast strings are built inside ball-action callbacks, so read them off LocalResources —
+    // ballContext.getString there trips LocalContextGetResourceValueCall.
+    val ballResources = androidx.compose.ui.platform.LocalResources.current
 
     // The conversation the DETAIL on top is showing (null on tabs / composer / elsewhere).
     // The quick-switch rings and the list cycler need "where am I now" — the list
@@ -1097,7 +1100,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 appViewModel.setFontScale(scale)
                 android.widget.Toast.makeText(
                     ballContext,
-                    ballContext.getString(R.string.ball_font_toast, (scale * 100).roundToInt()),
+                    ballResources.getString(R.string.ball_font_toast, (scale * 100).roundToInt()),
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -1193,9 +1196,9 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 else appViewModel.setSessionSwipeRightAction(next)
                 android.widget.Toast.makeText(
                     ballContext,
-                    ballContext.getString(
+                    ballResources.getString(
                         if (left) R.string.ball_swipe_left_toast else R.string.ball_swipe_right_toast,
-                        ballContext.getString(labelRes),
+                        ballResources.getString(labelRes),
                     ),
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()

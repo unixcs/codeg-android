@@ -178,6 +178,9 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
     var uploadMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    // Upload messages are formatted inside the SAF callback (post-composition), so read
+    // them off LocalResources — context.getString there trips LocalContextGetResourceValueCall.
+    val resources = androidx.compose.ui.platform.LocalResources.current
     val outsideWorkspaceMsg = stringResource(R.string.files_outside_workspace)
     val genericErrorMsg = stringResource(R.string.files_error)
     val tooLargeMsg = stringResource(R.string.files_too_large_edit)
@@ -190,7 +193,7 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
         scope.launch {
             uploadBusy = true
             actionError = null
-            uploadMessage = context.getString(R.string.files_upload_started)
+            uploadMessage = resources.getString(R.string.files_upload_started)
             var ok = 0
             var failed = 0
             try {
@@ -209,8 +212,8 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
                     }
                 }
                 uploadMessage = buildString {
-                    append(context.getString(R.string.files_upload_done, ok))
-                    if (failed > 0) append(" · ").append(context.getString(R.string.files_upload_failed_count, failed))
+                    append(resources.getString(R.string.files_upload_done, ok))
+                    if (failed > 0) append(" · ").append(resources.getString(R.string.files_upload_failed_count, failed))
                 }
                 refresh()
             } finally {
