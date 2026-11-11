@@ -1884,4 +1884,6 @@
     <string name="session_import_folder_toggle">Toggle all sessions in %1$s</string>
     <string name="workbench_stat_usage">Today\'s tokens</string>
     <string name="workbench_stat_usage_action">View usage</string>
+    <string name="tv_shell_subtitle">TV shell skeleton — M1 slices land here (feat/tv)</string>
+    <string name="tv_shell_servers">Saved servers: %1$d</string>
 </resources>

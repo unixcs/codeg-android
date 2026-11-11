@@ -15,6 +15,12 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <!-- feat/tv M1: single-APK TV support. Both non-required so phones (and TV
+      boxes without leanback) keep installing the exact same build; the TV
+      launcher picks the activity up via the LEANBACK_LAUNCHER category below. -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
     <application
         android:name=".CodegApplication"
         android:allowBackup="false"
@@ -41,6 +47,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
             <!-- codeg:// deep links (tab / conversation / project / settings). -->
             <intent-filter android:autoVerify="false">

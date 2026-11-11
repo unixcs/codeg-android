@@ -14,13 +14,17 @@ import androidx.core.content.ContextCompat
 import app.codeg.android.app.CodegApp
 import app.codeg.android.core.common.DeepLinkBus
 import app.codeg.android.core.common.LocaleManager
+import app.codeg.android.feature.tv.TvApp
+import app.codeg.android.feature.tv.isTvDevice
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
  * Single-activity host. The whole UI is Compose; this activity enables
- * edge-to-edge and hosts the [CodegApp] root. [attachBaseContext] applies the
- * user-chosen app language (see [LocaleManager]); changing it calls `recreate()`.
- * Incoming `codeg://` deep links are dispatched to [DeepLinkBus].
+ * edge-to-edge and hosts the [CodegApp] root — or [TvApp] when the device
+ * reports a television uiMode (single-APK TV routing, feat/tv M1).
+ * [attachBaseContext] applies the user-chosen app language (see [LocaleManager]);
+ * changing it calls `recreate()`. Incoming `codeg://` deep links are dispatched
+ * to [DeepLinkBus].
  *
  * 系统级通知体系: cold start asks for POST_NOTIFICATIONS once (33+). The ask is
  * unconditional on the settings toggles — reading DataStore on the main thread
@@ -43,7 +47,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        setContent { CodegApp() }
+        setContent { if (isTvDevice()) TvApp() else CodegApp() }
         DeepLinkBus.dispatch(intent?.data)
         maybeRequestNotificationPermission()
     }

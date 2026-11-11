@@ -307,6 +307,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
+    // feat/tv M1: TV 10-foot UI (stable 1.1.0, minSdk 21 — under both flavors' floors).
+    implementation(libs.androidx.tv.material)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     // --- AndroidX core / lifecycle / navigation ---

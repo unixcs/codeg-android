@@ -1868,4 +1868,6 @@
     <string name="session_import_folder_toggle">全选或取消「%1$s」的全部会话</string>
     <string name="workbench_stat_usage">今日</string>
     <string name="workbench_stat_usage_action">查看用量</string>
+    <string name="tv_shell_subtitle">TV 壳骨架 — M1 分片施工中（feat/tv）</string>
+    <string name="tv_shell_servers">已保存服务器：%1$d 台</string>
 </resources>
