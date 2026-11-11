@@ -247,6 +247,7 @@
     <string name="common_remove">Remove</string>
     <string name="common_ok">OK</string>
     <string name="common_back">Back</string>
+    <string name="common_more">More</string>
     <string name="common_loading">Loading…</string>
 
     <!-- ===== Settings · Chat Channels ===== -->

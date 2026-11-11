@@ -247,6 +247,7 @@
     <string name="common_remove">移除</string>
     <string name="common_ok">确定</string>
     <string name="common_back">返回</string>
+    <string name="common_more">更多</string>
     <string name="common_loading">加载中…</string>
 
     <!-- ===== Settings · Chat Channels ===== -->
