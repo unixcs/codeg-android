@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -76,11 +78,19 @@ fun ProjectDetailScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val commonDirs by viewModel.commonDirs.collectAsStateWithLifecycle()
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
     var tab by remember { mutableStateOf(ProjectTab.FILES) }
     var showBranchPicker by remember { mutableStateOf(false) }
     var showCommit by remember { mutableStateOf(false) }
     var showBrowser by remember { mutableStateOf(false) }
+    // Menu state lives here (not in the toolbar) so a device-switch landing page
+    // can auto-open the jump menu once its data is in.
+    var menuOpen by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (viewModel.autoOpenMenu) menuOpen = true
+    }
 
     if (showBranchPicker) BranchPickerSheet(viewModel, onDismiss = { showBranchPicker = false })
 
@@ -162,6 +172,8 @@ fun ProjectDetailScreen(
                         branch = if (ephemeral) null else ui.branch,
                         onBack = onBack,
                         onBranchClick = { showBranchPicker = true },
+                        menuOpen = menuOpen,
+                        onMenuClick = { menuOpen = true },
                     ) { onClose ->
                         val clip = LocalClipboardManager.current
                         if (folder != null) {
@@ -214,6 +226,23 @@ fun ProjectDetailScreen(
                                 onClose()
                             },
                         )
+                        // Device switch: page-local navigation context — the global
+                        // selection stays untouched. Lands on the device's home with
+                        // this menu auto-opened for its quick-picks.
+                        MenuHeader(stringResource(R.string.common_dirs_pick_device))
+                        profiles.forEach { p ->
+                            DropdownMenuItem(
+                                text = { Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                leadingIcon = { Icon(Icons.Rounded.PhoneAndroid, contentDescription = null) },
+                                trailingIcon = if (p.id == serverId) {
+                                    { Icon(Icons.Rounded.Check, contentDescription = null, tint = CodegTheme.colors.accent) }
+                                } else null,
+                                onClick = {
+                                    if (p.id != serverId) onJump(-1, null, p.id)
+                                    onClose()
+                                },
+                            )
+                        }
                     }
                     if (!ephemeral) SegmentedTabs(tab) { tab = it }
                     Box(Modifier.fillMaxSize()) {
@@ -246,10 +275,11 @@ private fun CompactToolbar(
     branch: String?,
     onBack: () -> Unit,
     onBranchClick: () -> Unit,
+    menuOpen: Boolean,
+    onMenuClick: () -> Unit,
     menuContent: @Composable (onClose: () -> Unit) -> Unit,
 ) {
     val colors = CodegTheme.colors
-    var menuOpen by remember { mutableStateOf(false) }
 
     Row(
         Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
@@ -273,7 +303,7 @@ private fun CompactToolbar(
             Box(Modifier.clip(RoundedCornerShape(50)).clickable { onBranchClick() }) { BranchPill(it) }
         }
         Box {
-            IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onMenuClick, modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.common_more), tint = colors.textPrimary)
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

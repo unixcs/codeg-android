@@ -61,6 +61,17 @@ class ProjectDetailViewModel @Inject constructor(
     val commonDirs: StateFlow<List<ServerCommonDir>> = _commonDirs.asStateFlow()
     private var dirsJob: kotlinx.coroutines.Job? = null
 
+    /** Devices for the jump menu's switch section (batch v176 stage 4). */
+    val profiles: StateFlow<List<ServerProfile>> =
+        repository.profiles.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Device-switch landing page (folderId=-1, no path, explicit serverId): the
+     * ⋯ menu auto-opens on first load so the user immediately sees that device's
+     * quick-picks instead of a bare home listing.
+     */
+    val autoOpenMenu: Boolean = folderId <= 0 && routePath == null && routeServerId != null
+
     init { load() }
 
     fun load() {
