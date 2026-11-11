@@ -91,6 +91,7 @@ import app.codeg.android.feature.floatingball.FloatingBallSettingsBus
 import app.codeg.android.feature.floatingball.floatBallSizeDp
 import app.codeg.android.feature.floatingball.stepFontScale
 import app.codeg.android.feature.inbox.InboxScreen
+import app.codeg.android.feature.projects.CommonDirsRoute
 import app.codeg.android.feature.projects.ProjectDetailScreen
 import app.codeg.android.feature.quick.QuickActionViewModel
 import app.codeg.android.feature.quick.QuickIdeaSheet
@@ -176,6 +177,8 @@ private const val ROUTE_NEW_TASK = "conversation_new"
 // destination now, entered by push from the chats/activity bookmark and the
 // project filter sheet.
 private const val ROUTE_SESSION_PROJECTS = "session_projects"
+// 批v176: 常用目录 per-device bindings, pushed from the file screen ⋯ menu and Settings.
+private const val ROUTE_COMMON_DIRS = "common_dirs"
 
 // Demoted former tabs, now full-screen pushes. The strings MUST stay stable:
 // persisted homeTabOrder/startTab entries, codeg://tab/ deep links and floating
@@ -1698,7 +1701,20 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                     },
                 ),
             ) {
-                ProjectDetailScreen(onBack = { nav.popBackStack() })
+                ProjectDetailScreen(
+                    onBack = { nav.popBackStack() },
+                    onJump = { folderId, path, serverId ->
+                        val params = mutableListOf<String>()
+                        path?.let { params.add("path=${android.net.Uri.encode(it)}") }
+                        serverId?.let { params.add("serverId=${android.net.Uri.encode(it)}") }
+                        nav.navigate("project/$folderId" + if (params.isEmpty()) "" else "?" + params.joinToString("&"))
+                    },
+                    onManageDirs = { nav.navigate(ROUTE_COMMON_DIRS) },
+                )
+            }
+
+            composable(ROUTE_COMMON_DIRS) {
+                CommonDirsRoute(onBack = { nav.popBackStack() })
             }
 
             composable(ROUTE_SERVERS) {

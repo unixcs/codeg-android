@@ -88,6 +88,7 @@ private enum class SettingsLeaf(@StringRes val titleRes: Int, val icon: ImageVec
     FLOATING_BALL(R.string.settings_leaf_floating_ball, Icons.Rounded.TouchApp, R.string.settings_group_personalization, true),
     QUICK_MESSAGES(R.string.settings_leaf_quick_messages, Icons.AutoMirrored.Rounded.Chat, R.string.settings_group_personalization, true),
     PROJECTS(R.string.settings_leaf_projects, Icons.Rounded.Bookmark, R.string.settings_group_personalization, true),
+    COMMON_DIRS(R.string.settings_leaf_common_dirs, Icons.Rounded.Folder, R.string.settings_group_personalization, true),
     AGENTS(R.string.settings_leaf_agents, Icons.Rounded.Person, R.string.settings_group_ai_agents, true),
     DISPATCH(R.string.settings_leaf_dispatch, Icons.Rounded.Send, R.string.settings_group_ai_agents, true),
     MODEL_PROVIDERS(R.string.settings_leaf_model_providers, Icons.Rounded.Memory, R.string.settings_group_ai_agents, true),
@@ -164,6 +165,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel(), configSyncVie
                 SettingsLeaf.ABOUT -> AboutScreen(viewModel)
                 SettingsLeaf.QUICK_MESSAGES -> QuickMessagesContent()
                 SettingsLeaf.PROJECTS -> SessionProjectsScreen()
+                SettingsLeaf.COMMON_DIRS -> app.codeg.android.feature.projects.CommonDirsScreen()
                 SettingsLeaf.USAGE -> app.codeg.android.feature.usage.TokenUsageScreen()
                 SettingsLeaf.GENERAL -> GeneralContent()
                 SettingsLeaf.HANDS -> HandsContent(onOpenBallSettings = { leaf = SettingsLeaf.FLOATING_BALL })

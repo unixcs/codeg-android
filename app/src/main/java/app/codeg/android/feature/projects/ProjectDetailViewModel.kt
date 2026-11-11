@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.isLiveFresh
+import app.codeg.android.core.datastore.CommonDirsStore
+import app.codeg.android.core.datastore.ServerCommonDir
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.FolderDetail
 import app.codeg.android.core.model.GitBranchList
@@ -39,6 +41,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ProjectDetailViewModel @Inject constructor(
     private val repository: ServerRepository,
+    private val commonDirsStore: CommonDirsStore,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
@@ -53,6 +56,11 @@ class ProjectDetailViewModel @Inject constructor(
     private val _ui = MutableStateFlow(ProjectDetailState(loading = true))
     val ui: StateFlow<ProjectDetailState> = _ui.asStateFlow()
 
+    /** Per-device pinned dirs driving the jump menu (empty ⇒ built-in defaults). */
+    private val _commonDirs = MutableStateFlow<List<ServerCommonDir>>(emptyList())
+    val commonDirs: StateFlow<List<ServerCommonDir>> = _commonDirs.asStateFlow()
+    private var dirsJob: kotlinx.coroutines.Job? = null
+
     init { load() }
 
     fun load() {
@@ -66,6 +74,10 @@ class ProjectDetailViewModel @Inject constructor(
                     repository.profiles.first().firstOrNull { it.id == sid }
                 } ?: repository.selectedProfile.first() ?: throw IllegalStateException("No server selected")
                 val client = repository.client(profile) ?: throw IllegalStateException("Missing token for this server")
+                dirsJob?.cancel()
+                dirsJob = viewModelScope.launch {
+                    commonDirsStore.dirsFor(profile.id).collect { _commonDirs.value = it }
+                }
                 if (folderId > 0) {
                     val folders = client.listFolders()
                     val folder = folders.firstOrNull { it.id == folderId }
@@ -85,13 +97,19 @@ class ProjectDetailViewModel @Inject constructor(
                             runningCount = conversations.count { c -> c.isLiveFresh() },
                             sessionCount = conversations.size,
                             browsePath = null,
+                            home = null,
+                            folders = folders,
                         )
                     }
                 } else {
                     // Ephemeral mode: browse [routePath] (or the device home) without
-                    // registering anything. A home-directory failure surfaces as the
-                    // explicit error + retry — never a silent fallback.
-                    val browsePath = routePath ?: client.getHomeDirectory()
+                    // registering anything. A failed home lookup surfaces as the
+                    // explicit error + retry — never a silent fallback. The device's
+                    // folder list feeds the jump menu's quick-picks (best-effort:
+                    // the browse itself doesn't depend on it).
+                    val folders = runCatching { client.listFolders() }.getOrDefault(emptyList())
+                    val home = runCatching { client.getHomeDirectory() }.getOrNull()
+                    val browsePath = routePath ?: home ?: throw IllegalStateException("No home directory")
                     _ui.update {
                         it.copy(
                             loading = false,
@@ -102,6 +120,8 @@ class ProjectDetailViewModel @Inject constructor(
                             runningCount = 0,
                             sessionCount = 0,
                             browsePath = browsePath,
+                            home = home,
+                            folders = folders,
                         )
                     }
                 }
@@ -383,6 +403,10 @@ data class ProjectDetailState(
     val profile: ServerProfile? = null,
     /** Ephemeral browse root (批v176): non-null = arbitrary-path mode, Files tab only. */
     val browsePath: String? = null,
+    /** Device home (best-effort): feeds the jump menu's default 家目录 entry. */
+    val home: String? = null,
+    /** Device's registered folders — the jump menu's quick-picks in ephemeral mode. */
+    val folders: List<FolderDetail> = emptyList(),
     val branch: String? = null,
     val runningCount: Int = 0,
     val sessionCount: Int = 0,

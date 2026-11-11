@@ -18,8 +18,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,9 +46,12 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
+import app.codeg.android.core.datastore.CommonDirsDefaults
+import app.codeg.android.core.datastore.ServerCommonDir
 import app.codeg.android.core.designsystem.component.CodegSegmented
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
@@ -63,13 +68,19 @@ private enum class ProjectTab(val labelRes: Int) {
 @Composable
 fun ProjectDetailScreen(
     onBack: () -> Unit,
+    // 批v176 jump menu: navigate to a registered project (folderId>0) or an
+    // ephemeral absolute path (folderId=-1), optionally pinned to a device.
+    onJump: (folderId: Int, path: String?, serverId: String?) -> Unit = { _, _, _ -> },
+    onManageDirs: () -> Unit = {},
     viewModel: ProjectDetailViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
+    val commonDirs by viewModel.commonDirs.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
     var tab by remember { mutableStateOf(ProjectTab.FILES) }
     var showBranchPicker by remember { mutableStateOf(false) }
     var showCommit by remember { mutableStateOf(false) }
+    var showBrowser by remember { mutableStateOf(false) }
 
     if (showBranchPicker) BranchPickerSheet(viewModel, onDismiss = { showBranchPicker = false })
 
@@ -94,6 +105,35 @@ fun ProjectDetailScreen(
     // key(id) gives each (re-)prompt fresh field/submitting state, like iOS's
     // item-keyed sheet — otherwise a retry would reuse the prior prompt's state.
     ui.credentialPrompt?.let { prompt -> key(prompt.id) { GitCredentialSheet(viewModel, prompt) } }
+
+    val serverId = ui.profile?.id
+    val homeLabel = stringResource(R.string.jump_default_home)
+    // Built-in targets shown until the user pins custom dirs in settings.
+    val defaultDirs = remember(ui.home, homeLabel) {
+        listOfNotNull(ui.home?.let { ServerCommonDir(homeLabel, it) }) + listOf(
+            ServerCommonDir(CommonDirsDefaults.MNT, CommonDirsDefaults.MNT),
+            ServerCommonDir(CommonDirsDefaults.PROJECTS, CommonDirsDefaults.PROJECTS),
+        )
+    }
+    val effectiveDirs = commonDirs.ifEmpty { defaultDirs }
+
+    // Full-tree browser from the ⋯ menu — opens on the current location and
+    // lands the pick as an ephemeral browse (never registers a folder).
+    ui.client?.takeIf { showBrowser }?.let { c ->
+        DirectoryBrowserSheet(
+            title = stringResource(R.string.common_dirs_browse_title),
+            confirmLabel = stringResource(R.string.common_dirs_browse_confirm),
+            loadHome = { c.getHomeDirectory() },
+            loadDirs = { path -> c.listDirectoryEntries(path) },
+            onSelect = { path ->
+                showBrowser = false
+                onJump(-1, path, serverId)
+            },
+            onDismiss = { showBrowser = false },
+            showRoot = true,
+            initialPath = ui.folder?.path ?: ui.browsePath,
+        )
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -120,10 +160,61 @@ fun ProjectDetailScreen(
                         name = folder?.name ?: ui.browsePath?.substringAfterLast('/').orEmpty(),
                         color = folder?.let { colorFromHex(it.color) } ?: colors.accent,
                         branch = if (ephemeral) null else ui.branch,
-                        path = folder?.path ?: ui.browsePath.orEmpty(),
                         onBack = onBack,
                         onBranchClick = { showBranchPicker = true },
-                    )
+                    ) { onClose ->
+                        val clip = LocalClipboardManager.current
+                        if (folder != null) {
+                            MenuHeader(stringResource(R.string.jump_section_project))
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.jump_root)) },
+                                leadingIcon = { Icon(Icons.Rounded.FolderOpen, contentDescription = null) },
+                                onClick = { onJump(folder.id, null, serverId); onClose() },
+                            )
+                        } else {
+                            MenuHeader(stringResource(R.string.jump_section_device_projects))
+                            ui.folders.forEach { fd ->
+                                DropdownMenuItem(
+                                    text = { Text(fd.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    leadingIcon = { Icon(Icons.Rounded.FolderOpen, contentDescription = null) },
+                                    onClick = { onJump(fd.id, null, serverId); onClose() },
+                                )
+                            }
+                        }
+                        MenuHeader(stringResource(R.string.jump_section_common))
+                        effectiveDirs.forEach { dir ->
+                            DropdownMenuItem(
+                                text = { Text(dir.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                leadingIcon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
+                                onClick = { onJump(-1, dir.path, serverId); onClose() },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.jump_browse)) },
+                            leadingIcon = { Icon(Icons.Rounded.FolderOpen, contentDescription = null) },
+                            onClick = {
+                                showBrowser = true
+                                onClose()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.folders_action_copy_path)) },
+                            leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null) },
+                            onClick = {
+                                clip.setText(AnnotatedString(folder?.path ?: ui.browsePath.orEmpty()))
+                                onClose()
+                                Toast.makeText(clip.context, stringResource(R.string.folders_action_copy_path), Toast.LENGTH_SHORT).show()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.jump_manage_dirs)) },
+                            leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+                            onClick = {
+                                onManageDirs()
+                                onClose()
+                            },
+                        )
+                    }
                     if (!ephemeral) SegmentedTabs(tab) { tab = it }
                     Box(Modifier.fillMaxSize()) {
                         val client = ui.client
@@ -147,19 +238,18 @@ fun ProjectDetailScreen(
     }
 }
 
-/** 48dp single-row chrome: back · badge · name · branch · menu. */
+/** 48dp single-row chrome: back · badge · name · branch · ⋯ jump menu (slot content). */
 @Composable
 private fun CompactToolbar(
     name: String,
     color: Color,
     branch: String?,
-    path: String,
     onBack: () -> Unit,
     onBranchClick: () -> Unit,
+    menuContent: @Composable (onClose: () -> Unit) -> Unit,
 ) {
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
 
     Row(
         Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
@@ -187,18 +277,22 @@ private fun CompactToolbar(
                 Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.common_more), tint = colors.textPrimary)
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.folders_action_copy_path)) },
-                    leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null) },
-                    onClick = {
-                        clipboard.setText(AnnotatedString(path))
-                        menuOpen = false
-                        Toast.makeText(clipboard.context, stringResource(R.string.folders_action_copy_path), Toast.LENGTH_SHORT).show()
-                    },
-                )
+                menuContent { menuOpen = false }
             }
         }
     }
+}
+
+/** Non-clickable section caption inside the jump menu. */
+@Composable
+private fun MenuHeader(text: String) {
+    Text(
+        text,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = CodegTheme.colors.textTertiary,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+    )
 }
 
 @Composable

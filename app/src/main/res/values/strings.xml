@@ -248,6 +248,23 @@
     <string name="common_ok">OK</string>
     <string name="common_back">Back</string>
     <string name="common_more">More</string>
+    <string name="jump_section_project">Project</string>
+    <string name="jump_section_device_projects">Open project</string>
+    <string name="jump_section_common">Common directories</string>
+    <string name="jump_root">Project root</string>
+    <string name="jump_browse">Browse…</string>
+    <string name="jump_manage_dirs">Manage pinned dirs</string>
+    <string name="jump_default_home">Home</string>
+    <string name="settings_leaf_common_dirs">Common directories</string>
+    <string name="common_dirs_pick_device">Device</string>
+    <string name="common_dirs_add">Add directory</string>
+    <string name="common_dirs_empty">Nothing pinned yet</string>
+    <string name="common_dirs_label_title">Label</string>
+    <string name="common_dirs_label_hint">Name shown in the jump menu</string>
+    <string name="common_dirs_browse_title">Choose a directory</string>
+    <string name="common_dirs_browse_confirm">Pin this directory</string>
+    <string name="common_dirs_rename_title">Rename</string>
+    <string name="common_rename">Rename</string>
     <string name="common_loading">Loading…</string>
 
     <!-- ===== Settings · Chat Channels ===== -->
