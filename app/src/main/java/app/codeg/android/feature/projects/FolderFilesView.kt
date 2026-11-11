@@ -919,7 +919,7 @@ private fun FilePreview(
                     Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close), tint = colors.textSecondary)
                 }
                 Text(
-                    rel,
+                    rel ?: absPath,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp,
                     color = colors.textPrimary,
@@ -1251,12 +1251,15 @@ private fun FileEditorScreen(
 
     fun save(force: Boolean) {
         val currentEtag = etag ?: return
+        // Same outside-root guard as load(): a null rel must never reach the
+        // save path (it could resolve a same-named file inside the workspace).
+        val path = rel ?: return
         scope.launch {
             saving = true
             error = null
             try {
                 val result = withContext(Dispatchers.IO) {
-                    client.saveFileContent(rootPath, rel, text, if (force) null else currentEtag)
+                    client.saveFileContent(rootPath, path, text, if (force) null else currentEtag)
                 }
                 etag = result.etag
                 dirty = false

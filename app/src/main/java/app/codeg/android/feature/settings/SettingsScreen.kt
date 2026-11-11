@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.Difference
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Memory

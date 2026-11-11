@@ -317,7 +317,9 @@ class TaskResultNotifier @Inject constructor(
         }
     }
 
-    private fun onDeviceDown(event: DeviceDownEvent) = synchronized(lock) {
+    // Declared Unit: the onSuccess chain's Result would otherwise become the
+    // expression body's inferred type and clash with the bare `return` above.
+    private fun onDeviceDown(event: DeviceDownEvent): Unit = synchronized(lock) {
         if (!settings.notifyDeviceEventsEnabled) return
         val ctx = LocaleManager.wrapReadOnly(context)
         val id = deviceNotificationId(event.serverId)

@@ -175,6 +175,7 @@ fun ProjectDetailScreen(
                         onBranchClick = { showBranchPicker = true },
                         menuOpen = menuOpen,
                         onMenuClick = { menuOpen = true },
+                        onMenuDismiss = { menuOpen = false },
                     ) { onClose ->
                         val clip = LocalClipboardManager.current
                         val context = LocalContext.current
@@ -280,6 +281,7 @@ private fun CompactToolbar(
     onBranchClick: () -> Unit,
     menuOpen: Boolean,
     onMenuClick: () -> Unit,
+    onMenuDismiss: () -> Unit,
     menuContent: @Composable (onClose: () -> Unit) -> Unit,
 ) {
     val colors = CodegTheme.colors
@@ -309,8 +311,8 @@ private fun CompactToolbar(
             IconButton(onClick = onMenuClick, modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.common_more), tint = colors.textPrimary)
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                menuContent { menuOpen = false }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = onMenuDismiss) {
+                menuContent(onMenuDismiss)
             }
         }
     }
