@@ -875,7 +875,6 @@
     <string name="files_empty_file">空文件</string>
     <string name="files_preview_rendered">渲染</string>
     <string name="files_preview_source">源码</string>
-    <string name="files_preview_fullscreen">全屏</string>
     <string name="files_empty_file_message">该文件没有内容。</string>
     <string name="commits_not_a_git_repo">不是 Git 仓库</string>
     <string name="commits_not_a_git_repo_message">该文件夹不是 git 仓库。</string>

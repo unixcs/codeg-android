@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
@@ -81,6 +82,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,6 +91,8 @@ import app.codeg.android.core.designsystem.component.CodegTextField
 import app.codeg.android.core.designsystem.component.CodegSegmented
 import app.codeg.android.core.designsystem.component.CopyButton
 import app.codeg.android.core.designsystem.component.EmptyState
+import app.codeg.android.core.designsystem.component.ImageViewerDialog
+import app.codeg.android.core.designsystem.component.ImageViewerSource
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.component.PrimaryButton
@@ -143,7 +147,11 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
 
     val preview = previewPath
     if (preview != null) {
-        FilePreview(client, rootPath, preview, onEdit = { editPath = preview })
+        FilePreview(
+            client, rootPath, preview,
+            onEdit = { editPath = preview },
+            onDismiss = { previewPath = null },
+        )
         return
     }
     val dir = stack.last()
@@ -827,7 +835,19 @@ private fun FileRow(item: DirectoryItem, onLongClick: () -> Unit, onClick: () ->
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FilePreview(client: CodegClient, rootPath: String, absPath: String, onEdit: () -> Unit) {
+/**
+ * Full-screen file preview (批v176): everything renders in ONE edge-to-edge
+ * Dialog — the old inline pane + fullscreen toggle kept the project chrome
+ * (the user's "top third is wasted" complaint) and could mount two render
+ * trees. Header: close · path · edit · render/source · copy.
+ */
+private fun FilePreview(
+    client: CodegClient,
+    rootPath: String,
+    absPath: String,
+    onEdit: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val colors = CodegTheme.colors
     val rel = if (absPath.startsWith("$rootPath/")) absPath.removePrefix("$rootPath/") else absPath.substringAfterLast('/')
     var result by remember(absPath) { mutableStateOf<Result<String>?>(null) }
@@ -839,67 +859,108 @@ private fun FilePreview(client: CodegClient, rootPath: String, absPath: String, 
     // Rendered vs raw: Markdown files default to rendered; everything else is raw-only.
     val kind = remember(absPath) { previewKindOf(absPath) }
     var rendered by remember(absPath, kind) { mutableStateOf(kind == PreviewKind.MARKDOWN) }
-    // Fullscreen toggle. The fetched [result] / [rendered] state lives here so both the
-    // inline and fullscreen renderings share one source of truth — and only ONE of them
-    // mounts at a time (the inline branch renders an empty shell while fullscreen is up),
-    // so there are never two WebViews alive for the same file.
-    var fullscreen by rememberSaveable(absPath) { mutableStateOf(false) }
 
-    val header: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(rel, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (kind == PreviewKind.TEXT && result?.getOrNull()?.isNotEmpty() == true) {
-                IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.files_action_edit), tint = colors.textSecondary, modifier = Modifier.size(18.dp)) }
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(colors.bg)
+                .windowInsetsPadding(WindowInsets.safeDrawing),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_close), tint = colors.textSecondary)
+                }
+                Text(
+                    rel,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    color = colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                // Markdown edits its source too (new in v176); an empty file is
+                // still editable — the editor is how you put content INTO it.
+                if (kind == PreviewKind.TEXT || kind == PreviewKind.MARKDOWN) {
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.files_action_edit), tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                    }
+                }
+                if (kind == PreviewKind.MARKDOWN) {
+                    FilePreviewModeToggle(rendered = rendered, onToggle = { rendered = it })
+                }
+                result?.getOrNull()?.let { if (it.isNotEmpty()) CopyButton(it) }
             }
-            if (kind == PreviewKind.MARKDOWN && result?.getOrNull()?.isNotEmpty() == true) {
-                FilePreviewModeToggle(rendered = rendered, onToggle = { rendered = it })
-            }
-            if (kind != PreviewKind.IMAGE && result?.getOrNull()?.isNotEmpty() == true) {
-                IconButton(onClick = { fullscreen = true }) { Icon(Icons.Rounded.Fullscreen, contentDescription = stringResource(R.string.files_preview_fullscreen), tint = colors.textSecondary, modifier = Modifier.size(20.dp)) }
-            }
-            result?.getOrNull()?.let { if (it.isNotEmpty()) CopyButton(it) }
-        }
-    }
-    // The body render is shared verbatim by the inline pane and the fullscreen dialog.
-    val body: @Composable () -> Unit = {
-        val r = result
-        when {
-            r == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
-            r.isFailure -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                InlineError(Icons.AutoMirrored.Rounded.InsertDriveFile, stringResource(R.string.files_read_failed), r.exceptionOrNull()?.message ?: stringResource(R.string.files_error), onRetry = reload)
-            }
-            else -> {
-                val content = r.getOrDefault("")
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                val r = result
                 when {
-                    content.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState(Icons.AutoMirrored.Rounded.InsertDriveFile, stringResource(R.string.files_empty_file), stringResource(R.string.files_empty_file_message)) }
-                    rendered && kind == PreviewKind.MARKDOWN -> MarkdownScrollContent(content)
-                    kind == PreviewKind.IMAGE -> ImagePreview(client, rootPath, rel)
-                    kind == PreviewKind.HTML -> HtmlPreview(absPath.substringAfterLast('/'), content)
-                    else -> FileContent(content)
+                    r == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
+                    r.isFailure -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            InlineError(Icons.AutoMirrored.Rounded.InsertDriveFile, stringResource(R.string.files_read_failed), r.exceptionOrNull()?.message ?: stringResource(R.string.files_error), onRetry = reload)
+                            // The absolute path is the first diagnostic anyone asks for.
+                            Text(
+                                absPath,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                color = colors.textTertiary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp),
+                            )
+                        }
+                    }
+                    else -> {
+                        val content = r.getOrDefault("")
+                        when {
+                            content.isEmpty() -> EmptyFileState(absPath, onRetry = reload, onEdit = onEdit)
+                            rendered && kind == PreviewKind.MARKDOWN -> MarkdownScrollContent(content)
+                            kind == PreviewKind.IMAGE -> ImagePreview(client, rootPath, rel)
+                            kind == PreviewKind.HTML -> HtmlPreview(absPath.substringAfterLast('/'), content)
+                            else -> FileContent(content)
+                        }
+                    }
                 }
             }
         }
     }
+}
 
-    Column(Modifier.fillMaxSize()) {
-        header()
-        if (!fullscreen) body()
-    }
-
-    if (fullscreen) {
-        androidx.compose.ui.window.Dialog(
-            onDismissRequest = { fullscreen = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-        ) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .background(colors.bg)
-                    .windowInsetsPadding(WindowInsets.safeDrawing),
-            ) {
-                header()
-                Box(Modifier.weight(1f)) { body() }
-            }
+/**
+ * The old empty state hid every header action behind `content.isNotEmpty()`,
+ * so an empty file (or one the server silently returned empty for — the txt
+ * report) looked like a dead tap. Show the path + retry + edit.
+ */
+@Composable
+private fun EmptyFileState(absPath: String, onRetry: () -> Unit, onEdit: () -> Unit) {
+    val colors = CodegTheme.colors
+    Column(
+        Modifier.fillMaxSize().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        EmptyState(Icons.AutoMirrored.Rounded.InsertDriveFile, stringResource(R.string.files_empty_file), stringResource(R.string.files_empty_file_message))
+        Text(
+            absPath,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+            color = colors.textTertiary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(onClick = onRetry) { Text(stringResource(R.string.common_retry)) }
+            TextButton(onClick = onEdit) { Text(stringResource(R.string.files_action_edit)) }
         }
     }
 }
@@ -951,15 +1012,19 @@ private fun MarkdownScrollContent(content: String) {
     }
 }
 
-/** Image preview via `read_workspace_file_base64`, decoded on IO. */
+/** Image preview via `read_workspace_file_base64`, decoded on IO. Tap opens the
+ *  pinch-zoom viewer (批v176: ImageViewerDialog existed but was never wired here). */
 @Composable
 private fun ImagePreview(client: CodegClient, rootPath: String, rel: String) {
     val colors = CodegTheme.colors
     var bitmap by remember(rel) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var base64 by remember(rel) { mutableStateOf<String?>(null) }
+    var viewerOpen by remember(rel) { mutableStateOf(false) }
     var error by remember(rel) { mutableStateOf<String?>(null) }
     var loadTick by remember(rel) { mutableStateOf(0) }
     LaunchedEffect(rel, loadTick) {
         bitmap = null
+        base64 = null
         error = null
         withContext(Dispatchers.IO) {
             try {
@@ -967,6 +1032,7 @@ private fun ImagePreview(client: CodegClient, rootPath: String, rel: String) {
                 val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
                 bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     ?: throw ApiError.Decoding("Unsupported image format")
+                base64 = b64
             } catch (e: Exception) {
                 error = e.message ?: "Failed to load image"
             }
@@ -978,8 +1044,16 @@ private fun ImagePreview(client: CodegClient, rootPath: String, rel: String) {
             androidx.compose.foundation.Image(
                 bitmap = bmp.asImageBitmap(),
                 contentDescription = rel,
-                modifier = Modifier.clip(RoundedCornerShape(10.dp)),
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { viewerOpen = true },
             )
+            if (viewerOpen) {
+                base64?.let { b64 ->
+                    ImageViewerDialog(
+                        images = listOf(app.codeg.android.core.designsystem.component.ImageViewerSource.Base64(b64)),
+                        onDismiss = { viewerOpen = false },
+                    )
+                }
+            }
         }
         error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             InlineError(Icons.Rounded.Image, stringResource(R.string.files_read_failed), error!!, onRetry = { loadTick++ })

@@ -883,7 +883,6 @@
     <string name="files_empty_file">Empty file</string>
     <string name="files_preview_rendered">Rendered</string>
     <string name="files_preview_source">Source</string>
-    <string name="files_preview_fullscreen">Fullscreen</string>
     <string name="files_empty_file_message">This file has no content.</string>
     <string name="commits_not_a_git_repo">Not a Git repository</string>
     <string name="commits_not_a_git_repo_message">This folder isn\'t a git repo.</string>
