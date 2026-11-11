@@ -107,6 +107,9 @@ fun rememberBoardTrackMenu(): BoardTrackMenu {
     val viewModel: BoardTrackViewModel = hiltViewModel()
     val keys by viewModel.trackedKeys.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Toast text is formatted inside the toggle callback (post-composition), so read
+    // it off LocalResources — context.getString there trips LocalContextGetResourceValueCall.
+    val resources = androidx.compose.ui.platform.LocalResources.current
     return remember(viewModel, keys, context) {
         BoardTrackMenu(keys) { serverId, conversationId, folderId ->
             viewModel.toggle(serverId, conversationId, folderId) { ok, added ->
@@ -116,7 +119,7 @@ fun rememberBoardTrackMenu(): BoardTrackMenu {
                 // versa). Success/failure still rides ok (批v161.2).
                 Toast.makeText(
                     context,
-                    context.getString(
+                    resources.getString(
                         when {
                             !ok -> R.string.board_conv_failed
                             added -> R.string.board_conv_added
