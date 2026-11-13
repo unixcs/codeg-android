@@ -645,6 +645,7 @@ fun SessionDetailScreen(
                             viewModel = viewModel,
                             servers = servers,
                             onOpenManageProjects = onOpenManageProjects,
+                            onManageServers = onManageServers,
                             onOpenOptions = { showOptions = true },
                             onOpenContextUsage = { showContextUsage = true },
                             onOpenSessionDetails = { showSessionDetails = true },
@@ -1112,6 +1113,8 @@ private fun SessionContextChips(
     viewModel: SessionDetailViewModel,
     servers: List<ServerProfile>,
     onOpenManageProjects: () -> Unit,
+    /** 批v178: the device sheet's 管理设备 entry (hoisted from the shell). */
+    onManageServers: () -> Unit,
     onOpenOptions: () -> Unit,
     onOpenContextUsage: () -> Unit,
     onOpenSessionDetails: () -> Unit,
