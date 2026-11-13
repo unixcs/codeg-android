@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -145,19 +146,23 @@ private fun AttachPillButton(
     }
 }
 
-/** The two pickers (图片 / 任意文件) as a pill row — the cap mirrors the callers'
- *  [app.codeg.android.core.data.AttachmentLimits.MAX_IMAGES] gating via [enabled]. */
+/** The three pickers (图片 / 拍照 / 任意文件) as a pill row — the cap mirrors the
+ *  callers' [app.codeg.android.core.data.AttachmentLimits.MAX_IMAGES] gating via
+ *  [enabled]. 批v178: the camera pill fires the shared [rememberCameraCapture]. */
 @Composable
 fun CodegAttachActions(
     pickImagesLabel: String,
+    pickCameraLabel: String,
     pickFilesLabel: String,
     enabled: Boolean,
     onPickImages: () -> Unit,
+    onCamera: () -> Unit,
     onPickFiles: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         AttachPillButton(Icons.Rounded.Image, pickImagesLabel, enabled, onPickImages)
+        AttachPillButton(Icons.Rounded.PhotoCamera, pickCameraLabel, enabled, onCamera)
         AttachPillButton(Icons.Rounded.AttachFile, pickFilesLabel, enabled, onPickFiles)
     }
 }

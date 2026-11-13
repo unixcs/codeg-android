@@ -805,6 +805,7 @@
     <!-- ===== Session Detail · Composer ===== -->
     <string name="compose_insert">Insert</string>
     <string name="compose_attach_image">Attach image</string>
+    <string name="compose_attach_camera">Camera</string>
     <string name="compose_mention_agent">Mention an agent</string>
     <!-- 批v165 @智能体: mention picker + delegation gate -->
     <string name="mention_sheet_title">Mention an agent</string>

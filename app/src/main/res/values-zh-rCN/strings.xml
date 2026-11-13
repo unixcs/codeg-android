@@ -797,6 +797,7 @@
     <!-- ===== Session Detail · Composer ===== -->
     <string name="compose_insert">插入</string>
     <string name="compose_attach_image">添加图片</string>
+    <string name="compose_attach_camera">拍照</string>
     <string name="compose_mention_agent">@ 智能体</string>
     <!-- 批v165 @智能体：提及选择弹层 + 委派开关前置拦截 -->
     <string name="mention_sheet_title">@ 智能体</string>

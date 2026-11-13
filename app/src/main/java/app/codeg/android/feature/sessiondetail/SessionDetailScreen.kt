@@ -130,6 +130,7 @@ import app.codeg.android.feature.sessiondetail.interactive.PermissionRequestCard
 import app.codeg.android.feature.sessiondetail.interactive.PlanApprovalCard
 import app.codeg.android.feature.sessiondetail.interactive.PlanFullscreenDialog
 import app.codeg.android.core.designsystem.component.DocPreviewDialog
+import app.codeg.android.core.designsystem.component.rememberCameraCapture
 import app.codeg.android.core.designsystem.markdown.LocalPathOpener
 import app.codeg.android.feature.sessiondetail.timeline.LocalShareAssistantEnabled
 import app.codeg.android.feature.sessiondetail.timeline.LocalSessionContext
@@ -309,6 +310,11 @@ fun SessionDetailScreen(
     val pickFiles = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris -> if (uris.isNotEmpty()) viewModel.addFileAttachments(uris, context.contentResolver) }
+
+    // 批v178: the camera pill feeds the same base64 chain as picked images.
+    val cameraCapture = rememberCameraCapture { uri ->
+        viewModel.addAttachments(listOf(uri), context.contentResolver)
+    }
 
     if (showInsert) {
         ComposeInsertSheet(
@@ -622,6 +628,7 @@ fun SessionDetailScreen(
                     },
                     onPlus = { showInsert = true },
                     onAttach = { pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onCamera = cameraCapture,
                     onMention = { showAgentMention = true },
                     onTocClick = if (tocEntries.isNotEmpty()) ({ showToc = true }) else null,
                     onExpandClick = { showFullscreenEditor = true },

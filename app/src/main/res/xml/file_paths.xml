@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- FileProvider paths: cache subdirectories only (shared = document-preview
-     share, batch v123; open_with = system open-with card, batch v125) — never
-     general cache or file storage. -->
+     share, batch v123; open_with = system open-with card, batch v125; camera =
+     camera-capture handoff, batch v178) — never general cache or file storage. -->
 <paths>
     <cache-path
         name="shared"
@@ -9,4 +9,7 @@
     <cache-path
         name="open_with"
         path="open_with/" />
+    <cache-path
+        name="camera"
+        path="camera/" />
 </paths>

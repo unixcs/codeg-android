@@ -75,6 +75,7 @@ import app.codeg.android.core.designsystem.component.CodegSectionLabel
 import app.codeg.android.core.designsystem.component.FullscreenTextEditorDialog
 import app.codeg.android.core.designsystem.component.DeviceChipRow
 import app.codeg.android.core.designsystem.component.OptionListSheet
+import app.codeg.android.core.designsystem.component.rememberCameraCapture
 import app.codeg.android.core.designsystem.component.PickerField
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.PrimaryButton
@@ -353,6 +354,8 @@ fun DispatchForm(
     val pickDispatchFiles = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris -> stage(uris, images = false) }
+    // 批v178: the camera pill stages like picked images (same base64 chain).
+    val cameraCapture = rememberCameraCapture { uri -> stage(listOf(uri), images = true) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var pickedDate by remember { mutableStateOf<LocalDate?>(null) }
@@ -994,11 +997,13 @@ fun DispatchForm(
         }
         CodegAttachActions(
             pickImagesLabel = stringResource(R.string.attach_add_image),
+            pickCameraLabel = stringResource(R.string.compose_attach_camera),
             pickFilesLabel = stringResource(R.string.attach_add_file),
             enabled = !stagingAttachments && attachments.size < MAX_DISPATCH_ATTACHMENTS,
             onPickImages = {
                 pickDispatchImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             },
+            onCamera = cameraCapture,
             onPickFiles = { pickDispatchFiles.launch(arrayOf("*/*")) },
         )
         // R3 P2-1: task mode needs it too — the server's validate_draft rejects

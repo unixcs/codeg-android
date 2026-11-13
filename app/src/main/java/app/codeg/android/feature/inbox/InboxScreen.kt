@@ -138,6 +138,7 @@ import app.codeg.android.core.designsystem.component.OptionListSheet
 import app.codeg.android.core.designsystem.component.PickerField
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.PrimaryButton
+import app.codeg.android.core.designsystem.component.rememberCameraCapture
 import app.codeg.android.core.designsystem.component.SwipeActionBox
 import app.codeg.android.core.designsystem.component.SwipeSpec
 import app.codeg.android.core.designsystem.component.holdDialogWindowStill
@@ -1141,6 +1142,8 @@ private fun IdeaEditorDialog(
     val pickFiles = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris -> stage(uris, images = false) }
+    // 批v178: the camera pill stages like picked images (same base64 chain).
+    val cameraCapture = rememberCameraCapture { uri -> stage(listOf(uri), images = true) }
 
     fun close() {
         // Cancel drops only what this dialog staged — idea copies stay with the row.
@@ -1284,6 +1287,7 @@ private fun IdeaEditorDialog(
                                 )
                             },
                             onPickFiles = { pickFiles.launch(arrayOf("*/*")) },
+                            onCameraCapture = cameraCapture,
                         )
                         // 批v155 段2: 一键插待办 — skip the save→dispatch two-step.
                         // The content gate mirrors the save button: an empty idea
@@ -1626,6 +1630,7 @@ private fun AttachmentChips(
     onRemove: (LocalAttachment) -> Unit,
     onPickImages: () -> Unit,
     onPickFiles: () -> Unit,
+    onCameraCapture: () -> Unit,
 ) {
     val colors = CodegTheme.colors
     // rememberSaveable: rotation no longer closes the viewer (R2D#4).
@@ -1664,9 +1669,11 @@ private fun AttachmentChips(
     }
     CodegAttachActions(
         pickImagesLabel = stringResource(R.string.attach_add_image),
+        pickCameraLabel = stringResource(R.string.compose_attach_camera),
         pickFilesLabel = stringResource(R.string.attach_add_file),
         enabled = !staging && attachments.size < MAX_IDEA_ATTACHMENTS,
         onPickImages = onPickImages,
+        onCamera = onCameraCapture,
         onPickFiles = onPickFiles,
     )
     viewerIndex?.let { idx ->

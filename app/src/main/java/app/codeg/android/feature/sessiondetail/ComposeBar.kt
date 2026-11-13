@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.FilledIconButton
@@ -80,6 +81,9 @@ fun ComposeBar(
     modifier: Modifier = Modifier,
     onPlus: (() -> Unit)? = null,
     onAttach: (() -> Unit)? = null,
+    /** 批v178: fires the shared camera capture (TakePicture + FileProvider); the
+     *  result lands in the same attachment chain as picked images. Null hides. */
+    onCamera: (() -> Unit)? = null,
     /** 批v165 @智能体: opens the agent-mention picker; null hides the button.
      *  The picked agent is inserted as a Markdown link by the caller — the
      *  composer only carries the trigger. */
@@ -206,6 +210,9 @@ fun ComposeBar(
                 }
                 if (onAttach != null) {
                     ComposerAction(Icons.Rounded.Image, stringResource(R.string.compose_attach_image), onAttach)
+                }
+                if (onCamera != null) {
+                    ComposerAction(Icons.Rounded.PhotoCamera, stringResource(R.string.compose_attach_camera), onCamera)
                 }
                 // 批v165 @智能体: the mention trigger, between attach and the
                 // right-aligned cluster so the send/stop morph never moves it.
