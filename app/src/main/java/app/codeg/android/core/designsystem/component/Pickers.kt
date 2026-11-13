@@ -142,7 +142,8 @@ fun PickerField(
 /**
  * Vertical option list in a modal bottom sheet, with a search filter (§六:
  * 搜索 + 选中态). [options] are already resolved by the caller; empty renders
- * the "nothing available" line instead of a blank sheet.
+ * the "nothing available" line instead of a blank sheet. [footer] renders
+ * below the list (also when empty) — 批v178 device sheet's 管理设备 entry.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -152,6 +153,7 @@ fun OptionListSheet(
     selectedId: String?,
     onSelect: (PickerOption) -> Unit,
     onDismiss: () -> Unit,
+    footer: (@Composable () -> Unit)? = null,
 ) {
     val colors = CodegTheme.colors
     var query by rememberSaveable { mutableStateOf("") }
@@ -235,6 +237,10 @@ fun OptionListSheet(
                         }
                     }
                 }
+            }
+            footer?.let {
+                Spacer(Modifier.size(8.dp))
+                it()
             }
         }
     }

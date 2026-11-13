@@ -832,6 +832,7 @@
     <string name="compose_ctx_project">Project</string>
     <string name="session_device_no_token">No token for %1$s — add one under Servers first.</string>
     <string name="session_switch_device">Switch device</string>
+    <string name="session_manage_devices">Manage devices…</string>
     <string name="compose_ctx_folder">Folder</string>
     <string name="compose_ctx_agent">Agent</string>
     <string name="common_close">Close</string>

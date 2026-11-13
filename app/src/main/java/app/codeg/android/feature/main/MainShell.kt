@@ -1628,6 +1628,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
                         onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
                         onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
+                        onManageServers = { nav.navigate(ROUTE_SERVERS) },
                         servers = servers,
                     )
                 }
@@ -1647,6 +1648,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
                         onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
                         onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
+                        onManageServers = { nav.navigate(ROUTE_SERVERS) },
                         servers = servers,
                     )
                 }
@@ -1675,6 +1677,7 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                         onOpenSession = { folderId -> nav.navigate("$ROUTE_NEW_TASK?folderId=$folderId") },
                         onOpenFolder = { folderId -> nav.navigate("project/$folderId") },
                         onOpenManageProjects = { nav.navigate(ROUTE_FOLDERS) },
+                        onManageServers = { nav.navigate(ROUTE_SERVERS) },
                         servers = servers,
                         seedText = entry.arguments?.getString("handoff"),
                     )

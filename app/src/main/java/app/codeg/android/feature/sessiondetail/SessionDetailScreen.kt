@@ -55,6 +55,7 @@ import androidx.compose.material.icons.rounded.FolderSpecial
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
@@ -166,6 +167,9 @@ fun SessionDetailScreen(
     servers: List<ServerProfile> = emptyList(),
     /** Opens the project manager from the "add to project" sheet. */
     onOpenManageProjects: () -> Unit = {},
+    /** 批v178: device sheet's 管理设备 entry — jump to the servers screen
+     *  (a just-added device missing from the picker is managed there). */
+    onManageServers: () -> Unit = {},
     viewModel: SessionDetailViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
@@ -1327,6 +1331,30 @@ private fun SessionContextChips(
             selectedId = ui.serverId,
             onSelect = { opt -> viewModel.selectDevice(opt.id) },
             onDismiss = { deviceSheet = false },
+            // 批v178: the list comes from the local profiles store — a device
+            // added elsewhere shows up after sync; manage strays here.
+            footer = {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { deviceSheet = false; onManageServers() }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.Settings,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        stringResource(R.string.session_manage_devices),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.textSecondary,
+                    )
+                }
+            },
         )
     }
 
