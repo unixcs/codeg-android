@@ -3555,8 +3555,14 @@ class SessionDetailViewModel @Inject constructor(
         val rooted = if (path.startsWith("$root/")) {
             root to path.removePrefix("$root/")
         } else {
+            // 审查批v178: dot segments stay rejected even on the re-rooted call.
             val parent = path.substringBeforeLast('/')
-            if (path.startsWith("/") && parent.startsWith("/")) parent to path.substringAfterLast('/') else null
+            val name = path.substringAfterLast('/')
+            if (path.startsWith("/") && parent.startsWith("/") && name != "." && name != "..") {
+                parent to name
+            } else {
+                null
+            }
         }
         if (rooted == null) {
             showNotice(appContext.getString(R.string.doc_preview_outside_workspace, path))

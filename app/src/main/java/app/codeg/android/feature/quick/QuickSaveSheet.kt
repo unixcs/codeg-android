@@ -507,7 +507,8 @@ fun QuickSaveSheet(
                                 // 批v178: a dead root used to leave the button silently
                                 // disabled ("点了没反应"); a tap now drives the same
                                 // re-resolve as the Retry button under the error text.
-                                rootError = rootErrorLabel
+                                // (No pre-set label here — the effect writes the real
+                                // two-line diagnosis; presetting would downgrade it.)
                                 rootRetry++
                             } else {
                                 pendingSaveAt = saveSeq

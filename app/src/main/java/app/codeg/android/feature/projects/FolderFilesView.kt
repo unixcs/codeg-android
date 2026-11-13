@@ -1376,7 +1376,13 @@ private fun outsideRootRead(rootPath: String, absPath: String): Pair<String, Str
     if (absPath == rootPath || absPath.startsWith("$rootPath/")) return null
     val parent = absPath.substringBeforeLast('/')
     val name = absPath.substringAfterLast('/')
-    return if (parent.startsWith("/") && name.isNotBlank()) parent to name else null
+    // 审查批v178: dot segments are rejected server-side anyway — keep them
+    // from riding a re-rooted call at all (markdown links can carry them).
+    return if (parent.startsWith("/") && name.isNotBlank() && name != "." && name != "..") {
+        parent to name
+    } else {
+        null
+    }
 }
 
 /** Client cap for the on-device editor — Compose text fields choke far below the server's 50 MB limit. */

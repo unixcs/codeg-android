@@ -22,8 +22,10 @@ import java.util.Locale
  * full-resolution JPEG we pre-create under `cacheDir/camera/` back through
  * FileProvider; callers feed the returned Uri into whatever the screen already
  * does with picked images (the composer's base64 chain, AttachmentStager's
- * private copy). The pending file survives process death via rememberSaveable;
- * a cancelled capture deletes the orphan. Returns a zero-arg launch callback.
+ * private copy). The pending path is rememberSaveable so a process death in the
+ * composer still consumes its pending result (dialog/sheet hosts lose the shot
+ * instead — the stale file is swept later); a cancelled capture deletes the
+ * orphan. Returns a zero-arg launch callback.
  */
 @Composable
 fun rememberCameraCapture(onCaptured: (Uri) -> Unit): () -> Unit {
@@ -41,11 +43,15 @@ fun rememberCameraCapture(onCaptured: (Uri) -> Unit): () -> Unit {
     }
     return {
         runCatching {
-            // One photo per launch: drop stale captures from earlier sessions
-            // (the dir holds at most a couple of small files, fine on the caller
-            // thread; the new file is created after the sweep).
+            // 审查批v178 P2-1: one capture in flight — a second tap while the
+            // camera is up would re-point the single pending slot and orphan
+            // the first shot (or stage a half-written file).
+            if (pendingFile != null) return@runCatching
             val dir = File(context.cacheDir, "camera").apply { mkdirs() }
-            dir.listFiles()?.forEach { it.delete() }
+            // Sweep only stale orphans: a file the stager is still copying
+            // (created seconds ago) must survive this launch.
+            val staleBefore = System.currentTimeMillis() - 60_000
+            dir.listFiles()?.forEach { if (it.lastModified() < staleBefore) it.delete() }
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val file = File(dir, "IMG_$stamp.jpg").apply { createNewFile() }
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
