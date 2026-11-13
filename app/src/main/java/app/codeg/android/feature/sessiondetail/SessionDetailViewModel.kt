@@ -197,7 +197,7 @@ class SessionDetailViewModel @Inject constructor(
     /** 批v177: whether the AI-reply footer shows the native-share button. */
     val shareAssistantEnabled: StateFlow<Boolean> = appSettingsStore.settings
         .map { it.shareAssistantMessages }
-        .stateIn(appScope, SharingStarted.Eagerly, true)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     private var profile: ServerProfile? = null
     private var client: CodegClient? = null
