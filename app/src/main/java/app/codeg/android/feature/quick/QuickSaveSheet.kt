@@ -49,6 +49,7 @@ import app.codeg.android.core.designsystem.component.PrimaryButton
 import app.codeg.android.core.designsystem.component.sheetContentScrollLock
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.network.CodegClient
+import app.codeg.android.core.network.displayMessage
 import app.codeg.android.feature.projects.DirectoryBrowserSheet
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.concurrent.atomic.AtomicBoolean
@@ -82,13 +83,18 @@ class QuickSaveViewModel @Inject constructor(
     val profiles: StateFlow<List<ServerProfile>> =
         repository.visibleProfiles.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** 批v172 D7: last-used device + dir, re-prefilled when the sheet reopens. */
-    val lastServerId: StateFlow<String> =
+    /** 批v172 D7: last-used device + dir, re-prefilled when the sheet reopens.
+     *  批v178: `null` = DataStore's first read hasn't landed yet (WhileSubscribed
+     *  cold start replays the empty default first). The sheet's prefill gates on
+     *  the real values instead of racing the empty ones — the old race flipped
+     *  `hydrated` off profiles alone and permanently skipped the dir restore,
+     *  which read as "the save dir always resets to 根目录". */
+    val lastServerId: StateFlow<String?> =
         settingsStore.settings.map { it.quickSaveLastServer }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
-    val lastDir: StateFlow<String> =
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val lastDir: StateFlow<String?> =
         settingsStore.settings.map { it.quickSaveLastDir }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Backing fields BEFORE their public exposures — Kotlin class-body
     // initializers run in declaration order, so a forward reference is the
@@ -307,19 +313,23 @@ fun QuickSaveSheet(
     var hydrated by rememberSaveable { mutableStateOf(false) }
 
     // 预填：上次用的设备（仍在才用；否则单设备直选）+ 上次的目录（仅同设备）。
+    // 批v178: last* are null until DataStore's first read lands — gate on them,
+    // not just on profiles, so a late lastDir is awaited instead of skipped
+    // forever (the "目录总被重置回根目录" root cause).
     LaunchedEffect(hydrated, profiles, lastServerId, lastDir) {
-        if (!hydrated && profiles.isNotEmpty()) {
-            hydrated = true
-            if (serverId.isBlank()) {
-                val pre = when {
-                    lastServerId.isNotBlank() && profiles.any { it.id == lastServerId } -> lastServerId
-                    profiles.size == 1 -> profiles.first().id
-                    else -> ""
-                }
-                if (pre.isNotBlank()) {
-                    serverId = pre
-                    if (pre == lastServerId && lastDir.isNotBlank()) relDir = lastDir
-                }
+        if (hydrated || profiles.isEmpty()) return@LaunchedEffect
+        val preServer = lastServerId ?: return@LaunchedEffect
+        val preDir = lastDir ?: return@LaunchedEffect
+        hydrated = true
+        if (serverId.isBlank()) {
+            val pre = when {
+                preServer.isNotBlank() && profiles.any { it.id == preServer } -> preServer
+                profiles.size == 1 -> profiles.first().id
+                else -> ""
+            }
+            if (pre.isNotBlank()) {
+                serverId = pre
+                if (pre == preServer && preDir.isNotBlank()) relDir = preDir
             }
         }
     }
@@ -352,10 +362,14 @@ fun QuickSaveSheet(
                 c.getHomeDirectory()
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // 批v178: surface the real cause (timeout / 401 / DNS). The bare
+                // label read as "保存失败" with zero way to tell why; keep the
+                // two-line form — label first, diagnosis under it.
+                rootError = rootErrorLabel + "\n" + e.displayMessage()
                 null
             }
-            if (rootPath == null) rootError = rootErrorLabel
+            if (rootPath == null && rootError == null) rootError = rootErrorLabel
         } else {
             rootError = missingTokenLabel
         }
@@ -489,13 +503,19 @@ fun QuickSaveSheet(
                         onClick = {
                             if (content.length > MAX_QUICK_SAVE_CHARS) {
                                 saveError = tooLargeError
+                            } else if (rootPath == null) {
+                                // 批v178: a dead root used to leave the button silently
+                                // disabled ("点了没反应"); a tap now drives the same
+                                // re-resolve as the Retry button under the error text.
+                                rootError = rootErrorLabel
+                                rootRetry++
                             } else {
                                 pendingSaveAt = saveSeq
                                 saveError = null
                                 viewModel.save(serverId, relDir, title, content)
                             }
                         },
-                        enabled = title.isNotBlank() && client != null && rootPath != null && !saving,
+                        enabled = title.isNotBlank() && serverId.isNotBlank() && !saving,
                         loading = saving,
                         modifier = Modifier.weight(1f),
                     )
