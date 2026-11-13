@@ -295,6 +295,7 @@ fun GeneralContent(
         Section(stringResource(R.string.general_conversation_tools)) {
             ToggleRow(stringResource(R.string.general_live_feedback_title), stringResource(R.string.general_live_feedback_subtitle), ui.feedbackEnabled, viewModel::setFeedback)
             ToggleRow(stringResource(R.string.general_ask_questions_title), stringResource(R.string.general_ask_questions_subtitle), ui.questionEnabled, viewModel::setQuestion)
+            ToggleRow(stringResource(R.string.general_share_assistant_title), stringResource(R.string.general_share_assistant_subtitle), appSettings.shareAssistantMessages, viewModel::setShareAssistantMessages)
         }
         Section(stringResource(R.string.general_multi_agent_delegation)) {
             ToggleRow(stringResource(R.string.general_enable_delegation_title), stringResource(R.string.general_enable_delegation_subtitle), ui.delegationEnabled, viewModel::setDelegationEnabled)

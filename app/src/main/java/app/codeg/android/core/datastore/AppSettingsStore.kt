@@ -80,6 +80,9 @@ data class AppSettings(
      *  persistent LOW-priority shade row can be dismissed. Users who explicitly
      *  turned it off keep their stored value. */
     val keepAliveEnabled: Boolean = true,
+    /** 批v177: show a native-share button in each AI reply's footer (session
+     *  detail timeline). Default ON. */
+    val shareAssistantMessages: Boolean = true,
     /** 批v160 W5: the Tasks tab's horizontal-swipe semantics — "segments" =
      *  step between the board's four kanban columns (default), "devices" =
      *  the cross-device sequence (the pre-v160 behavior). */
@@ -261,6 +264,7 @@ class AppSettingsStore @Inject constructor(
             notifyTaskHeadsUp = prefs[NOTIFY_TASK_HEADS_UP] ?: true,
             notifyDeviceEventsEnabled = prefs[NOTIFY_DEVICE_EVENTS_ENABLED] ?: true,
             keepAliveEnabled = prefs[KEEP_ALIVE_ENABLED] ?: true,
+            shareAssistantMessages = prefs[SHARE_ASSISTANT_MESSAGES] ?: true,
             taskSwipeMode = prefs[TASK_SWIPE_MODE]?.takeIf { it in TASK_SWIPE_MODES }
                 ?: AppSettings.DEFAULT_TASK_SWIPE_MODE,
             taskBoardLayout = prefs[TASK_BOARD_LAYOUT]?.takeIf { it in TASK_BOARD_LAYOUTS }
@@ -553,6 +557,11 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[KEEP_ALIVE_ENABLED] = enabled }
     }
 
+    /** 批v177: persist the AI-reply share-button toggle. */
+    suspend fun setShareAssistantMessages(enabled: Boolean) {
+        dataStore.edit { it[SHARE_ASSISTANT_MESSAGES] = enabled }
+    }
+
     /** 批v160 W5: persist the Tasks tab's swipe semantics; unknown values coerce back. */
     suspend fun setTaskSwipeMode(mode: String) {
         dataStore.edit { it[TASK_SWIPE_MODE] = mode.takeIf { m -> m in TASK_SWIPE_MODES } ?: AppSettings.DEFAULT_TASK_SWIPE_MODE }
@@ -698,6 +707,7 @@ class AppSettingsStore @Inject constructor(
         val NOTIFY_TASK_HEADS_UP = booleanPreferencesKey("notify_task_heads_up")
         val NOTIFY_DEVICE_EVENTS_ENABLED = booleanPreferencesKey("notify_device_events")
         val KEEP_ALIVE_ENABLED = booleanPreferencesKey("keep_alive_enabled")
+        val SHARE_ASSISTANT_MESSAGES = booleanPreferencesKey("share_assistant_messages")
         val TASK_SWIPE_MODE = stringPreferencesKey("task_swipe_mode")
         val TASK_BOARD_LAYOUT = stringPreferencesKey("task_board_layout")
         val TASK_BOARD_KANBAN_COLUMNS = intPreferencesKey("task_board_kanban_columns")

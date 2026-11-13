@@ -479,6 +479,8 @@
     <string name="general_live_feedback_subtitle">Let the agent ask for inline feedback while it works.</string>
     <string name="general_ask_questions_title">Ask user questions</string>
     <string name="general_ask_questions_subtitle">Let the agent ask you multiple-choice questions.</string>
+    <string name="general_share_assistant_title">Share AI replies</string>
+    <string name="general_share_assistant_subtitle">Show a share button under each AI reply to send its full text to other apps.</string>
     <string name="general_multi_agent_delegation">Multi-Agent Delegation</string>
     <string name="general_enable_delegation_title">Enable delegation</string>
     <string name="general_enable_delegation_subtitle">Allow agents to delegate work to sub-agents.</string>
@@ -857,6 +859,7 @@
     <string name="timeline_unsupported_block">Unsupported block: %1$s</string>
     <string name="timeline_copied">Copied</string>
     <string name="timeline_copy">Copy</string>
+    <string name="timeline_share">Share</string>
     <string name="timeline_scroll_to_question">Scroll to question</string>
     <string name="timeline_question">Question</string>
 

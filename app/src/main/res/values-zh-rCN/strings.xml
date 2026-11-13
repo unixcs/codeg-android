@@ -479,6 +479,8 @@
     <string name="general_live_feedback_subtitle">允许智能体在工作时请求内联反馈。</string>
     <string name="general_ask_questions_title">向用户提问</string>
     <string name="general_ask_questions_subtitle">允许智能体向你提出多选问题。</string>
+    <string name="general_share_assistant_title">分享 AI 回复</string>
+    <string name="general_share_assistant_subtitle">在 AI 回复下方显示分享按钮，把回答全文发到其他应用。</string>
     <string name="general_multi_agent_delegation">多智能体委派</string>
     <string name="general_enable_delegation_title">启用委派</string>
     <string name="general_enable_delegation_subtitle">允许智能体将工作委派给子智能体。</string>
@@ -849,6 +851,7 @@
     <string name="timeline_unsupported_block">不支持的块：%1$s</string>
     <string name="timeline_copied">已复制</string>
     <string name="timeline_copy">复制</string>
+    <string name="timeline_share">分享</string>
     <string name="timeline_scroll_to_question">滚动到问题</string>
     <string name="timeline_question">问题</string>
 

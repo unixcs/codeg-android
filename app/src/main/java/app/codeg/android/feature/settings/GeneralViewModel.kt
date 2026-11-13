@@ -363,6 +363,11 @@ class GeneralViewModel @Inject constructor(
         appSettingsStore.setNotifyTaskHeadsUp(enabled)
     }
 
+    /** 批v177: AI 回复分享按钮 toggle（AppSettings 本地开关）. */
+    fun setShareAssistantMessages(enabled: Boolean) = launchPersist {
+        appSettingsStore.setShareAssistantMessages(enabled)
+    }
+
     /** 批v176: 「发测试通知」 — one real notification through the live path. */
     fun sendTestNotification() {
         runCatching { taskResultNotifier.postTestNotification() }

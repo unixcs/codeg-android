@@ -11,6 +11,7 @@ import app.codeg.android.R
 import app.codeg.android.core.data.HandoffSource
 import app.codeg.android.core.data.LocalAttachment
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ConversationSelectorStore
 import app.codeg.android.core.datastore.DeviceAgentPrefsStore
 import app.codeg.android.core.datastore.DraftFolderPrefsStore
@@ -70,9 +71,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -179,6 +183,8 @@ class SessionDetailViewModel @Inject constructor(
     private val sessionAutoStart: app.codeg.android.core.data.SessionAutoStart,
     // 批v162 正向快链：插入表单的「想法」来源与收件箱同一条 IdeaStore 流。
     private val ideaStore: IdeaStore,
+    // 批v177: AI 回复分享按钮开关的来源（AppSettings 本地偏好）。
+    private val appSettingsStore: AppSettingsStore,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
     @ApplicationScope private val appScope: CoroutineScope,
@@ -187,6 +193,11 @@ class SessionDetailViewModel @Inject constructor(
     private val conversationIdArg: Int? = savedStateHandle.get<Int>("id")?.takeIf { it >= 0 }
     /** A new task may be pre-seeded with a folder (e.g. a worktree a branch switch opened). */
     private val folderIdArg: Int? = savedStateHandle.get<Int>("folderId")?.takeIf { it >= 0 }
+
+    /** 批v177: whether the AI-reply footer shows the native-share button. */
+    val shareAssistantEnabled: StateFlow<Boolean> = appSettingsStore.settings
+        .map { it.shareAssistantMessages }
+        .stateIn(appScope, SharingStarted.Eagerly, true)
 
     private var profile: ServerProfile? = null
     private var client: CodegClient? = null

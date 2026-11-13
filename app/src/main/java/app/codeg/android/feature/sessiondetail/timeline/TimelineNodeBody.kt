@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -41,6 +43,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -48,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.R
+import app.codeg.android.core.designsystem.component.shareDocument
 import app.codeg.android.core.designsystem.markdown.MarkdownContent
 import app.codeg.android.core.designsystem.markdown.SingleBlockView
 import app.codeg.android.core.designsystem.theme.CodegTheme
@@ -61,6 +65,7 @@ import app.codeg.android.feature.sessiondetail.rendering.ReasoningBlock
 import app.codeg.android.feature.sessiondetail.rendering.ToolCallCard
 import app.codeg.android.feature.sessiondetail.rendering.ToolGroupCard
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private val SuccessGreen = Color(0xFF85D18F)
@@ -81,6 +86,9 @@ data class SessionContextUsage(
 )
 
 val LocalSessionContext = staticCompositionLocalOf { SessionContextUsage() }
+
+/** 批v177: whether the AI-reply footer shows the native-share button (AppSettings). */
+val LocalShareAssistantEnabled = staticCompositionLocalOf { true }
 
 /**
  * Renders a node's content to the right of the rail. A pure dispatcher that reuses
@@ -236,6 +244,7 @@ private fun TurnFooter(
         if (copyText.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CopyButton(copyText)
+                if (LocalShareAssistantEnabled.current) ShareButton(copyText)
                 if (onFork != null) ForkButton(onFork)
                 if (questionId != null) JumpToQuestionButton(questionId)
             }
@@ -278,6 +287,31 @@ private fun CopyButton(text: String) {
             )
         }
         Text(if (copied) stringResource(R.string.timeline_copied) else stringResource(R.string.timeline_copy), fontSize = 11.sp, color = colors.textTertiary)
+    }
+}
+
+/** 批v177: native share beside Copy — pushes the reply's full text through the
+ *  system share sheet (ACTION_SEND chooser), the same path DocPreviewDialog uses. */
+@Composable
+private fun ShareButton(text: String) {
+    val colors = CodegTheme.colors
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { scope.launch { shareDocument(context, "codeg-reply.txt", text) } }
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Icon(
+            Icons.Rounded.Share,
+            contentDescription = null,
+            tint = colors.textTertiary,
+            modifier = Modifier.size(13.dp),
+        )
+        Text(stringResource(R.string.timeline_share), fontSize = 11.sp, color = colors.textTertiary)
     }
 }
 
