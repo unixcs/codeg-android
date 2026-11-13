@@ -3541,9 +3541,9 @@ class SessionDetailViewModel @Inject constructor(
 
     /**
      * Open the in-app preview for an absolute path tapped in rendered Markdown.
-     * The path must live under the session's working directory (the preview RPC is
-     * rooted there — same rule as FolderFilesView); anything else is surfaced as a
-     * notice rather than a silent no-op.
+     * 批v178: paths outside the session's working directory preview too — the
+     * call re-roots at the tapped file's parent dir (the preview RPC accepts any
+     * existing caller-supplied root); only un-rootable paths raise the notice.
      */
     fun openPathPreview(path: String) {
         val c = client ?: return
@@ -3552,14 +3552,19 @@ class SessionDetailViewModel @Inject constructor(
             showNotice(appContext.getString(R.string.session_info_unavailable))
             return
         }
-        val rel = if (path.startsWith("$root/")) {
-            path.removePrefix("$root/")
+        val rooted = if (path.startsWith("$root/")) {
+            root to path.removePrefix("$root/")
         } else {
+            val parent = path.substringBeforeLast('/')
+            if (path.startsWith("/") && parent.startsWith("/")) parent to path.substringAfterLast('/') else null
+        }
+        if (rooted == null) {
             showNotice(appContext.getString(R.string.doc_preview_outside_workspace, path))
             return
         }
+        val (readRoot, rel) = rooted
         viewModelScope.launch {
-            val result = runCatching { c.readFilePreview(root, rel) }
+            val result = runCatching { c.readFilePreview(readRoot, rel) }
             val preview = result.getOrNull()
             if (preview == null) {
                 showNotice(result.exceptionOrNull()?.displayMessage() ?: appContext.getString(R.string.files_read_failed))

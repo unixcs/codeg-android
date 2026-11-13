@@ -881,15 +881,19 @@ private fun FilePreview(
     val colors = CodegTheme.colors
     // 批v176 R2: outside-root paths no longer fall back to a bare filename (the old
     // substringAfterLast could resolve a same-named file INSIDE the workspace).
+    // 批v178: outside-root files now READ via a re-rooted call (root = the file's
+    // parent dir) — the server accepts any existing caller-supplied root, so
+    // browsing outside the workspace previews instead of dead-ending.
     val rel = relPathOrNull(rootPath, absPath)
+    val rootedPair = rel?.let { rootPath to it } ?: outsideRootRead(rootPath, absPath)
     val outsideMsg = stringResource(R.string.files_outside_workspace)
     var result by remember(absPath) { mutableStateOf<Result<String>?>(null) }
     var loadTick by remember(absPath) { mutableStateOf(0) }
     val reload: () -> Unit = { loadTick++ }
     LaunchedEffect(absPath, loadTick) {
         result = try {
-            if (rel == null) Result.failure(IllegalStateException(outsideMsg))
-            else Result.success(client.readFilePreview(rootPath, rel).content)
+            if (rootedPair == null) Result.failure(IllegalStateException(outsideMsg))
+            else Result.success(client.readFilePreview(rootedPair.first, rootedPair.second).content)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -964,9 +968,9 @@ private fun FilePreview(
                         when {
                             content.isEmpty() -> EmptyFileState(absPath, onRetry = reload, onEdit = onEdit)
                             rendered && kind == PreviewKind.MARKDOWN -> MarkdownScrollContent(content)
-                            // rel is non-null on this branch (a null rel always produced
-                            // the failure above); the fallback only satisfies the compiler.
-                            kind == PreviewKind.IMAGE -> ImagePreview(client, rootPath, rel ?: "")
+                            // rootedPair is non-null on this branch (a null pair always
+                            // produced the failure above); the guard satisfies the compiler.
+                            kind == PreviewKind.IMAGE && rootedPair != null -> ImagePreview(client, rootedPair.first, rootedPair.second)
                             kind == PreviewKind.HTML -> HtmlPreview(absPath.substringAfterLast('/'), content)
                             else -> FileContent(content)
                         }
@@ -1194,8 +1198,11 @@ private fun FileEditorScreen(
     val scope = rememberCoroutineScope()
     // 批v176 R2: outside-root paths no longer fall back to a bare filename — the old
     // substringAfterLast could resolve a same-named file INSIDE the workspace, and a
-    // save would overwrite it. null rel = explicit error, no read, no save.
+    // save would overwrite it. 批v178: an outside-root file re-roots at its own
+    // parent dir; read and save share the pair, so an explicit edit session still
+    // writes back to the very same file. Un-rootable paths keep the explicit error.
     val rel = relPathOrNull(rootPath, absPath)
+    val rootedPair = rel?.let { rootPath to it } ?: outsideRootRead(rootPath, absPath)
     val outsideMsg = stringResource(R.string.files_outside_workspace)
     val tooLargeMsg = stringResource(R.string.files_too_large_edit)
 
@@ -1213,13 +1220,14 @@ private fun FileEditorScreen(
         scope.launch {
             loading = true
             error = null
-            if (rel == null) {
+            val rooted = rootedPair
+            if (rooted == null) {
                 error = outsideMsg
                 loading = false
                 return@launch
             }
             try {
-                val edit = withContext(Dispatchers.IO) { client.readFileForEdit(rootPath, rel) }
+                val edit = withContext(Dispatchers.IO) { client.readFileForEdit(rooted.first, rooted.second) }
                 if (edit.content.length > MAX_EDIT_CHARS) {
                     error = tooLargeMsg
                 } else {
@@ -1251,15 +1259,16 @@ private fun FileEditorScreen(
 
     fun save(force: Boolean) {
         val currentEtag = etag ?: return
-        // Same outside-root guard as load(): a null rel must never reach the
-        // save path (it could resolve a same-named file inside the workspace).
-        val path = rel ?: return
+        // Same outside-root guard as load(): an un-rootable path must never
+        // reach the save path (it could resolve a same-named file inside the
+        // workspace); a re-rooted pair writes back at its own root.
+        val rooted = rootedPair ?: return
         scope.launch {
             saving = true
             error = null
             try {
                 val result = withContext(Dispatchers.IO) {
-                    client.saveFileContent(rootPath, path, text, if (force) null else currentEtag)
+                    client.saveFileContent(rooted.first, rooted.second, text, if (force) null else currentEtag)
                 }
                 etag = result.etag
                 dirty = false
@@ -1352,6 +1361,22 @@ private fun relPathOrNull(rootPath: String, absPath: String): String? = when {
     absPath == rootPath -> ""
     absPath.startsWith("$rootPath/") -> absPath.removePrefix("$rootPath/")
     else -> null
+}
+
+/**
+ * 批v178: read-class calls may re-root outside the registered workspace — the
+ * server only requires the caller-supplied root to exist and to contain the
+ * relative (dot-free) path, so a file outside [rootPath] is read/written at its
+ * own parent directory. Returns null when [absPath] sits inside [rootPath]
+ * (the normal rooted call applies) or has no sane absolute parent — callers
+ * keep the existing outside-workspace error for that. Bulk-write ops (create /
+ * upload / move / delete) stay root-anchored by design.
+ */
+private fun outsideRootRead(rootPath: String, absPath: String): Pair<String, String>? {
+    if (absPath == rootPath || absPath.startsWith("$rootPath/")) return null
+    val parent = absPath.substringBeforeLast('/')
+    val name = absPath.substringAfterLast('/')
+    return if (parent.startsWith("/") && name.isNotBlank()) parent to name else null
 }
 
 /** Client cap for the on-device editor — Compose text fields choke far below the server's 50 MB limit. */
