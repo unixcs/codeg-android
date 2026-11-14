@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import app.codeg.android.core.common.DefaultDispatcherProvider
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.SessionProjectRepository
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.SessionProjectStore
 import app.codeg.android.core.datastore.RecentSearchesStore
 import app.codeg.android.core.datastore.ServerProfile
@@ -171,7 +172,9 @@ class SearchViewModelTest {
         // 批v174 P3: the VM gained the SessionProjectRepository (添加到项目 sheet) —
         // direct construction, bypassing Hilt's @ApplicationScope qualifier.
         val projectRepo = SessionProjectRepository(SessionProjectStore(dataStore), scope)
-        return World(store, recents, secrets, SearchViewModel(repository, recents, projectRepo), http, scope)
+        // 批v179: the VM gained AppSettingsStore (添加到项目 sheet prefs) — direct
+        // construction, same Hilt-bypass as projectRepo above.
+        return World(store, recents, secrets, SearchViewModel(repository, recents, projectRepo, AppSettingsStore(dataStore)), http, scope)
     }
 
     // endregion

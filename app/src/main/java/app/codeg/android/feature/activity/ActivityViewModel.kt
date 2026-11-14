@@ -406,7 +406,6 @@ class ActivityViewModel @Inject constructor(
                 emptyList()
             }
             val doomedKeys = rows.map { it.refKey }.toSet()
-            val removed = _ui.value.conversations.filter { it.refKey in doomedKeys }
             _ui.update { state ->
                 state.copy(conversations = state.conversations.filterNot { it.refKey in doomedKeys })
             }
@@ -416,6 +415,9 @@ class ActivityViewModel @Inject constructor(
                 val client = profiles.firstOrNull { it.id == serverId }?.let { repository.client(it) }
                 if (client == null) {
                     failed += group
+                    // Same feedback as single-row [delete]: without it the rows
+                    // just reappear with no hint why.
+                    lastError = appContext.getString(R.string.sessions_missing_token)
                     return@forEach
                 }
                 group.forEach { row ->

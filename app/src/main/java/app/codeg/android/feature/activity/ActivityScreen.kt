@@ -135,6 +135,8 @@ fun ActivityScreen(
     // 批v179 multi-select batch delete: refKeys ("serverId:conversationId",
     // saveable), cleared on exit; the destructive confirm carries the row
     // snapshot so deleting can't race the selection (Inbox's 批v160 contract).
+    // remember, not saveable: a rotation drops the pending confirm instead of
+    // reviving one that holds possibly-stale rows.
     var selectMode by rememberSaveable { mutableStateOf(false) }
     var selectedKeys by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     var pendingBatchDelete by remember { mutableStateOf<List<ActivityRow>?>(null) }
@@ -380,7 +382,11 @@ fun ActivityScreen(
                                             else visibleRowKeys
                                     },
                                     onDeleteSelected = {
-                                        pendingBatchDelete = items.mapNotNull { it.row }.filter { it.refKey in selectedKeys }
+                                        // Resolve from the full feed state, not the visible
+                                        // items: rows hidden by a collapsed section or a
+                                        // narrower window stay selected and must be deleted
+                                        // too, or the toolbar count overstates the confirm.
+                                        pendingBatchDelete = ui.conversations.filter { it.refKey in selectedKeys }
                                     },
                                 )
                             }
@@ -667,10 +673,10 @@ private fun activityWindowLabel(windowHours: Int): String = when (windowHours) {
 @Composable
 private fun activityWindowChip(windowHours: Int): String = when (windowHours) {
     0 -> stringResource(R.string.activity_window_all_chip)
-    72 -> "3d"
-    120 -> "5d"
-    168 -> "7d"
-    else -> "${windowHours}h"
+    72 -> stringResource(R.string.activity_window_days_chip, 3)
+    120 -> stringResource(R.string.activity_window_days_chip, 5)
+    168 -> stringResource(R.string.activity_window_days_chip, 7)
+    else -> stringResource(R.string.activity_window_hours_chip, windowHours)
 }
 
 /** 批v179: the feed's multi-select toolbar (the InboxToolbar select branch). */

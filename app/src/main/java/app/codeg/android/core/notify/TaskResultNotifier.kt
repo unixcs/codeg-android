@@ -472,7 +472,9 @@ class TaskResultNotifier @Inject constructor(
          *  replaces the previous test instead of stacking). 批v179: the seed for
          *  the INCREMENTING test id — a fixed id turned re-taps into updates
          *  and MIUI stopped banners for them; the counter hands every tap a
-         *  fresh id in a dedicated band. */
+         *  fresh id in a dedicated band. Process death resets the counter to the
+         *  seed, so the first test after a restart may update one stale id once
+         *  before climbing again — acceptable for a diagnostic, not persisted. */
         private val TEST_NOTIFICATION_ID = 59 * "test_notification".hashCode()
         private val testNotificationId = java.util.concurrent.atomic.AtomicInteger(TEST_NOTIFICATION_ID)
 

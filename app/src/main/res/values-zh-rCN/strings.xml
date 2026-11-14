@@ -181,6 +181,8 @@
     <string name="activity_window_days">最近 %1$d 天</string>
     <string name="activity_window_all">全部会话</string>
     <string name="activity_window_all_chip">全部</string>
+    <string name="activity_window_days_chip">%1$d天</string>
+    <string name="activity_window_hours_chip">%1$d小时</string>
     <string name="session_multi_select">多选…</string>
     <string name="activity_selected_count">已选 %1$d 条</string>
     <string name="activity_delete_selected_confirm">将删除所选 %1$d 个会话，且无法撤销。</string>

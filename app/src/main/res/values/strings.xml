@@ -181,6 +181,8 @@
     <string name="activity_window_days">Last %1$d days</string>
     <string name="activity_window_all">All sessions</string>
     <string name="activity_window_all_chip">All</string>
+    <string name="activity_window_days_chip">%1$dd</string>
+    <string name="activity_window_hours_chip">%1$dh</string>
     <string name="session_multi_select">Select multiple…</string>
     <string name="activity_selected_count">%1$d selected</string>
     <string name="activity_delete_selected_confirm">Delete %1$d selected sessions? This cannot be undone.</string>
