@@ -17,3 +17,19 @@ val ADD_TO_PROJECT_PREFS_DEFAULT = AddToProjectPrefs(
     columns = AppSettings.DEFAULT_ADD_TO_PROJECT_COLUMNS,
     sort = AppSettings.DEFAULT_ADD_TO_PROJECT_SORT,
 )
+
+/**
+ * 批v179: the 动态 tab's RECENT group's two filter dimensions, narrowed from
+ * [AppSettings] by the activity ViewModel.
+ */
+data class ActivityFilterPrefs(
+    /** Hours; 0 = no cutoff ("全部"). One of ACTIVITY_WINDOW_HOURS_CHOICES. */
+    val windowHours: Int,
+    /** Show only RECENT sessions that finished unread. */
+    val unreadOnly: Boolean,
+)
+
+val ACTIVITY_FILTER_PREFS_DEFAULT = ActivityFilterPrefs(
+    windowHours = AppSettings.DEFAULT_ACTIVITY_WINDOW_HOURS,
+    unreadOnly = false,
+)

@@ -1,6 +1,7 @@
 package app.codeg.android.feature.activity
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -10,19 +11,24 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -36,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -47,11 +54,14 @@ import app.codeg.android.R
 import app.codeg.android.core.data.FocusItem
 import app.codeg.android.core.data.PendingInteraction
 import app.codeg.android.core.data.TaskSegment
+import app.codeg.android.core.datastore.ACTIVITY_WINDOW_HOURS_CHOICES
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.datastore.SessionRef
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
+import app.codeg.android.core.designsystem.component.OptionListSheet
+import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.sessions.AddToProjectSheet
 import app.codeg.android.feature.sessions.CollapsibleSectionHeader
@@ -110,6 +120,9 @@ fun ActivityScreen(
     val activeProjectId by viewModel.activeProjectId.collectAsStateWithLifecycle()
     // 批v179: the 添加到项目 sheet's grid/order prefs (persisted through this VM).
     val addToProjectPrefs by viewModel.addToProjectPrefs.collectAsStateWithLifecycle()
+    // 批v179: the RECENT group's window + 未读-only filter (header chip + card).
+    val filterPrefs by viewModel.activityFilterPrefs.collectAsStateWithLifecycle()
+    var filterCardOpen by rememberSaveable { mutableStateOf(false) }
     val highlight by viewModel.focusHub.highlight.collectAsStateWithLifecycle()
     val stats by workbench.stats.collectAsStateWithLifecycle()
     // 批v151 头部折叠记忆（跨启动）：点击立即生效（VM 内存态乐观更新），落盘异步。
@@ -376,21 +389,48 @@ fun ActivityScreen(
 
                                 item.section != null -> {
                                     val style = activitySectionStyle(item.section.kind)
+                                    // 批v179: the RECENT title follows the window
+                                    // setting (最近 24 小时 / 48 小时 / 3 天 / … / 全部).
+                                    val label = if (item.section.kind == ActivityKind.RECENT) {
+                                        activityWindowLabel(filterPrefs.windowHours)
+                                    } else {
+                                        style.label
+                                    }
                                     CollapsibleSectionHeader(
                                         icon = style.icon,
                                         tint = style.tint,
-                                        label = style.label,
+                                        label = label,
                                         count = item.section.count,
                                         collapsed = item.section.id in collapsed,
                                         onToggle = {
                                             collapsed = if (item.section.id in collapsed) collapsed - item.section.id else collapsed + item.section.id
                                         },
+                                        // 批v179 双通道: the RECENT header opens the
+                                        // filter card both via its chip and a long-
+                                        // press on the row; plain taps still fold.
+                                        onLongClick = if (item.section.kind == ActivityKind.RECENT) {
+                                            { filterCardOpen = true }
+                                        } else null,
+                                        longClickLabel = if (item.section.kind == ActivityKind.RECENT) {
+                                            stringResource(R.string.activity_filter_open)
+                                        } else null,
                                         // 批v150: the demoted Chats surface is one tap
                                         // away from the running rows — set the aggregate
                                         // flag first so the push lands on the 全部 list.
                                         trailing = if (item.section.kind == ActivityKind.RUNNING) ({
                                             TextButton(onClick = onOpenAllChats) {
                                                 Text(stringResource(R.string.workbench_view_all_sessions))
+                                            }
+                                        }) else if (item.section.kind == ActivityKind.RECENT) ({
+                                            // 批v179: window chip — 「24h ▾」. Tap opens
+                                            // the same filter card as the long-press.
+                                            TextButton(onClick = { filterCardOpen = true }) {
+                                                Text(
+                                                    text = stringResource(
+                                                        R.string.activity_filter_chip,
+                                                        activityWindowChip(filterPrefs.windowHours),
+                                                    ),
+                                                )
                                             }
                                         }) else null,
                                         modifier = Modifier.animateItem(),
@@ -460,6 +500,43 @@ fun ActivityScreen(
         )
     }
 
+    // 批v179: the RECENT filter card — window single-select; picking one applies
+    // immediately and closes (OptionListSheet's contract). The 未读-only switch
+    // lives in the footer and stays open while toggling.
+    if (filterCardOpen) {
+        OptionListSheet(
+            title = stringResource(R.string.activity_filter_title),
+            options = ACTIVITY_WINDOW_HOURS_CHOICES
+                .sortedDescending()
+                .map { hours -> PickerOption(id = hours.toString(), label = activityWindowLabel(hours)) },
+            selectedId = filterPrefs.windowHours.toString(),
+            onSelect = { option -> viewModel.setActivityWindowHours(option.id.toInt()) },
+            onDismiss = { filterCardOpen = false },
+            footer = {
+                val colors = CodegTheme.colors
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { viewModel.setActivityUnreadOnly(!filterPrefs.unreadOnly) }
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.activity_unread_only),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = filterPrefs.unreadOnly,
+                        onCheckedChange = viewModel::setActivityUnreadOnly,
+                    )
+                }
+            },
+        )
+    }
+
     addToTarget?.let { row ->
         val ref = SessionRef(row.serverId, row.conversation.id)
         AddToProjectSheet(
@@ -484,6 +561,26 @@ fun ActivityScreen(
 
 /** Owner id the aggregate Activity list registers under ([HomeTab.ACTIVITY].route). */
 private const val ACTIVITY_FOCUS_OWNER = "activity"
+
+/** 批v179: the RECENT group's title for a window setting (hours; 0 = 全部). */
+@Composable
+private fun activityWindowLabel(windowHours: Int): String = when (windowHours) {
+    0 -> stringResource(R.string.activity_window_all)
+    72 -> stringResource(R.string.activity_window_days, 3)
+    120 -> stringResource(R.string.activity_window_days, 5)
+    168 -> stringResource(R.string.activity_window_days, 7)
+    else -> stringResource(R.string.activity_window_hours, windowHours)
+}
+
+/** 批v179: the compact chip inside the header button — 24h / 48h / 3d / 5d / 7d / 全部. */
+@Composable
+private fun activityWindowChip(windowHours: Int): String = when (windowHours) {
+    0 -> stringResource(R.string.activity_window_all_chip)
+    72 -> "3d"
+    120 -> "5d"
+    168 -> "7d"
+    else -> "${windowHours}h"
+}
 
 /** Resolved header presentation for an [ActivityKind] (icon + theme-aware tint + label). */
 private data class ActivityStyle(val icon: ImageVector, val tint: Color, val label: String)

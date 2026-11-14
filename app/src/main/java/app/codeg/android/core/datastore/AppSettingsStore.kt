@@ -106,6 +106,11 @@ data class AppSettings(
     /** 批v179: the sheet's project order — "count" (most sessions first, the
      *  拍板 default), "manual" (sortOrder), "name", "created" (newest first). */
     val addToProjectSort: String = DEFAULT_ADD_TO_PROJECT_SORT,
+    /** 批v179: the 动态 tab's RECENT window in hours — 24 (default), 48, 72
+     *  (3 days), 120 (5), 168 (7) or 0 = everything the feed has loaded. */
+    val activityWindowHours: Int = DEFAULT_ACTIVITY_WINDOW_HOURS,
+    /** 批v179: show only RECENT sessions that finished unread (the blue dot). */
+    val activityUnreadOnly: Boolean = false,
     /** 批v160 W9: the top chip row's dimension on 动态/会话 — "devices" (default,
      *  the pre-v160 row) or "projects" (全部 + project chips + 未添加). */
     val sessionChipMode: String = DEFAULT_SESSION_CHIP_MODE,
@@ -197,6 +202,7 @@ data class AppSettings(
         // session count (拍板 2026-11-14 — 常用项目沉底要下滑的痛点).
         const val DEFAULT_ADD_TO_PROJECT_COLUMNS = 2
         const val DEFAULT_ADD_TO_PROJECT_SORT = ADD_TO_PROJECT_SORT_COUNT
+        const val DEFAULT_ACTIVITY_WINDOW_HOURS = 24
         const val DEFAULT_SESSION_CHIP_MODE = SESSION_CHIP_DEVICES
         const val DEFAULT_SESSION_SWIPE_LEFT = "copy"
         const val DEFAULT_SESSION_SWIPE_RIGHT = "board"
@@ -289,6 +295,11 @@ class AppSettingsStore @Inject constructor(
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_COLUMNS).coerceIn(1, 3),
             addToProjectSort = prefs[ADD_TO_PROJECT_SORT]?.takeIf { it in ADD_TO_PROJECT_SORTS }
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_SORT,
+            activityWindowHours = (prefs[ACTIVITY_WINDOW_HOURS]
+                ?: AppSettings.DEFAULT_ACTIVITY_WINDOW_HOURS)
+                .takeIf { it in ACTIVITY_WINDOW_HOURS_CHOICES }
+                ?: AppSettings.DEFAULT_ACTIVITY_WINDOW_HOURS,
+            activityUnreadOnly = prefs[ACTIVITY_UNREAD_ONLY] ?: false,
             sessionChipMode = prefs[SESSION_CHIP_MODE]?.takeIf { it in SESSION_CHIP_MODES }
                 ?: AppSettings.DEFAULT_SESSION_CHIP_MODE,
             sessionSwipeLeftAction = sanitizeSessionSwipeAction(
@@ -620,6 +631,22 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
+    /** 批v179: persist the 动态 RECENT window (whitelist-guarded, 0 = all). */
+    suspend fun setActivityWindowHours(hours: Int) {
+        dataStore.edit {
+            it[ACTIVITY_WINDOW_HOURS] = if (hours in ACTIVITY_WINDOW_HOURS_CHOICES) {
+                hours
+            } else {
+                AppSettings.DEFAULT_ACTIVITY_WINDOW_HOURS
+            }
+        }
+    }
+
+    /** 批v179: persist the 未读-only RECENT filter. */
+    suspend fun setActivityUnreadOnly(enabled: Boolean) {
+        dataStore.edit { it[ACTIVITY_UNREAD_ONLY] = enabled }
+    }
+
     /** Persist the font-scale multiplier (coerced to the usable band on read too). */
     suspend fun setFontScale(scale: Float) {
         dataStore.edit { it[FONT_SCALE] = scale.coerceIn(0.5f, 2f) }
@@ -745,6 +772,8 @@ class AppSettingsStore @Inject constructor(
         val PROJECT_LIST_COLUMNS = intPreferencesKey("project_list_columns")
         val ADD_TO_PROJECT_COLUMNS = intPreferencesKey("add_to_project_columns")
         val ADD_TO_PROJECT_SORT = stringPreferencesKey("add_to_project_sort")
+        val ACTIVITY_WINDOW_HOURS = intPreferencesKey("activity_window_hours")
+        val ACTIVITY_UNREAD_ONLY = booleanPreferencesKey("activity_unread_only")
         val SESSION_CHIP_MODE = stringPreferencesKey("session_chip_mode")
         val SESSION_SWIPE_LEFT_ACTION = stringPreferencesKey("session_swipe_left_action")
         val SESSION_SWIPE_RIGHT_ACTION = stringPreferencesKey("session_swipe_right_action")
@@ -797,6 +826,9 @@ val ADD_TO_PROJECT_SORTS = setOf(
     ADD_TO_PROJECT_SORT_NAME,
     ADD_TO_PROJECT_SORT_CREATED,
 )
+
+/** Legal 动态 RECENT windows in hours (批v179); 0 = no cutoff ("全部"). */
+val ACTIVITY_WINDOW_HOURS_CHOICES = setOf(24, 48, 72, 120, 168, 0)
 
 /** Legal session-row swipe bindings (批v168): the long-press menu catalog's raw
  *  ids plus [SESSION_SWIPE_NONE] ("direction off"). The feature layer owns the

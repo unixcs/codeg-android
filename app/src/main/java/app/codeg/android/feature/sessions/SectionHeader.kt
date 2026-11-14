@@ -55,6 +55,9 @@ fun CollapsibleSectionHeader(
     modifier: Modifier = Modifier,
     collapsible: Boolean = true,
     onLongClick: (() -> Unit)? = null,
+    /** Overrides the long-press a11y label (defaults to the Chats hide-section
+     *  action — the only historical long-press on this header). 批v179. */
+    longClickLabel: String? = null,
     /** Optional trailing slot (批v150 workbench: 正在运行's 查看全部) — sits
      *  between the count badge and the collapse chevron, outside the ripple. */
     trailing: (@Composable () -> Unit)? = null,
@@ -67,6 +70,7 @@ fun CollapsibleSectionHeader(
     val toggleLabel = stringResource(
         if (collapsed) R.string.sessions_expand else R.string.sessions_collapse,
     )
+    val resolvedLongClickLabel = longClickLabel ?: stringResource(R.string.sessions_hide_action)
 
     Row(
         modifier = modifier
@@ -79,7 +83,7 @@ fun CollapsibleSectionHeader(
                         onClickLabel = toggleLabel,
                         role = Role.Button,
                         onClick = onToggle,
-                        onLongClickLabel = onLongClickLabel,
+                        onLongClickLabel = resolvedLongClickLabel,
                         onLongClick = onLongClick,
                     )
                     collapsible -> Modifier.clickable(onClickLabel = toggleLabel, role = Role.Button, onClick = onToggle)
@@ -113,7 +117,3 @@ fun CollapsibleSectionHeader(
         }
     }
 }
-
-/** Accessibility label for the header's long-press action. */
-private val onLongClickLabel: String
-    @Composable get() = stringResource(R.string.sessions_hide_action)

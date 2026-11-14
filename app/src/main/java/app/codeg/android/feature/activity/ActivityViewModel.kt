@@ -22,6 +22,10 @@ import app.codeg.android.core.data.participating
 import app.codeg.android.core.data.retrying
 import app.codeg.android.core.data.retryableIds
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.ACTIVITY_FILTER_PREFS_DEFAULT
+import app.codeg.android.core.datastore.ActivityFilterPrefs
+import app.codeg.android.core.datastore.ADD_TO_PROJECT_PREFS_DEFAULT
+import app.codeg.android.core.datastore.AddToProjectPrefs
 import app.codeg.android.core.datastore.AggregateProjectFilterStore
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
@@ -143,7 +147,10 @@ class ActivityViewModel @Inject constructor(
             },
             aggregateProjectFilter.hiddenProjects,
             projectRepo.memberProjects,
-        ) { input, hiddenProjects, memberProjects ->
+            // 批v179: the RECENT window + 未读-only filter, settings-driven.
+            settingsStore.settings.map { it.activityWindowHours }.distinctUntilChanged(),
+            settingsStore.settings.map { it.activityUnreadOnly }.distinctUntilChanged(),
+        ) { input, hiddenProjects, memberProjects, windowHours, unreadOnly ->
             buildActivitySections(
                 narrowActivityRows(
                     conversations = input.conversations,
@@ -154,6 +161,8 @@ class ActivityViewModel @Inject constructor(
                     memberProjects = memberProjects,
                 ),
                 input.readMarks,
+                windowHours,
+                unreadOnly,
             )
         }
         .distinctUntilChanged()
@@ -438,6 +447,22 @@ class ActivityViewModel @Inject constructor(
 
     fun setAddToProjectSort(sort: String) {
         viewModelScope.launch { settingsStore.setAddToProjectSort(sort) }
+    }
+
+    // 批v179: the RECENT group's window + 未读-only filter, narrowed for the
+    // header button/long-press filter card (label + switches read from here).
+    val activityFilterPrefs: StateFlow<ActivityFilterPrefs> =
+        settingsStore.settings
+            .map { ActivityFilterPrefs(it.activityWindowHours, it.activityUnreadOnly) }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, ACTIVITY_FILTER_PREFS_DEFAULT)
+
+    fun setActivityWindowHours(hours: Int) {
+        viewModelScope.launch { settingsStore.setActivityWindowHours(hours) }
+    }
+
+    fun setActivityUnreadOnly(enabled: Boolean) {
+        viewModelScope.launch { settingsStore.setActivityUnreadOnly(enabled) }
     }
 
     fun toggleProjectMembership(projectId: String, ref: SessionRef, member: Boolean) {
@@ -841,20 +866,27 @@ internal fun narrowActivityRows(
 }
 
 /**
- * Split the conversation list into the Running (live, newest-first) and Last-24h
- * (non-live, updated within 24h, newest-first) sections, dropping an empty one. Pure;
- * the view model runs it on [Dispatchers.Default]. Rows carry their resolved folder
- * and server labels so nothing needs a map lookup at compose time. [readMarks] keys
- * are `"<serverId>:<conversationId>"` → last opened-at (epochMilli, device-local).
+ * Split the conversation list into the Running (live, newest-first) and Recent
+ * (non-live, updated within [windowHours], newest-first) sections, dropping an
+ * empty one. Pure; the view model runs it on [Dispatchers.Default]. 批v179: the
+ * window is settings-driven (24h/48h/3d/5d/7d/0=all) and [unreadOnly] keeps only
+ * rows whose finished state is unread (the blue dot) — applied after the unread
+ * computation, so it never hides live rows (they aren't in RECENT anyway).
+ * [readMarks] keys are `"<serverId>:<conversationId>"` → last opened-at
+ * (epochMilli, device-local).
  */
 fun buildActivitySections(
     conversations: List<ActivityRow>,
     readMarks: Map<String, Long> = emptyMap(),
+    windowHours: Int = 24,
+    unreadOnly: Boolean = false,
 ): List<ActivitySection> {
     val running = conversations.filter { it.live }
         .sortedByDescending { it.conversation.updatedAt }
-    val cutoff = Instant.now().minus(Duration.ofHours(24))
-    val recent = conversations.filter { !it.live && it.conversation.updatedAt.isAfter(cutoff) }
+    // 0 = 全部: no cutoff — the feed already caps at 200 conversations per device.
+    val cutoff = if (windowHours > 0) Instant.now().minus(Duration.ofHours(windowHours.toLong())) else null
+    val recent = conversations
+        .filter { !it.live && (cutoff == null || it.conversation.updatedAt.isAfter(cutoff)) }
         .sortedByDescending { it.conversation.updatedAt }
         .map { row ->
             val mark = readMarks["${row.serverId}:${row.conversation.id}"]
@@ -866,6 +898,7 @@ fun buildActivitySections(
                 ),
             )
         }
+        .let { if (unreadOnly) it.filter { row -> row.unread } else it }
 
     val out = ArrayList<ActivitySection>(2)
     if (running.isNotEmpty()) out += ActivitySection("running", ActivityKind.RUNNING, running)

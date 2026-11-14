@@ -168,6 +168,14 @@
     <string name="add_project_sort_manual">Default order</string>
     <string name="add_project_sort_name">By name</string>
     <string name="add_project_sort_created">Newest created first</string>
+    <string name="activity_filter_title">Feed filters</string>
+    <string name="activity_filter_open">Open feed filters</string>
+    <string name="activity_filter_chip">%1$s ▾</string>
+    <string name="activity_unread_only">Unread finished sessions only</string>
+    <string name="activity_window_hours">Last %1$d hours</string>
+    <string name="activity_window_days">Last %1$d days</string>
+    <string name="activity_window_all">All sessions</string>
+    <string name="activity_window_all_chip">All</string>
     <string name="project_filter_title">Session projects</string>
     <string name="project_filter_all">All sessions</string>
     <string name="project_filter_create">Create and filter</string>

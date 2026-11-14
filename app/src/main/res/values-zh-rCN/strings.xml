@@ -168,6 +168,14 @@
     <string name="add_project_sort_manual">默认顺序</string>
     <string name="add_project_sort_name">按名称</string>
     <string name="add_project_sort_created">最新创建在前</string>
+    <string name="activity_filter_title">动态筛选</string>
+    <string name="activity_filter_open">打开动态筛选</string>
+    <string name="activity_filter_chip">%1$s ▾</string>
+    <string name="activity_unread_only">只看未读会话</string>
+    <string name="activity_window_hours">最近 %1$d 小时</string>
+    <string name="activity_window_days">最近 %1$d 天</string>
+    <string name="activity_window_all">全部会话</string>
+    <string name="activity_window_all_chip">全部</string>
     <string name="project_filter_title">会话项目</string>
     <string name="project_filter_all">全部会话</string>
     <string name="project_filter_create">创建并筛选</string>
