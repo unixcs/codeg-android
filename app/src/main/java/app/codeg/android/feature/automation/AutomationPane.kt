@@ -653,7 +653,9 @@ private fun AutomationEditorSheet(
                             onValueChange = { value -> viewModel.updateEditor { it.copy(prompt = value) } },
                             label = stringResource(R.string.automation_field_prompt),
                             minLines = 3,
-                            maxLines = 8,
+                            // 批v179: no maxLines cap — the editor column scrolls, so
+                            // a capped self-scrolling field double-scrolls and the
+                            // cursor snaps to the top on long prompts (批v121 病根).
                             trailingIcon = {
                                 IconButton(onClick = { fullscreenPrompt = true }) {
                                     Icon(

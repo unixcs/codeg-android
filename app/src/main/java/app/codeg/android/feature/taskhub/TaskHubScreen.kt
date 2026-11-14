@@ -4011,6 +4011,10 @@ private fun EditTaskSheet(
             Modifier
                 .fillMaxWidth()
                 .nestedScroll(rememberSheetDragLock())
+                // 批v179: the description field grows unbounded (no maxLines), so
+                // the column must scroll — long text used to overflow the sheet
+                // and strand the save button below the fold.
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(top = 12.dp, bottom = 24.dp),
         ) {

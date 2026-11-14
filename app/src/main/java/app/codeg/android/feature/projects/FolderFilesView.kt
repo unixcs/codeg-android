@@ -95,6 +95,7 @@ import app.codeg.android.core.designsystem.component.ImageViewerSource
 import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.component.PrimaryButton
+import app.codeg.android.core.designsystem.component.sheetContentScrollLock
 import app.codeg.android.core.designsystem.markdown.MarkdownContent
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.DirectoryItem
@@ -767,7 +768,18 @@ private fun NewEntrySheet(parentPath: String, onCreate: (String, Boolean, String
     var content by remember { mutableStateOf("") }
     var isDir by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+        // 批v179: scroll lock + verticalScroll — the content field grows
+        // unbounded now (no maxLines cap; the cap was the double-scroll that
+        // snapped the cursor to the top AND left long text unreachable), so the
+        // outer column must be the only scroll container.
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .sheetContentScrollLock()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+        ) {
             Text(
                 stringResource(R.string.files_new_title, parentPath.substringAfterLast('/')),
                 style = MaterialTheme.typography.titleMedium,
@@ -793,7 +805,6 @@ private fun NewEntrySheet(parentPath: String, onCreate: (String, Boolean, String
                     label = { Text(stringResource(R.string.files_new_content_label)) },
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, color = colors.textPrimary),
                     minLines = 3,
-                    maxLines = 8,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 12.dp),

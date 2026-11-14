@@ -944,9 +944,10 @@ fun DispatchForm(
             onValueChange = { description = it },
             label = stringResource(R.string.inbox_desc_hint),
             minLines = 3,
-            maxLines = 12,
-            // 批v154: long descriptions get the same near-fullscreen editor as the
-            // composer — a 3-line box on a phone hides the tail while typing.
+            // 批v179: no maxLines cap — a capped self-scrolling field inside the
+            // sheet's verticalScroll is the double-scroll that snaps the cursor
+            // back to the top on long text (same root cause as the inbox editor).
+            // Long text keeps the ⤢ fullscreen editor as the escape hatch.
             trailingIcon = {
                 IconButton(onClick = { showDescFullscreen = true }) {
                     Icon(

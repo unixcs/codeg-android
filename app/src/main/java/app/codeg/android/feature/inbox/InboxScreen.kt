@@ -1259,7 +1259,14 @@ private fun IdeaEditorDialog(
                             onValueChange = { description = it },
                             label = stringResource(R.string.inbox_desc_hint),
                             minLines = 6,
-                            maxLines = 12,
+                            // 批v179 根治「长文滑到底点最后一行弹回首行」: the
+                            // maxLines-capped self-scrolling field inside this
+                            // verticalScroll column is a double-scroll — the cursor's
+                            // bringIntoView fights the outer scroll on Compose 1.7.6
+                            // and resets the viewport to the top. No cap → the field
+                            // grows unbounded and the OUTER scroll is the only one.
+                            // (QuickSaveSheet/HandoffSheet 配方; the ⤢ fullscreen
+                            // editor remains the escape hatch for walls of text.)
                             trailingIcon = {
                                 IconButton(onClick = { fullscreen = true }) {
                                     Icon(
