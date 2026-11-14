@@ -225,7 +225,10 @@ class TaskResultNotifier @Inject constructor(
     }
 
     private fun onTurnComplete(event: TurnCompleteEvent) = synchronized(lock) {
-        if (!settings.notifyTaskResultsEnabled) return
+        // 批v179: its own gate (was lumped in with task results). 回合完成 is the
+        // noisiest alert class — the 三档 split puts it OFF by default, on its
+        // own switch, instead of piggybacking 任务完成.
+        if (!settings.notifyTurnEnabled) return
         // Viewing the conversation right now → the alert would be noise. Same
         // foreground gate as the board check above (批v161.3 R1).
         if (appForeground.fg.value &&
@@ -383,7 +386,10 @@ class TaskResultNotifier @Inject constructor(
     /** 批v176: the settings page's 「发测试通知」 — one real notification through
      *  the same channel-selection path the live chains use, so heads-up /
      *  lock-screen behaviour can be verified on the spot. Deliberately NOT
-     *  grouped: a diagnostic must not pollute the result group's ledger. */
+     *  grouped: a diagnostic must not pollute the result group's ledger.
+     *  批v179: the id increments per tap — a fixed id made every re-tap an
+     *  UPDATE of the old notification, and MIUI only banners NEW ids (the
+     *  "测试通知只出现在任务栏不弹横幅" second root cause). */
     fun postTestNotification() {
         val ctx = LocaleManager.wrapReadOnly(context)
         val notification = NotificationCompat.Builder(ctx, resultChannel())
@@ -396,7 +402,7 @@ class TaskResultNotifier @Inject constructor(
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
-        runCatching { notificationManager().notify(TEST_NOTIFICATION_ID, notification) }
+        runCatching { notificationManager().notify(testNotificationId.incrementAndGet(), notification) }
             .onFailure { Log.w(TAG, "notify test failed: ${it.message}") }
     }
 
@@ -463,8 +469,12 @@ class TaskResultNotifier @Inject constructor(
         private val GROUP_SUMMARY_ID = 53 * GROUP_TASK_RESULTS.hashCode()
 
         /** 批v176: fixed id for the diagnostic test notification (a re-post
-         *  replaces the previous test instead of stacking). */
+         *  replaces the previous test instead of stacking). 批v179: the seed for
+         *  the INCREMENTING test id — a fixed id turned re-taps into updates
+         *  and MIUI stopped banners for them; the counter hands every tap a
+         *  fresh id in a dedicated band. */
         private val TEST_NOTIFICATION_ID = 59 * "test_notification".hashCode()
+        private val testNotificationId = java.util.concurrent.atomic.AtomicInteger(TEST_NOTIFICATION_ID)
 
         /** Notification content titles render on one line — keep the truncation
          *  tight so the shade never has to ellipsize a runaway task title. */

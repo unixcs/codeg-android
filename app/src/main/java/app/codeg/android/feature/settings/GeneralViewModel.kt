@@ -363,6 +363,11 @@ class GeneralViewModel @Inject constructor(
         appSettingsStore.setNotifyTaskHeadsUp(enabled)
     }
 
+    /** 批v179: 回合完成提醒 toggle (its own gate, default OFF). */
+    fun setNotifyTurnEnabled(enabled: Boolean) = launchPersist {
+        appSettingsStore.setNotifyTurnEnabled(enabled)
+    }
+
     /** 批v177: AI 回复分享按钮 toggle（AppSettings 本地开关）. */
     fun setShareAssistantMessages(enabled: Boolean) = launchPersist {
         appSettingsStore.setShareAssistantMessages(enabled)

@@ -70,6 +70,10 @@ data class AppSettings(
      *  `task_results_priority` channel (banner + lock-screen), OFF falls back to
      *  the DEFAULT `task_results` channel (shade only). Default ON. */
     val notifyTaskHeadsUp: Boolean = true,
+    /** 批v179: 回合完成提醒 — its own gate (was lumped in with task results).
+     *  Default OFF: a per-turn ping is the noisiest alert class, and the 三档
+     *  split is 等确认(HIGH) / 任务完成(悬浮开关) / 回合完成(默认静默). */
+    val notifyTurnEnabled: Boolean = false,
     /** 系统级通知体系: device-offline alerts on the silent device_events channel.
      *  Default ON. */
     val notifyDeviceEventsEnabled: Boolean = true,
@@ -278,6 +282,7 @@ class AppSettingsStore @Inject constructor(
             notifyInteractiveEnabled = prefs[NOTIFY_INTERACTIVE_ENABLED] ?: true,
             notifyTaskResultsEnabled = prefs[NOTIFY_TASK_RESULTS_ENABLED] ?: true,
             notifyTaskHeadsUp = prefs[NOTIFY_TASK_HEADS_UP] ?: true,
+            notifyTurnEnabled = prefs[NOTIFY_TURN_ENABLED] ?: false,
             notifyDeviceEventsEnabled = prefs[NOTIFY_DEVICE_EVENTS_ENABLED] ?: true,
             keepAliveEnabled = prefs[KEEP_ALIVE_ENABLED] ?: true,
             shareAssistantMessages = prefs[SHARE_ASSISTANT_MESSAGES] ?: true,
@@ -571,6 +576,11 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[NOTIFY_TASK_HEADS_UP] = enabled }
     }
 
+    /** 批v179: persist the 回合完成提醒 toggle (its own gate, default OFF). */
+    suspend fun setNotifyTurnEnabled(enabled: Boolean) {
+        dataStore.edit { it[NOTIFY_TURN_ENABLED] = enabled }
+    }
+
     /** 系统级通知体系: persist the device-offline notification toggle. */
     suspend fun setNotifyDeviceEventsEnabled(enabled: Boolean) {
         dataStore.edit { it[NOTIFY_DEVICE_EVENTS_ENABLED] = enabled }
@@ -762,6 +772,7 @@ class AppSettingsStore @Inject constructor(
         val NOTIFY_INTERACTIVE_ENABLED = booleanPreferencesKey("notify_interactive_enabled")
         val NOTIFY_TASK_RESULTS_ENABLED = booleanPreferencesKey("notify_task_results")
         val NOTIFY_TASK_HEADS_UP = booleanPreferencesKey("notify_task_heads_up")
+        val NOTIFY_TURN_ENABLED = booleanPreferencesKey("notify_turn_enabled")
         val NOTIFY_DEVICE_EVENTS_ENABLED = booleanPreferencesKey("notify_device_events")
         val KEEP_ALIVE_ENABLED = booleanPreferencesKey("keep_alive_enabled")
         val SHARE_ASSISTANT_MESSAGES = booleanPreferencesKey("share_assistant_messages")

@@ -105,7 +105,13 @@ class InteractiveNotifier @Inject constructor(
         }
     }
 
-    /** Idempotent; called from [app.codeg.android.CodegApplication.onCreate]. */
+    /** Idempotent; called from [app.codeg.android.CodegApplication.onCreate].
+     *  批v179: every channel now pins lock-screen visibility to PUBLIC — the
+     *  builders already set it per-notification, but MIUI/HyperOS read the
+     *  CHANNEL-level knob for its 锁屏通知 sub-switch, and a channel created
+     *  without one shipped the silent default (the 锁屏通知不弹 root cause).
+     *  Channel settings are immutable after creation: this lands on fresh
+     *  installs and cleared-data reinstalls, not on upgraded channels. */
     fun ensureChannels() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         // 批v161.3 R5: one wrapped context for BOTH names and descriptions —
@@ -122,6 +128,7 @@ class InteractiveNotifier @Inject constructor(
             // (No setSound — null keeps the channel's system default, the style
             // the two original channels shipped with.)
             enableVibration(true)
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
         }
         val taskResults = NotificationChannel(
             CHANNEL_TASK_RESULTS,
@@ -134,6 +141,7 @@ class InteractiveNotifier @Inject constructor(
         ).apply {
             description = localized.getString(R.string.notif_channel_task_results_desc)
             enableVibration(true)
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
         }
         // 批v176: heads-up twin of task_results. Channels are immutable in
         // importance once created, so "task finished" floating alerts get their
@@ -145,6 +153,7 @@ class InteractiveNotifier @Inject constructor(
         ).apply {
             description = localized.getString(R.string.notif_channel_task_results_priority_desc)
             enableVibration(true)
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
         }
         val deviceEvents = NotificationChannel(
             CHANNEL_DEVICE_EVENTS,
@@ -153,6 +162,7 @@ class InteractiveNotifier @Inject constructor(
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = localized.getString(R.string.notif_channel_device_events_desc)
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
         }
         val keepAlive = NotificationChannel(
             CHANNEL_KEEPALIVE,
@@ -160,6 +170,7 @@ class InteractiveNotifier @Inject constructor(
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = localized.getString(R.string.notif_channel_keepalive_desc)
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
         }
         runCatching {
             nm.createNotificationChannels(

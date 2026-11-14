@@ -96,6 +96,11 @@
     <string name="notif_channel_device_events_desc">Quiet log of devices going offline</string>
     <string name="settings_notify_task_heads_up">Floating alerts</string>
     <string name="settings_notify_task_heads_up_subtitle">Task results pop up as a banner and stay readable on the lock screen</string>
+    <string name="settings_notify_turn">Turn-complete alerts</string>
+    <string name="settings_notify_turn_subtitle">A quiet ping every time one of your sessions finishes a turn (off by default)</string>
+    <string name="notify_test_foreground_hint">Some ROMs (MIUI/HyperOS) suppress banners for the foreground app itself — to verify the banner, leave the app or lock the screen, then tap the test again from the shade.</string>
+    <string name="notify_channel_guide_title">Floating banner still not showing? Open the channel page</string>
+    <string name="notify_channel_guide_subtitle">Floating notifications are a per-channel switch on MIUI/HyperOS, and swiping a notification away can demote the channel — re-enable it here</string>
     <string name="notif_channel_task_results_priority">Task results (priority)</string>
     <string name="notif_channel_task_results_priority_desc">Tasks finishing or failing, announced as a banner</string>
     <string name="notify_group_summary_title">Task updates</string>

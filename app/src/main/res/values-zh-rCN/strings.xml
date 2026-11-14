@@ -96,6 +96,11 @@
     <string name="notif_channel_device_events_desc">设备离线的静默记录</string>
     <string name="settings_notify_task_heads_up">任务完成 · 悬浮提醒</string>
     <string name="settings_notify_task_heads_up_subtitle">完成通知在屏幕上方弹出横幅，并在锁屏上可读</string>
+    <string name="settings_notify_turn">回合完成提醒</string>
+    <string name="settings_notify_turn_subtitle">会话每跑完一个回合就轻提醒一次（默认关闭，最吵的一档）</string>
+    <string name="notify_test_foreground_hint">部分系统（MIUI/澎湃OS）不弹前台应用自己发的横幅——验证悬浮效果请先退到桌面或锁屏，再等真实事件或在下拉栏里重发。</string>
+    <string name="notify_channel_guide_title">悬浮横幅还是不弹？点这里直达通知渠道页</string>
+    <string name="notify_channel_guide_subtitle">MIUI/澎湃OS 的悬浮通知是渠道级子开关（应用权限开了≠渠道开了），划掉一次通知还可能被降级——在这里重新打开</string>
     <string name="notif_channel_task_results_priority">任务结果（悬浮）</string>
     <string name="notif_channel_task_results_priority_desc">任务完成或失败，以横幅弹出提醒</string>
     <string name="notify_group_summary_title">任务提醒</string>

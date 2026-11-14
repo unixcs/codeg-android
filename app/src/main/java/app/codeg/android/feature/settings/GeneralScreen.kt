@@ -65,6 +65,7 @@ import app.codeg.android.core.designsystem.theme.AppFont
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.theme.LightSurface
 import app.codeg.android.core.model.AgentType
+import app.codeg.android.core.notify.InteractiveNotifier
 import app.codeg.android.feature.activity.WORKBENCH_QUICK_CARDS
 import app.codeg.android.feature.floatingball.FONT_STEPS
 import app.codeg.android.feature.floatingball.stepFontScale
@@ -1048,6 +1049,15 @@ fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
                 onChange = viewModel::setNotifyTaskHeadsUp,
                 enabled = appSettings.notifyTaskResultsEnabled,
             )
+            // 批v179: 回合完成提醒 — its own switch now (was riding the task
+            // results gate). Default OFF: a per-turn ping is the noisiest class;
+            // the 三档 ladder is 等确认(HIGH) / 任务完成(悬浮开关) / 回合完成(默认静默).
+            ToggleRow(
+                title = stringResource(R.string.settings_notify_turn),
+                subtitle = stringResource(R.string.settings_notify_turn_subtitle),
+                checked = appSettings.notifyTurnEnabled,
+                onChange = { on -> gatedChange(on, viewModel::setNotifyTurnEnabled) },
+            )
             ToggleRow(
                 title = stringResource(R.string.settings_notify_device_events),
                 subtitle = stringResource(R.string.settings_notify_device_events_subtitle),
@@ -1127,6 +1137,58 @@ fun NotifyContent(viewModel: GeneralViewModel = hiltViewModel()) {
                     supportingColor = colors.textTertiary,
                 ),
                 modifier = Modifier.clickable { viewModel.sendTestNotification() },
+            )
+            // 批v179: the MIUI/ROM caveat, printed under the test row — a test
+            // fires while the app is FOREGROUND, and MIUI suppresses banners for
+            // the foreground app itself; the shade row is the expected result.
+            Text(
+                stringResource(R.string.notify_test_foreground_hint),
+                fontSize = 12.sp,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp),
+            )
+            // 批v179: the channel-level guide — MIUI's 悬浮通知 is a PER-CHANNEL
+            // sub-switch (app-level permission on ≠ channel on), and MIUI may
+            // demote a channel after the user swipes one of its notifications
+            // away. Deep-link straight into THIS app's channel page (API 26+),
+            // falling back to the app notification settings.
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.notify_channel_guide_title)) },
+                supportingContent = { Text(stringResource(R.string.notify_channel_guide_subtitle)) },
+                trailingContent = {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                colors = ListItemDefaults.colors(
+                    containerColor = Color.Transparent,
+                    headlineColor = colors.textPrimary,
+                    supportingColor = colors.textTertiary,
+                ),
+                modifier = Modifier.clickable {
+                    val resultChannelId =
+                        if (appSettings.notifyTaskHeadsUp) {
+                            InteractiveNotifier.CHANNEL_TASK_RESULTS_PRIORITY
+                        } else {
+                            InteractiveNotifier.CHANNEL_TASK_RESULTS
+                        }
+                    val channelIntent = android.content.Intent(
+                        android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS,
+                    ).apply {
+                        putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, resultChannelId)
+                    }
+                    val appIntent = android.content.Intent(
+                        android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS,
+                    ).apply {
+                        putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    }
+                    runCatching { context.startActivity(channelIntent) }
+                        .onFailure { runCatching { context.startActivity(appIntent) } }
+                },
             )
             // 系统级通知体系: point at the system notification settings for the
             // per-channel sound/style knobs (importance, vibration, sound).
