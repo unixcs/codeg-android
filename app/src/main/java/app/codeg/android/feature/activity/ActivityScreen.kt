@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,10 +23,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -47,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -123,6 +132,12 @@ fun ActivityScreen(
     // 批v179: the RECENT group's window + 未读-only filter (header chip + card).
     val filterPrefs by viewModel.activityFilterPrefs.collectAsStateWithLifecycle()
     var filterCardOpen by rememberSaveable { mutableStateOf(false) }
+    // 批v179 multi-select batch delete: refKeys ("serverId:conversationId",
+    // saveable), cleared on exit; the destructive confirm carries the row
+    // snapshot so deleting can't race the selection (Inbox's 批v160 contract).
+    var selectMode by rememberSaveable { mutableStateOf(false) }
+    var selectedKeys by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingBatchDelete by remember { mutableStateOf<List<ActivityRow>?>(null) }
     val highlight by viewModel.focusHub.highlight.collectAsStateWithLifecycle()
     val stats by workbench.stats.collectAsStateWithLifecycle()
     // 批v151 头部折叠记忆（跨启动）：点击立即生效（VM 内存态乐观更新），落盘异步。
@@ -346,6 +361,30 @@ fun ActivityScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) {
+                        // 批v179: multi-select toolbar pins above the feed while
+                        // the mode is on (Inbox's toolbar row, as a lazy item).
+                        if (selectMode) {
+                            item(key = "select-toolbar") {
+                                val visibleRowKeys = items.mapNotNull { it.row?.refKey }.toSet()
+                                ActivitySelectToolbar(
+                                    selectedCount = selectedKeys.size,
+                                    allSelected = visibleRowKeys.isNotEmpty() && selectedKeys.containsAll(visibleRowKeys),
+                                    hasRows = visibleRowKeys.isNotEmpty(),
+                                    onExit = {
+                                        selectMode = false
+                                        selectedKeys = emptySet()
+                                    },
+                                    onToggleAll = {
+                                        selectedKeys =
+                                            if (visibleRowKeys.isNotEmpty() && selectedKeys.containsAll(visibleRowKeys)) emptySet()
+                                            else visibleRowKeys
+                                    },
+                                    onDeleteSelected = {
+                                        pendingBatchDelete = items.mapNotNull { it.row }.filter { it.refKey in selectedKeys }
+                                    },
+                                )
+                            }
+                        }
                         items(
                             items = items,
                             key = { it.key },
@@ -439,22 +478,31 @@ fun ActivityScreen(
 
                                 item.row != null -> {
                                     val row = item.row
+                                    val rowKey = row.refKey
                                     SessionRow(
                                         row.conversation,
                                         onClick = {
-                                            if (allMode) onOpenRow(row.serverId, row.conversation.id)
+                                            if (selectMode) {
+                                                selectedKeys =
+                                                    if (rowKey in selectedKeys) selectedKeys - rowKey else selectedKeys + rowKey
+                                            } else if (allMode) onOpenRow(row.serverId, row.conversation.id)
                                             else onOpenConversation(row.conversation.id)
                                         },
                                         modifier = Modifier.animateItem(),
                                         folderName = row.folderName,
                                         serverName = if (allMode) row.serverName else null,
-                                        onDelete = { pendingDelete = row },
-                                        onAddToProject = { addToTarget = row },
-                                        onRename = { pendingRename = row },
+                                        selected = selectMode && rowKey in selectedKeys,
+                                        onDelete = if (selectMode) null else ({ pendingDelete = row }),
+                                        onAddToProject = if (selectMode) null else ({ addToTarget = row }),
+                                        onRename = if (selectMode) null else ({ pendingRename = row }),
                                         onBoard = boardMenu.isOnBoard(row.serverId, row.conversation.id),
-                                        onToggleBoard = {
+                                        onToggleBoard = if (selectMode) null else ({
                                             boardMenu.toggle(row.serverId, row.conversation.id, row.conversation.folderId)
-                                        },
+                                        }),
+                                        onMultiSelect = if (!selectMode) ({
+                                            selectMode = true
+                                            selectedKeys = selectedKeys + rowKey
+                                        }) else null,
                                         unread = row.unread,
                                         // R2D#1: the feed's probe-corroborated verdict —
                                         // without it the demoted corpse rows would still
@@ -463,9 +511,9 @@ fun ActivityScreen(
                                         highlighted = allMode &&
                                             highlight?.takeIf { it.owner == ACTIVITY_FOCUS_OWNER }
                                                 ?.item?.ref?.key == row.refKey,
-                                        onHandoff = { ref -> onHandoff(row.serverId, row.conversation.folderId, ref) },
-                                        swipeLeftAction = swipeLeft,
-                                        swipeRightAction = swipeRight,
+                                        onHandoff = if (selectMode) null else ({ ref -> onHandoff(row.serverId, row.conversation.folderId, ref) }),
+                                        swipeLeftAction = if (selectMode) null else swipeLeft,
+                                        swipeRightAction = if (selectMode) null else swipeRight,
                                     )
                                 }
 
@@ -497,6 +545,49 @@ fun ActivityScreen(
                 pendingRename = null
             },
             onDismiss = { pendingRename = null },
+        )
+    }
+
+    // 批v179: the batch-delete confirm — titles preview (first 3 + "and N more")
+    // so 不点开就删的顾虑有解（拍板：多选 + 预览标题）。
+    pendingBatchDelete?.let { rows ->
+        val preview = rows.take(3)
+        AlertDialog(
+            onDismissRequest = { pendingBatchDelete = null },
+            title = { Text(stringResource(R.string.common_delete)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.activity_delete_selected_confirm, rows.size))
+                    Spacer(Modifier.height(8.dp))
+                    preview.forEach { row ->
+                        Text(
+                            text = "• " + (row.conversation.trimmedTitle ?: "#${row.conversation.id}"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (rows.size > preview.size) {
+                        Text(
+                            text = stringResource(R.string.activity_delete_more, rows.size - preview.size),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textTertiary,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteAll(rows)
+                    pendingBatchDelete = null
+                    selectMode = false
+                    selectedKeys = emptySet()
+                }) { Text(stringResource(R.string.common_delete), color = colors.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingBatchDelete = null }) { Text(stringResource(android.R.string.cancel)) }
+            },
         )
     }
 
@@ -580,6 +671,55 @@ private fun activityWindowChip(windowHours: Int): String = when (windowHours) {
     120 -> "5d"
     168 -> "7d"
     else -> "${windowHours}h"
+}
+
+/** 批v179: the feed's multi-select toolbar (the InboxToolbar select branch). */
+@Composable
+private fun ActivitySelectToolbar(
+    selectedCount: Int,
+    allSelected: Boolean,
+    hasRows: Boolean,
+    onExit: () -> Unit,
+    onToggleAll: () -> Unit,
+    onDeleteSelected: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onExit) {
+            Icon(
+                Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.common_close),
+                tint = colors.textSecondary,
+            )
+        }
+        IconButton(onClick = onToggleAll, enabled = hasRows) {
+            Icon(
+                Icons.Rounded.Checklist,
+                contentDescription = stringResource(
+                    if (allSelected) R.string.inbox_select_none else R.string.inbox_select_all,
+                ),
+                tint = if (hasRows) colors.textSecondary else colors.textTertiary,
+            )
+        }
+        Text(
+            stringResource(R.string.activity_selected_count, selectedCount),
+            style = MaterialTheme.typography.labelLarge,
+            color = colors.textPrimary,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onDeleteSelected, enabled = selectedCount > 0) {
+            Icon(
+                Icons.Rounded.Delete,
+                contentDescription = stringResource(R.string.common_delete),
+                tint = if (selectedCount > 0) colors.danger else colors.textTertiary,
+            )
+        }
+    }
 }
 
 /** Resolved header presentation for an [ActivityKind] (icon + theme-aware tint + label). */

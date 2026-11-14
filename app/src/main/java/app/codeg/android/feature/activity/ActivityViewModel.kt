@@ -387,6 +387,65 @@ class ActivityViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 批v179 batch delete (multi-select). Same contract as [delete] per row: the
+     * whole selection leaves the feed optimistically, each conversation is then
+     * deleted on its OWNING device (ids are server-local, so rows group by
+     * [ActivityRow.serverId] — the server exposes no batch endpoint, this is one
+     * WS call per row), and only the failed rows are restored. Any failure
+     * surfaces once, after the loop; the succeeded rows stay deleted.
+     */
+    fun deleteAll(rows: Collection<ActivityRow>) {
+        if (rows.isEmpty()) return
+        viewModelScope.launch(Dispatchers.Main) {
+            val profiles = try {
+                repository.profiles.first().orEmpty()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val doomedKeys = rows.map { it.refKey }.toSet()
+            val removed = _ui.value.conversations.filter { it.refKey in doomedKeys }
+            _ui.update { state ->
+                state.copy(conversations = state.conversations.filterNot { it.refKey in doomedKeys })
+            }
+            var lastError: String? = null
+            val failed = mutableListOf<ActivityRow>()
+            rows.groupBy { it.serverId }.forEach { (serverId, group) ->
+                val client = profiles.firstOrNull { it.id == serverId }?.let { repository.client(it) }
+                if (client == null) {
+                    failed += group
+                    return@forEach
+                }
+                group.forEach { row ->
+                    try {
+                        client.deleteConversation(row.conversation.id)
+                        projectRepo.removeRef(serverId, row.conversation.id)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        failed += row
+                        lastError = e.displayMessage()
+                    }
+                }
+            }
+            if (failed.isNotEmpty()) {
+                _ui.update { state ->
+                    // Restore only rows still missing (a poll may have re-fetched
+                    // some meanwhile), mirroring [delete]'s targeted re-insert.
+                    val missing = failed.filterNot { r ->
+                        state.conversations.any {
+                            it.serverId == r.serverId && it.conversation.id == r.conversation.id
+                        }
+                    }
+                    state.copy(conversations = state.conversations + missing, error = lastError)
+                }
+            }
+            restartPoll(manual = true)
+        }
+    }
+
     /** Rename from the activity feed (batch v133). Awaits the owning device, patches
      *  the row in place, then restarts the poll so the sections re-sort by the new
      *  ordering data — rename has no optimistic local state to revert. */

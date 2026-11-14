@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.CallMade
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.rounded.BookmarkAdd
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Link
@@ -95,6 +96,9 @@ fun SessionRow(
     /** True when the ledger already holds this session (menu says 移出看板). */
     onBoard: Boolean = false,
     onRename: (() -> Unit)? = null,
+    /** 批v179: the 多选 entry (feed batch delete) — entering select mode with
+     *  this row pre-picked. Null (every surface but the Activity feed) hides it. */
+    onMultiSelect: (() -> Unit)? = null,
     serverName: String? = null,
     unread: Boolean = false,
     /** Floating-ball "cycle session" feedback (batch v132): glowing border + tint. */
@@ -120,7 +124,7 @@ fun SessionRow(
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
     val hasMenu = onTogglePin != null || onHandoff != null || onDelete != null || onAddToProject != null ||
-        onRename != null || onToggleBoard != null
+        onRename != null || onToggleBoard != null || onMultiSelect != null
     val clipboard = LocalClipboardManager.current
     // 批v170 克制化：悬浮球聚焦高亮走中性浅灰+细边框，accent 让给语义点。
     val highlightBg by animateColorAsState(
@@ -394,6 +398,15 @@ fun SessionRow(
                             icon = Icons.Rounded.Link,
                             label = stringResource(R.string.session_copy_reference),
                             onClick = { clipboard.setText(AnnotatedString(referenceBadge())) },
+                        ),
+                    )
+                }
+                if (onMultiSelect != null) {
+                    add(
+                        CenteredAction(
+                            icon = Icons.Rounded.Checklist,
+                            label = stringResource(R.string.session_multi_select),
+                            onClick = onMultiSelect,
                         ),
                     )
                 }

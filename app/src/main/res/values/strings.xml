@@ -176,6 +176,10 @@
     <string name="activity_window_days">Last %1$d days</string>
     <string name="activity_window_all">All sessions</string>
     <string name="activity_window_all_chip">All</string>
+    <string name="session_multi_select">Select multiple…</string>
+    <string name="activity_selected_count">%1$d selected</string>
+    <string name="activity_delete_selected_confirm">Delete %1$d selected sessions? This cannot be undone.</string>
+    <string name="activity_delete_more">…and %1$d more</string>
     <string name="project_filter_title">Session projects</string>
     <string name="project_filter_all">All sessions</string>
     <string name="project_filter_create">Create and filter</string>
