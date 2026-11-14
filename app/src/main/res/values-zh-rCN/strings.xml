@@ -161,6 +161,13 @@
     <string name="add_project_empty">还没有项目，在下方创建一个。</string>
     <string name="add_project_new">新建项目</string>
     <string name="add_project_new_hint">新项目名称</string>
+    <string name="add_project_columns_cd">列数（当前 %1$d）</string>
+    <string name="add_project_sort_cd">项目排序</string>
+    <string name="add_project_sort_title">项目排序</string>
+    <string name="add_project_sort_count">会话数最多在前</string>
+    <string name="add_project_sort_manual">默认顺序</string>
+    <string name="add_project_sort_name">按名称</string>
+    <string name="add_project_sort_created">最新创建在前</string>
     <string name="project_filter_title">会话项目</string>
     <string name="project_filter_all">全部会话</string>
     <string name="project_filter_create">创建并筛选</string>

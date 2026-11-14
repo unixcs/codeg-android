@@ -1130,6 +1130,8 @@ private fun SessionContextChips(
     var projectSheet by rememberSaveable { mutableStateOf(false) }
     val projects by viewModel.sessionProjects.collectAsStateWithLifecycle()
     val projectMembers by viewModel.projectMembers.collectAsStateWithLifecycle()
+    // 批v179: the sheet's grid/order prefs (persisted through this VM).
+    val addToProjectPrefs by viewModel.addToProjectPrefs.collectAsStateWithLifecycle()
 
     LazyRow(
         Modifier.fillMaxWidth(),
@@ -1369,6 +1371,10 @@ private fun SessionContextChips(
             projects = projects,
             memberOf = ui.projectIds,
             memberCount = { p -> projectMembers[p.id].orEmpty().size },
+            columns = addToProjectPrefs.columns,
+            sort = addToProjectPrefs.sort,
+            onColumnsChange = viewModel::setAddToProjectColumns,
+            onSortChange = viewModel::setAddToProjectSort,
             onToggle = viewModel::toggleDraftProject,
             onCreate = { name, onCreated -> viewModel.createDraftProject(name, onCreated) },
             onManage = {

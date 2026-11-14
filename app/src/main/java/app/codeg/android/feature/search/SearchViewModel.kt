@@ -8,6 +8,9 @@ import app.codeg.android.core.data.DeviceLoadStatus
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.SessionProjectRepository
 import app.codeg.android.core.data.aggregateDeviceSignature
+import app.codeg.android.core.datastore.ADD_TO_PROJECT_PREFS_DEFAULT
+import app.codeg.android.core.datastore.AddToProjectPrefs
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.RecentSearchesStore
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.datastore.SessionProject
@@ -88,6 +91,8 @@ class SearchViewModel @Inject constructor(
     // 批v174 P3: the 添加到项目 sheet's store (same single-instance passthrough
     // shape as the Chats VM).
     private val projectRepo: SessionProjectRepository,
+    // 批v179: the sheet's grid/order prefs persist through the settings store.
+    private val appSettingsStore: AppSettingsStore,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -105,6 +110,22 @@ class SearchViewModel @Inject constructor(
     val sessionProjects: StateFlow<List<SessionProject>> = projectRepo.projects
 
     val projectMembers: StateFlow<Map<String, List<SessionRef>>> = projectRepo.members
+
+    // 批v179: the sheet's grid/order prefs, narrowed from the settings store so
+    // the stateless sheet renders and persists through this VM.
+    val addToProjectPrefs: StateFlow<AddToProjectPrefs> =
+        appSettingsStore.settings
+            .map { AddToProjectPrefs(it.addToProjectColumns, it.addToProjectSort) }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, ADD_TO_PROJECT_PREFS_DEFAULT)
+
+    fun setAddToProjectColumns(columns: Int) {
+        viewModelScope.launch { appSettingsStore.setAddToProjectColumns(columns) }
+    }
+
+    fun setAddToProjectSort(sort: String) {
+        viewModelScope.launch { appSettingsStore.setAddToProjectSort(sort) }
+    }
 
     fun toggleProjectMembership(projectId: String, ref: SessionRef, member: Boolean) {
         // 批v175 审查: a DataStore write failure must not kill the process from a

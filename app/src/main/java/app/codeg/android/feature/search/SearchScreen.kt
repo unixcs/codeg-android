@@ -93,6 +93,8 @@ fun SearchScreen(
     // 批v174 P3: project passthroughs for the 添加到项目 sheet.
     val projects by viewModel.sessionProjects.collectAsStateWithLifecycle()
     val members by viewModel.projectMembers.collectAsStateWithLifecycle()
+    // 批v179: the sheet's grid/order prefs (persisted through this VM).
+    val addToProjectPrefs by viewModel.addToProjectPrefs.collectAsStateWithLifecycle()
     // Keyed on the owning device: a floating-ball device switch while a dialog is
     // open must discard it — the held id is server-local and would hit the wrong device.
     // 批v174 P3: the held pair carries its own serverId now, so both modes' dialogs
@@ -341,6 +343,10 @@ fun SearchScreen(
             projects = projects,
             memberOf = members.filterValues { refs -> refs.any { it.key == ref.key } }.keys,
             memberCount = { project -> members[project.id]?.size ?: 0 },
+            columns = addToProjectPrefs.columns,
+            sort = addToProjectPrefs.sort,
+            onColumnsChange = viewModel::setAddToProjectColumns,
+            onSortChange = viewModel::setAddToProjectSort,
             onToggle = { projectId, member -> viewModel.toggleProjectMembership(projectId, ref, member) },
             onCreate = viewModel::createProject,
             onManage = {

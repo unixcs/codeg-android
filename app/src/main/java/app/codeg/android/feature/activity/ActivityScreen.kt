@@ -108,6 +108,8 @@ fun ActivityScreen(
     val projects by viewModel.sessionProjects.collectAsStateWithLifecycle()
     val members by viewModel.projectMembers.collectAsStateWithLifecycle()
     val activeProjectId by viewModel.activeProjectId.collectAsStateWithLifecycle()
+    // 批v179: the 添加到项目 sheet's grid/order prefs (persisted through this VM).
+    val addToProjectPrefs by viewModel.addToProjectPrefs.collectAsStateWithLifecycle()
     val highlight by viewModel.focusHub.highlight.collectAsStateWithLifecycle()
     val stats by workbench.stats.collectAsStateWithLifecycle()
     // 批v151 头部折叠记忆（跨启动）：点击立即生效（VM 内存态乐观更新），落盘异步。
@@ -465,6 +467,10 @@ fun ActivityScreen(
             projects = projects,
             memberOf = members.filterValues { refs -> refs.any { it.key == ref.key } }.keys,
             memberCount = { project -> members[project.id]?.size ?: 0 },
+            columns = addToProjectPrefs.columns,
+            sort = addToProjectPrefs.sort,
+            onColumnsChange = viewModel::setAddToProjectColumns,
+            onSortChange = viewModel::setAddToProjectSort,
             onToggle = { projectId, member -> viewModel.toggleProjectMembership(projectId, ref, member) },
             onCreate = viewModel::createProject,
             onManage = {

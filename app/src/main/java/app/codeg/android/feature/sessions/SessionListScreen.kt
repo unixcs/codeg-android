@@ -172,6 +172,8 @@ fun SessionListScreen(
     var addToTarget by remember { mutableStateOf<Pair<String, ConversationSummary>?>(null) }
     val sessionProjects by viewModel.sessionProjects.collectAsStateWithLifecycle()
     val projectMembers by viewModel.projectMembers.collectAsStateWithLifecycle()
+    // 批v179: the 添加到项目 sheet's grid/order prefs (persisted through this VM).
+    val addToProjectPrefs by viewModel.addToProjectPrefs.collectAsStateWithLifecycle()
 
     // Hideable = folder sections only (Pinned is a transient override bucket; Other
     // holds orphans that would otherwise become unreachable from this list).
@@ -425,6 +427,10 @@ fun SessionListScreen(
             projects = sessionProjects,
             memberOf = projectMembers.filterValues { refs -> refs.any { it.key == ref.key } }.keys,
             memberCount = { project -> projectMembers[project.id]?.size ?: 0 },
+            columns = addToProjectPrefs.columns,
+            sort = addToProjectPrefs.sort,
+            onColumnsChange = viewModel::setAddToProjectColumns,
+            onSortChange = viewModel::setAddToProjectSort,
             onToggle = { projectId, member -> viewModel.toggleProjectMembership(projectId, ref, member) },
             onCreate = viewModel::createProject,
             onManage = {
@@ -798,6 +804,8 @@ private fun AggregateChatsList(
     val projects by viewModel.sessionProjects.collectAsStateWithLifecycle()
     val members by viewModel.projectMembers.collectAsStateWithLifecycle()
     val activeProjectId by viewModel.activeProjectId.collectAsStateWithLifecycle()
+    // 批v179: the 添加到项目 sheet's grid/order prefs (persisted through this VM).
+    val addToProjectPrefs by viewModel.addToProjectPrefs.collectAsStateWithLifecycle()
     // 批v154: multi-select device filter — a view filter, so toggling it never refetches.
     val hiddenDevices by viewModel.hiddenDevices.collectAsStateWithLifecycle()
     // 批v160: the project column of that filter sheet.
@@ -1133,6 +1141,10 @@ private fun AggregateChatsList(
             projects = projects,
             memberOf = members.filterValues { refs -> refs.any { it.key == ref.key } }.keys,
             memberCount = { project -> members[project.id]?.size ?: 0 },
+            columns = addToProjectPrefs.columns,
+            sort = addToProjectPrefs.sort,
+            onColumnsChange = viewModel::setAddToProjectColumns,
+            onSortChange = viewModel::setAddToProjectSort,
             onToggle = { projectId, member -> viewModel.toggleProjectMembership(projectId, ref, member) },
             onCreate = viewModel::createProject,
             onManage = {

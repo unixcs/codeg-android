@@ -100,6 +100,12 @@ data class AppSettings(
      *  list) or 2 (a card grid; actual columns scale with width, 2 on phones
      *  / 3 on tablets). Default 2 per 拍板 P2 (卡片网格 + 顶栏切换 + 记忆). */
     val projectListColumns: Int = DEFAULT_PROJECT_LIST_COLUMNS,
+    /** 批v179: the 添加到项目 sheet's grid columns — 1 (classic single list),
+     *  2 (default, denser two-column cards) or 3 (wide screens). */
+    val addToProjectColumns: Int = DEFAULT_ADD_TO_PROJECT_COLUMNS,
+    /** 批v179: the sheet's project order — "count" (most sessions first, the
+     *  拍板 default), "manual" (sortOrder), "name", "created" (newest first). */
+    val addToProjectSort: String = DEFAULT_ADD_TO_PROJECT_SORT,
     /** 批v160 W9: the top chip row's dimension on 动态/会话 — "devices" (default,
      *  the pre-v160 row) or "projects" (全部 + project chips + 未添加). */
     val sessionChipMode: String = DEFAULT_SESSION_CHIP_MODE,
@@ -187,6 +193,10 @@ data class AppSettings(
         // 批v174 P2: the projects tab defaults to the card grid (拍板 P2) — the
         // top-bar toggle flips back to the single grouped list.
         const val DEFAULT_PROJECT_LIST_COLUMNS = 2
+        // 批v179: the 添加到项目 sheet defaults to two-column cards ordered by
+        // session count (拍板 2026-11-14 — 常用项目沉底要下滑的痛点).
+        const val DEFAULT_ADD_TO_PROJECT_COLUMNS = 2
+        const val DEFAULT_ADD_TO_PROJECT_SORT = ADD_TO_PROJECT_SORT_COUNT
         const val DEFAULT_SESSION_CHIP_MODE = SESSION_CHIP_DEVICES
         const val DEFAULT_SESSION_SWIPE_LEFT = "copy"
         const val DEFAULT_SESSION_SWIPE_RIGHT = "board"
@@ -275,6 +285,10 @@ class AppSettingsStore @Inject constructor(
                 ?: AppSettings.DEFAULT_TASK_BOARD_LIST_COLUMNS).coerceIn(1, 2),
             projectListColumns = (prefs[PROJECT_LIST_COLUMNS]
                 ?: AppSettings.DEFAULT_PROJECT_LIST_COLUMNS).coerceIn(1, 2),
+            addToProjectColumns = (prefs[ADD_TO_PROJECT_COLUMNS]
+                ?: AppSettings.DEFAULT_ADD_TO_PROJECT_COLUMNS).coerceIn(1, 3),
+            addToProjectSort = prefs[ADD_TO_PROJECT_SORT]?.takeIf { it in ADD_TO_PROJECT_SORTS }
+                ?: AppSettings.DEFAULT_ADD_TO_PROJECT_SORT,
             sessionChipMode = prefs[SESSION_CHIP_MODE]?.takeIf { it in SESSION_CHIP_MODES }
                 ?: AppSettings.DEFAULT_SESSION_CHIP_MODE,
             sessionSwipeLeftAction = sanitizeSessionSwipeAction(
@@ -590,6 +604,22 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[PROJECT_LIST_COLUMNS] = columns.coerceIn(1, 2) }
     }
 
+    /** 批v179: persist the 添加到项目 sheet's column count (1..3). */
+    suspend fun setAddToProjectColumns(columns: Int) {
+        dataStore.edit { it[ADD_TO_PROJECT_COLUMNS] = columns.coerceIn(1, 3) }
+    }
+
+    /** 批v179: persist the sheet's project order mode (whitelist-guarded). */
+    suspend fun setAddToProjectSort(sort: String) {
+        dataStore.edit {
+            it[ADD_TO_PROJECT_SORT] = if (sort in ADD_TO_PROJECT_SORTS) {
+                sort
+            } else {
+                AppSettings.DEFAULT_ADD_TO_PROJECT_SORT
+            }
+        }
+    }
+
     /** Persist the font-scale multiplier (coerced to the usable band on read too). */
     suspend fun setFontScale(scale: Float) {
         dataStore.edit { it[FONT_SCALE] = scale.coerceIn(0.5f, 2f) }
@@ -713,6 +743,8 @@ class AppSettingsStore @Inject constructor(
         val TASK_BOARD_KANBAN_COLUMNS = intPreferencesKey("task_board_kanban_columns")
         val TASK_BOARD_LIST_COLUMNS = intPreferencesKey("task_board_list_columns")
         val PROJECT_LIST_COLUMNS = intPreferencesKey("project_list_columns")
+        val ADD_TO_PROJECT_COLUMNS = intPreferencesKey("add_to_project_columns")
+        val ADD_TO_PROJECT_SORT = stringPreferencesKey("add_to_project_sort")
         val SESSION_CHIP_MODE = stringPreferencesKey("session_chip_mode")
         val SESSION_SWIPE_LEFT_ACTION = stringPreferencesKey("session_swipe_left_action")
         val SESSION_SWIPE_RIGHT_ACTION = stringPreferencesKey("session_swipe_right_action")
@@ -753,6 +785,18 @@ val TASK_BOARD_LAYOUTS = setOf(TASK_BOARD_KANBAN, TASK_BOARD_LIST)
 const val SESSION_CHIP_DEVICES = "devices"
 const val SESSION_CHIP_PROJECTS = "projects"
 val SESSION_CHIP_MODES = setOf(SESSION_CHIP_DEVICES, SESSION_CHIP_PROJECTS)
+
+/** Legal 添加到项目 order modes (批v179) — sheets branch on the constants. */
+const val ADD_TO_PROJECT_SORT_COUNT = "count"
+const val ADD_TO_PROJECT_SORT_MANUAL = "manual"
+const val ADD_TO_PROJECT_SORT_NAME = "name"
+const val ADD_TO_PROJECT_SORT_CREATED = "created"
+val ADD_TO_PROJECT_SORTS = setOf(
+    ADD_TO_PROJECT_SORT_COUNT,
+    ADD_TO_PROJECT_SORT_MANUAL,
+    ADD_TO_PROJECT_SORT_NAME,
+    ADD_TO_PROJECT_SORT_CREATED,
+)
 
 /** Legal session-row swipe bindings (批v168): the long-press menu catalog's raw
  *  ids plus [SESSION_SWIPE_NONE] ("direction off"). The feature layer owns the

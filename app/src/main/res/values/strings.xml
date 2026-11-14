@@ -161,6 +161,13 @@
     <string name="add_project_empty">No projects yet — create one below.</string>
     <string name="add_project_new">Create project</string>
     <string name="add_project_new_hint">New project name</string>
+    <string name="add_project_columns_cd">Columns (current %1$d)</string>
+    <string name="add_project_sort_cd">Sort projects</string>
+    <string name="add_project_sort_title">Sort projects</string>
+    <string name="add_project_sort_count">Most sessions first</string>
+    <string name="add_project_sort_manual">Default order</string>
+    <string name="add_project_sort_name">By name</string>
+    <string name="add_project_sort_created">Newest created first</string>
     <string name="project_filter_title">Session projects</string>
     <string name="project_filter_all">All sessions</string>
     <string name="project_filter_create">Create and filter</string>

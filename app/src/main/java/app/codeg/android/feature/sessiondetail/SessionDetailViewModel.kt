@@ -11,6 +11,8 @@ import app.codeg.android.R
 import app.codeg.android.core.data.HandoffSource
 import app.codeg.android.core.data.LocalAttachment
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.ADD_TO_PROJECT_PREFS_DEFAULT
+import app.codeg.android.core.datastore.AddToProjectPrefs
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ConversationSelectorStore
 import app.codeg.android.core.datastore.DeviceAgentPrefsStore
@@ -75,6 +77,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -509,6 +512,22 @@ class SessionDetailViewModel @Inject constructor(
     /** Projects offered by the composer's "add to project" sheet. */
     val sessionProjects: StateFlow<List<SessionProject>> = projectRepo.projects
     val projectMembers: StateFlow<Map<String, List<SessionRef>>> = projectRepo.members
+
+    // 批v179: the sheet's grid/order prefs, narrowed from the settings store so
+    // the stateless sheet renders and persists through this VM.
+    val addToProjectPrefs: StateFlow<AddToProjectPrefs> =
+        appSettingsStore.settings
+            .map { AddToProjectPrefs(it.addToProjectColumns, it.addToProjectSort) }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, ADD_TO_PROJECT_PREFS_DEFAULT)
+
+    fun setAddToProjectColumns(columns: Int) {
+        viewModelScope.launch { appSettingsStore.setAddToProjectColumns(columns) }
+    }
+
+    fun setAddToProjectSort(sort: String) {
+        viewModelScope.launch { appSettingsStore.setAddToProjectSort(sort) }
+    }
 
     /** Projects the composer keeps in sync with the transcript (a tapped row is
      *  the target, so `projectIds` must follow the SERVER's membership, not a

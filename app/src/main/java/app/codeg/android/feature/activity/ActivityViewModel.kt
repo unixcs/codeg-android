@@ -424,6 +424,22 @@ class ActivityViewModel @Inject constructor(
     val projectMembers = projectRepo.members
     val activeProjectId = projectRepo.activeProjectId
 
+    // 批v179: the 添加到项目 sheet's grid/order prefs, narrowed from the settings
+    // store so the stateless sheet renders and persists through this VM.
+    val addToProjectPrefs: StateFlow<app.codeg.android.core.datastore.AddToProjectPrefs> =
+        settingsStore.settings
+            .map { app.codeg.android.core.datastore.AddToProjectPrefs(it.addToProjectColumns, it.addToProjectSort) }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, app.codeg.android.core.datastore.ADD_TO_PROJECT_PREFS_DEFAULT)
+
+    fun setAddToProjectColumns(columns: Int) {
+        viewModelScope.launch { settingsStore.setAddToProjectColumns(columns) }
+    }
+
+    fun setAddToProjectSort(sort: String) {
+        viewModelScope.launch { settingsStore.setAddToProjectSort(sort) }
+    }
+
     fun toggleProjectMembership(projectId: String, ref: SessionRef, member: Boolean) {
         viewModelScope.launch {
             try {
