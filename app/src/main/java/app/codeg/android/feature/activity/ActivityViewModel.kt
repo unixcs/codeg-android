@@ -85,7 +85,9 @@ import javax.inject.Inject
 @HiltViewModel
 class ActivityViewModel @Inject constructor(
     private val repository: ServerRepository,
-    settingsStore: AppSettingsStore,
+    // 批v179: private val — the batch-delete/filter setters below reference this
+    // store from member functions (a bare constructor param is initializer-only).
+    private val settingsStore: AppSettingsStore,
     private val projectRepo: SessionProjectRepository,
     private val aggregateProjectFilter: AggregateProjectFilterStore,
     /** Floating-ball session cycling (batch v132) — the aggregate list registers here. */
