@@ -114,6 +114,7 @@ import app.codeg.android.feature.sessions.SessionSwipeAction
 import app.codeg.android.feature.sessions.swipeActionLabelRes
 import app.codeg.android.feature.sessions.nextProjectFilter
 import app.codeg.android.feature.taskhub.TaskHubScreen
+import app.codeg.android.feature.taskhub.TaskHubIntents
 
 /**
  * Bottom-navigation destinations (批v152 five-tab bar: 动态 | 会话 | 收件箱 |
@@ -1125,6 +1126,17 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             // 批v151: the two remaining quick-entry tabs join the ball catalog.
             "tabInbox" -> freeTab(HomeTab.INBOX)
             "tabTasks" -> freeTab(HomeTab.TASKS)
+            // 批v180-E: the board overview + automations pane join the catalog —
+            // freeTab keeps the ball's free-navigation discipline; the intents are
+            // one-shot flags the board consumes even when the tab is already up.
+            "tasksOverview" -> {
+                freeTab(HomeTab.TASKS)
+                TaskHubIntents.openOverview()
+            }
+            "taskAutomations" -> {
+                freeTab(HomeTab.TASKS)
+                TaskHubIntents.openAutomations()
+            }
             "toggleThemeMode" -> appViewModel.toggleThemeMode()
             "nextAccent" -> appViewModel.cycleAccent()
             "fontScaleUp", "fontScaleDown", "fontScaleReset" -> {

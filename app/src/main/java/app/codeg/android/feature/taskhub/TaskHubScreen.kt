@@ -263,6 +263,17 @@ fun TaskHubScreen(
         viewModel.consumeSegmentRequest()?.let { seg -> pendingSegment = seg }
         if (viewModel.consumeAutomationTabRequest()) automationMode = true
     }
+    // 批v180-E: the floating-ball "open automations" intent — a continuous
+    // collect (not the one-shot consume above) so firing the gesture while the
+    // board is ALREADY on screen still flips the segment.
+    LaunchedEffect(Unit) {
+        TaskHubIntents.automations.collect { requested ->
+            if (requested) {
+                automationMode = true
+                TaskHubIntents.automations.value = false
+            }
+        }
+    }
     // 批v156: after an action (启动/取消/重试…) the card moves columns — follow
     // it so it never "vanishes" one page away (the VM emits the landed segment
     // once per action).
@@ -412,6 +423,16 @@ fun TaskHubScreen(
     // 批v161: the four-column mini overview — an ENTRY, not a layout mode (the
     // phone keeps its kanban/list shapes; this is the "see everything" glance).
     var overviewOpen by rememberSaveable { mutableStateOf(false) }
+    // 批v180-E: the floating-ball "board overview" intent — same continuous
+    // collect discipline (the ball can fire while the tab is already showing).
+    LaunchedEffect(Unit) {
+        TaskHubIntents.overview.collect { requested ->
+            if (requested) {
+                overviewOpen = true
+                TaskHubIntents.overview.value = false
+            }
+        }
+    }
     // The detail sheet holds a KEY, not a row snapshot: the 25s poll keeps
     // mutating the board, and a frozen entry would keep showing stale status
     // and stale actions (e.g. merge buttons on a task someone else already

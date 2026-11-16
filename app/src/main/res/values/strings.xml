@@ -1332,6 +1332,8 @@
     <string name="ball_action_tab_folders">Go to Folders</string>
     <!-- 批v180-B: the devices-overview ball action. -->
     <string name="ball_action_devices_overview">Go to Devices &amp; Projects</string>
+    <string name="ball_action_tasks_overview">Open the board overview</string>
+    <string name="ball_action_task_automations">Open the automations pane</string>
     <string name="ball_action_tab_activity">Go to Activity</string>
     <string name="ball_action_tab_search">Go to Search</string>
     <string name="ball_action_tab_settings">Go to Settings</string>

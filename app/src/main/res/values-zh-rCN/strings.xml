@@ -1318,6 +1318,8 @@
     <string name="ball_action_tab_folders">切到文件夹</string>
     <!-- 批v180-B：设备总览悬浮球动作。 -->
     <string name="ball_action_devices_overview">切到设备与项目</string>
+    <string name="ball_action_tasks_overview">打开任务板总览</string>
+    <string name="ball_action_task_automations">打开自动化面板</string>
     <string name="ball_action_tab_activity">切到动态</string>
     <string name="ball_action_tab_search">切到搜索</string>
     <string name="ball_action_tab_settings">切到设置</string>

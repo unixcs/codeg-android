@@ -50,6 +50,9 @@ object FloatingBallCatalog {
         "tabSettings" to R.string.ball_action_tab_settings,
         "tabInbox" to R.string.ball_action_tab_inbox,
         "tabTasks" to R.string.ball_action_tab_tasks,
+        // 批v180-E: board overview + automations pane as bindable gestures.
+        "tasksOverview" to R.string.ball_action_tasks_overview,
+        "taskAutomations" to R.string.ball_action_task_automations,
         "toggleThemeMode" to R.string.ball_action_toggle_theme,
         "nextAccent" to R.string.ball_action_next_accent,
         "fontScaleUp" to R.string.ball_action_font_up,
