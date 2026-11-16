@@ -134,6 +134,10 @@ enum class HomeTab(
     CHATS("chats", R.string.tab_chats, Icons.Outlined.Forum, Icons.Rounded.Forum),
     INBOX("inbox", R.string.tab_inbox, Icons.Outlined.Inbox, Icons.Rounded.Inbox),
     TASKS("tasks", R.string.tab_tasks, Icons.Outlined.Assignment, Icons.Rounded.Assignment),
+    // 批v180-B: the opt-in sixth tab — same devices-overview as the 文件 push
+    // (ROUTE_FOLDERS). Route string is persisted (HOME_TAB_ROUTES/tab order), so
+    // it must never change.
+    DEVICES("devices", R.string.tab_devices, Icons.Outlined.FolderOpen, Icons.Rounded.FolderOpen),
     SETTINGS("settings", R.string.tab_settings, Icons.Outlined.Settings, Icons.Rounded.Settings);
 
     companion object {
@@ -158,9 +162,17 @@ enum class HomeTab(
  * would let the user lock himself out of every other tab. Because SETTINGS can
  * never be filtered out, the result is guaranteed non-empty.
  */
-internal fun visibleTabs(savedOrder: List<String>, hidden: List<String>): List<HomeTab> {
+internal fun visibleTabs(
+    savedOrder: List<String>,
+    hidden: List<String>,
+    // 批v180-B: DEVICES is opt-in (default OFF) — callers from the shell pass the
+    // live setting; the default keeps the historical two-arg tests meaningful.
+    devicesTabEnabled: Boolean = false,
+): List<HomeTab> {
     val hiddenSet = hidden.toSet() - HomeTab.SETTINGS.route
-    return HomeTab.orderedBy(savedOrder).filterNot { it.route in hiddenSet }
+    return HomeTab.orderedBy(savedOrder)
+        .filterNot { it.route in hiddenSet }
+        .filter { it != HomeTab.DEVICES || devicesTabEnabled }
 }
 
 /** 批v152: the cold-start tab, constrained to the visible set — a hidden start
@@ -168,6 +180,28 @@ internal fun visibleTabs(savedOrder: List<String>, hidden: List<String>): List<H
  *  route as the NavHost start destination. */
 internal fun resolveStartTab(savedStart: String?, tabs: List<HomeTab>): HomeTab =
     tabs.firstOrNull { it == HomeTab.byRoute(savedStart) } ?: tabs.firstOrNull() ?: HomeTab.ACTIVITY
+
+/**
+ * 批v180-A: the devices overview with its navigation wiring. Folder taps carry
+ * the owning device's serverId (page-pinned detail, 批v176 semantics); the
+ * "all files" row opens the ephemeral browser (folderId = -1 + home + serverId).
+ * Shared by the ROUTE_FOLDERS push and the HomeTab.DEVICES tab (批v180-B).
+ */
+@Composable
+private fun DevicesOverviewNav(nav: androidx.navigation.NavHostController) {
+    ProjectListScreen(
+        onOpenFolder = { id, serverId ->
+            if (serverId == null) {
+                nav.navigate("project/$id")
+            } else {
+                nav.navigate("project/$id?serverId=${android.net.Uri.encode(serverId)}")
+            }
+        },
+        onBrowseAll = { serverId, home ->
+            nav.navigate("project/-1?path=${android.net.Uri.encode(home)}&serverId=${android.net.Uri.encode(serverId)}")
+        },
+    )
+}
 
 private const val ROUTE_SERVERS = "servers"
 private const val ROUTE_EDITOR = "editor"
@@ -313,8 +347,8 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
     val sessionFontScale = appSettings.sessionFontScale
     val inboxFontScale = appSettings.inboxFontScale
     val taskhubFontScale = appSettings.taskhubFontScale
-    val homeTabs = remember(appSettings.homeTabOrder, appSettings.hiddenHomeTabs) {
-        visibleTabs(appSettings.homeTabOrder, appSettings.hiddenHomeTabs)
+    val homeTabs = remember(appSettings.homeTabOrder, appSettings.hiddenHomeTabs, appSettings.devicesTabEnabled) {
+        visibleTabs(appSettings.homeTabOrder, appSettings.hiddenHomeTabs, appSettings.devicesTabEnabled)
     }
     // The start destination is bound once per shell lifetime: NavHost rebuilds (and
     // wipes) the whole graph when startDestination changes, so a runtime edit must
@@ -1080,6 +1114,9 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
             // is free navigation — never records, clears any pending return.
             "tabChats" -> freeTab(HomeTab.CHATS)
             "tabFolders" -> pushSurface(ROUTE_FOLDERS)
+            // 批v180-B: the devices overview joins the ball catalog (same surface
+            // as tabFolders — the ball entry predates the tab and stays a push).
+            "devicesOverview" -> pushSurface(ROUTE_FOLDERS)
             "tabActivity" -> freeTab(HomeTab.ACTIVITY)
             "tabSearch" -> pushSurface(ROUTE_SEARCH)
             "tabSettings" -> freeTab(HomeTab.SETTINGS)
@@ -1456,22 +1493,12 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 }
             }
             composable(ROUTE_FOLDERS) {
-                // 批v180-A: the projects tab is the devices overview; folder taps
-                // carry the owning device's serverId (page-pinned detail, 批v176
-                // semantics), and the "all files" row opens the ephemeral browser
-                // (folderId = -1 + home path + serverId).
-                ProjectListScreen(
-                    onOpenFolder = { id, serverId ->
-                        if (serverId == null) {
-                            nav.navigate("project/$id")
-                        } else {
-                            nav.navigate("project/$id?serverId=${android.net.Uri.encode(serverId)}")
-                        }
-                    },
-                    onBrowseAll = { serverId, home ->
-                        nav.navigate("project/-1?path=${android.net.Uri.encode(home)}&serverId=${android.net.Uri.encode(serverId)}")
-                    },
-                )
+                DevicesOverviewNav(nav)
+            }
+            // 批v180-B: the opt-in tab hosts the SAME devices overview as the
+            // ROUTE_FOLDERS push — one screen, two entry points.
+            composable(HomeTab.DEVICES.route) {
+                DevicesOverviewNav(nav)
             }
             composable(HomeTab.ACTIVITY.route) {
                 InterfaceFontScale(sessionFontScale) {

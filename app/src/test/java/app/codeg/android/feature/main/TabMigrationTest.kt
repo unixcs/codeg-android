@@ -2,6 +2,7 @@ package app.codeg.android.feature.main
 
 import app.codeg.android.core.datastore.migrateHomeTabOrder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -85,6 +86,20 @@ class TabMigrationTest {
     fun `a visible start tab is preserved`() {
         val tabs = visibleTabs(savedOrder = emptyList(), hidden = listOf("activity"))
         assertEquals(HomeTab.INBOX, resolveStartTab("inbox", tabs))
+    }
+
+    @Test
+    fun `batch v180 - the devices tab is opt-in and off by default`() {
+        // Default (two-arg) calls keep the historical behaviour: DEVICES stays off
+        // the bar until the caller passes the live toggle.
+        val without = visibleTabs(savedOrder = emptyList(), hidden = emptyList())
+        assertTrue(HomeTab.DEVICES !in without)
+        val with = visibleTabs(savedOrder = emptyList(), hidden = emptyList(), devicesTabEnabled = true)
+        assertTrue(HomeTab.DEVICES in with)
+        // The persisted route resolves even while the tab is hidden — resolveStartTab
+        // then falls back to the first visible tab.
+        assertEquals(HomeTab.DEVICES, HomeTab.byRoute("devices"))
+        assertEquals(HomeTab.CHATS, resolveStartTab("devices", without))
     }
 
     @Test

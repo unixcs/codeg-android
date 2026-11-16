@@ -120,6 +120,8 @@
     <string name="workbench_attention_collapsed">已收起</string>
     <string name="tab_search">搜索</string>
     <string name="tab_settings">设置</string>
+    <!-- 批v180-B：可选的第六个底栏标签（设备总览）。 -->
+    <string name="tab_devices">设备</string>
 
     <!-- Sessions (Chats) -->
     <string name="session_untitled">未命名会话</string>
@@ -520,6 +522,9 @@
     <string name="general_max_depth_title">最大深度</string>
     <string name="general_max_depth_subtitle">智能体最多可委派的层级深度。</string>
     <string name="general_shell_section">导航</string>
+    <!-- 批v180-B：设备总览底栏标签开关。 -->
+    <string name="general_devices_tab_title">底栏显示「设备」标签页</string>
+    <string name="general_devices_tab_subtitle">把设备总览（每台设备的项目与全部文件）钉进底栏。默认关闭——「文件」入口与悬浮球仍可打开同一页面。</string>
     <string name="general_tab_order_subtitle">点 ▲▼ 调整底部栏顺序；点行名把它设为启动时打开的页。</string>
     <string name="general_tab_visibility_subtitle">取消勾选即可从底部栏隐藏。设置页始终显示。</string>
     <string name="general_tab_visible_subtitle">在底部栏显示</string>
@@ -1300,6 +1305,8 @@
     <string name="ball_action_new_session">新会话</string>
     <string name="ball_action_tab_chats">切到会话</string>
     <string name="ball_action_tab_folders">切到文件夹</string>
+    <!-- 批v180-B：设备总览悬浮球动作。 -->
+    <string name="ball_action_devices_overview">切到设备与项目</string>
     <string name="ball_action_tab_activity">切到动态</string>
     <string name="ball_action_tab_search">切到搜索</string>
     <string name="ball_action_tab_settings">切到设置</string>

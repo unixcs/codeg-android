@@ -38,6 +38,10 @@ data class AppSettings(
     val hiddenHomeTabs: List<String> = emptyList(),
     /** Route name of the tab the app opens on cold start (default: activity). */
     val startTab: String = DEFAULT_START_TAB,
+    /** 批v180-B: opt-in sixth bottom tab into the devices overview. Default OFF —
+     *  the projects tab (文件) and the ball's devicesOverview action already reach
+     *  the same screen; the tab is for people who want it pinned in the bar. */
+    val devicesTabEnabled: Boolean = false,
     /** 批v152: workbench 总览区 (stats + quick row) folded by default on cold start.
      *  A per-session manual toggle still wins for the rest of the process. */
     val workbenchOverviewExpandedDefault: Boolean = true,
@@ -216,9 +220,10 @@ data class AppSettings(
     }
 }
 
-/** The five tab routes in the enum's default order. Kept as plain strings so the
- *  data layer stays free of UI types (feature/main's HomeTab mirrors this list). */
-private val HOME_TAB_ROUTES = listOf("activity", "chats", "inbox", "tasks", "settings")
+/** The tab routes in the enum's default order. Kept as plain strings so the
+ *  data layer stays free of UI types (feature/main's HomeTab mirrors this list).
+ *  批v180-B: "devices" joins (the opt-in overview tab). */
+private val HOME_TAB_ROUTES = listOf("activity", "chats", "inbox", "tasks", "devices", "settings")
 
 /**
  * 批v152 read-side migration: orders saved before 会话 returned as a tab never
@@ -269,6 +274,7 @@ class AppSettingsStore @Inject constructor(
             ),
             hiddenHomeTabs = prefs[HIDDEN_TABS]?.split(',')?.filter { it.isNotBlank() }.orEmpty(),
             startTab = prefs[START_TAB] ?: AppSettings.DEFAULT_START_TAB,
+            devicesTabEnabled = prefs[DEVICES_TAB_ENABLED] ?: false,
             workbenchOverviewExpandedDefault = prefs[WORKBENCH_OVERVIEW_DEFAULT] ?: true,
             workbenchAttentionExpandedDefault = prefs[WORKBENCH_ATTENTION_DEFAULT] ?: true,
             activityDeviceSwipe = prefs[ACTIVITY_DEVICE_SWIPE] ?: false,
@@ -581,6 +587,11 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[NOTIFY_TURN_ENABLED] = enabled }
     }
 
+    /** 批v180-B: persist the devices-overview bottom-tab toggle (default OFF). */
+    suspend fun setDevicesTabEnabled(enabled: Boolean) {
+        dataStore.edit { it[DEVICES_TAB_ENABLED] = enabled }
+    }
+
     /** 系统级通知体系: persist the device-offline notification toggle. */
     suspend fun setNotifyDeviceEventsEnabled(enabled: Boolean) {
         dataStore.edit { it[NOTIFY_DEVICE_EVENTS_ENABLED] = enabled }
@@ -744,6 +755,7 @@ class AppSettingsStore @Inject constructor(
         val TAB_ORDER = stringPreferencesKey("home_tab_order")
         val HIDDEN_TABS = stringPreferencesKey("hidden_home_tabs")
         val START_TAB = stringPreferencesKey("start_tab")
+        val DEVICES_TAB_ENABLED = booleanPreferencesKey("devices_tab_enabled")
         val WORKBENCH_OVERVIEW_DEFAULT = booleanPreferencesKey("workbench_overview_expanded_default")
         val WORKBENCH_ATTENTION_DEFAULT = booleanPreferencesKey("workbench_attention_expanded_default")
         val ACTIVITY_DEVICE_SWIPE = booleanPreferencesKey("activity_device_swipe")

@@ -42,6 +42,9 @@ object FloatingBallCatalog {
         "quickSave" to R.string.ball_action_quick_save,
         "tabChats" to R.string.ball_action_tab_chats,
         "tabFolders" to R.string.ball_action_tab_folders,
+        // 批v180-B: the devices overview joins the ball catalog — same surface as
+        // tabFolders. No default binding (v150 growth policy).
+        "devicesOverview" to R.string.ball_action_devices_overview,
         "tabActivity" to R.string.ball_action_tab_activity,
         "tabSearch" to R.string.ball_action_tab_search,
         "tabSettings" to R.string.ball_action_tab_settings,

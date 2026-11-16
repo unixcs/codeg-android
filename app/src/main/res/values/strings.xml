@@ -120,6 +120,8 @@
     <string name="workbench_attention_collapsed">Collapsed</string>
     <string name="tab_search">Search</string>
     <string name="tab_settings">Settings</string>
+    <!-- 批v180-B: opt-in sixth bottom tab (devices overview). -->
+    <string name="tab_devices">Devices</string>
 
     <!-- Sessions (Chats) -->
     <string name="session_untitled">Untitled session</string>
@@ -520,6 +522,9 @@
     <string name="general_max_depth_title">Max depth</string>
     <string name="general_max_depth_subtitle">How many levels deep agents may delegate.</string>
     <string name="general_shell_section">Navigation</string>
+    <!-- 批v180-B: the devices-overview bottom-tab toggle. -->
+    <string name="general_devices_tab_title">Devices tab in the bottom bar</string>
+    <string name="general_devices_tab_subtitle">Pin the devices overview (each device's projects and all files) as a bottom tab. Off by default — the Files entry and the floating ball still open the same screen.</string>
     <string name="general_tab_order_subtitle">Tap ▲▼ to reorder the bottom bar; tap a row\'s name to make it the tab the app opens on.</string>
     <string name="general_tab_visibility_subtitle">Uncheck a tab to hide it from the bottom bar. Settings always stays visible.</string>
     <string name="general_tab_visible_subtitle">Show in the bottom bar</string>
@@ -1314,6 +1319,8 @@
     <string name="ball_action_new_session">New session</string>
     <string name="ball_action_tab_chats">Go to Chats</string>
     <string name="ball_action_tab_folders">Go to Folders</string>
+    <!-- 批v180-B: the devices-overview ball action. -->
+    <string name="ball_action_devices_overview">Go to Devices &amp; Projects</string>
     <string name="ball_action_tab_activity">Go to Activity</string>
     <string name="ball_action_tab_search">Go to Search</string>
     <string name="ball_action_tab_settings">Go to Settings</string>

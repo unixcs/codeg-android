@@ -92,22 +92,33 @@ fun GeneralContent(
             // persisted value that is currently hidden falls back to the first
             // visible tab, so showing the raw saved route would mark an
             // unreachable row.
-            val effectiveStart = remember(appSettings.startTab, appSettings.homeTabOrder, appSettings.hiddenHomeTabs) {
+            val effectiveStart = remember(appSettings.startTab, appSettings.homeTabOrder, appSettings.hiddenHomeTabs, appSettings.devicesTabEnabled) {
                 resolveStartTab(
                     appSettings.startTab,
-                    visibleTabs(appSettings.homeTabOrder, appSettings.hiddenHomeTabs),
+                    visibleTabs(appSettings.homeTabOrder, appSettings.hiddenHomeTabs, appSettings.devicesTabEnabled),
                 ).route
             }
             TabOrderEditor(
                 savedOrder = appSettings.homeTabOrder,
                 startTab = effectiveStart,
                 hidden = appSettings.hiddenHomeTabs,
+                devicesTabEnabled = appSettings.devicesTabEnabled,
                 onReorder = viewModel::setHomeTabOrder,
                 onStartTab = viewModel::setStartTab,
             )
             TabVisibilityEditor(
                 hidden = appSettings.hiddenHomeTabs,
+                devicesTabEnabled = appSettings.devicesTabEnabled,
                 onHiddenChange = viewModel::setTabHidden,
+            )
+            // 批v180-B: the devices overview gets an opt-in bottom-tab entry.
+            // The 文件 push and the ball's devicesOverview action reach the same
+            // screen regardless — this toggle only pins it in the bar.
+            ToggleRow(
+                title = stringResource(R.string.general_devices_tab_title),
+                subtitle = stringResource(R.string.general_devices_tab_subtitle),
+                checked = appSettings.devicesTabEnabled,
+                onChange = viewModel::setDevicesTabEnabled,
             )
             // 批v161: task-board shape (kanban vs list) and its per-layout column
             // count. Only the count belonging to the active layout is offered —
@@ -431,6 +442,7 @@ private fun ToggleRow(
 @Composable
 private fun TabVisibilityEditor(
     hidden: List<String>,
+    devicesTabEnabled: Boolean,
     onHiddenChange: (String, Boolean) -> Unit,
 ) {
     val colors = CodegTheme.colors
@@ -442,7 +454,10 @@ private fun TabVisibilityEditor(
             color = colors.textTertiary,
             modifier = Modifier.padding(start = 12.dp, bottom = 6.dp),
         )
-        HomeTab.entries.forEachIndexed { index, tab ->
+        // 批v180-B: same opt-in rule as the order editor — no row for a tab the
+        // master toggle keeps off the bar entirely.
+        val editableTabs = HomeTab.entries.filter { it != HomeTab.DEVICES || devicesTabEnabled }
+        editableTabs.forEachIndexed { index, tab ->
             val locked = tab == HomeTab.SETTINGS
             ToggleRow(
                 title = stringResource(tab.label),
@@ -451,7 +466,7 @@ private fun TabVisibilityEditor(
                 onChange = { visible -> onHiddenChange(tab.route, !visible) },
                 enabled = !locked,
             )
-            if (index < HomeTab.entries.lastIndex) {
+            if (index < editableTabs.lastIndex) {
                 HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(start = 56.dp))
             }
         }
@@ -501,6 +516,7 @@ private fun TabOrderEditor(
     savedOrder: List<String>,
     startTab: String,
     hidden: List<String>,
+    devicesTabEnabled: Boolean,
     onReorder: (List<String>) -> Unit,
     onStartTab: (String) -> Unit,
 ) {
@@ -511,7 +527,11 @@ private fun TabOrderEditor(
     // Scoped to this editor, the tab order's only writer.
     var orderOverride by remember { mutableStateOf<List<String>?>(null) }
     val effectiveOrder = orderOverride ?: savedOrder
-    val tabs = remember(effectiveOrder) { HomeTab.orderedBy(effectiveOrder) }
+    // 批v180-B: the opt-in devices tab only appears in the editor while it is
+    // enabled — a disabled row would promise ordering/starting it can't do.
+    val tabs = remember(effectiveOrder, devicesTabEnabled) {
+        HomeTab.orderedBy(effectiveOrder).filter { it != HomeTab.DEVICES || devicesTabEnabled }
+    }
     val hiddenSet = hidden.toSet()
     Column {
         Text(stringResource(R.string.general_tab_order_subtitle), fontSize = 12.sp, color = colors.textTertiary, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
