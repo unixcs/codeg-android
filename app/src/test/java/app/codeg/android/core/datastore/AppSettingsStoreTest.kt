@@ -467,8 +467,11 @@ class AppSettingsStoreTest {
             val store = AppSettingsStore(dataStore)
             store.setHomeTabOrder(listOf("chats", "settings"))
             store.setDevicesTabEnabled(true)
+            // The setter resolves against the full route list, so the saved pair
+            // grows its missing tabs as a TAIL; devices lands right before the
+            // saved settings. Contains "chats" → the read-side migration is a no-op.
             assertEquals(
-                listOf("chats", "activity", "inbox", "tasks", "devices", "settings"),
+                listOf("chats", "devices", "settings", "activity", "inbox", "tasks"),
                 store.settings.first().homeTabOrder,
             )
         } finally {
@@ -489,8 +492,11 @@ class AppSettingsStoreTest {
             val store = AppSettingsStore(dataStore)
             store.setHomeTabOrder(listOf("activity", "settings", "devices"))
             store.setDevicesTabEnabled(true)
+            // The setter must not touch an order that already mentions devices.
+            // The READ-side migrateHomeTabOrder (v152 spec: a saved order without
+            // 会话 gains it right after 动态) still applies on the way out.
             assertEquals(
-                listOf("activity", "settings", "devices"),
+                listOf("activity", "chats", "settings", "devices"),
                 store.settings.first().homeTabOrder,
             )
         } finally {
