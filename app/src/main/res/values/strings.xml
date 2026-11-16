@@ -931,6 +931,17 @@
 
     <!-- ===== Projects · Files / Commits ===== -->
     <string name="files_load_failed">Couldn\'t list files</string>
+        <string name="files_tree_new">New file or folder</string>
+        <string name="files_tree_search">Search</string>
+        <string name="files_tree_select">Select multiple</string>
+        <string name="files_tree_search_hint">Filter the expanded tree</string>
+        <string name="files_tree_no_results">No matches</string>
+        <string name="files_tree_no_results_message">Nothing in the expanded tree matches this filter.</string>
+        <string name="files_tree_select_all">Select all</string>
+        <string name="files_tree_selected_count">%1$d selected</string>
+        <string name="files_tree_batch_delete_title">Delete %1$d items?</string>
+        <string name="files_tree_batch_delete_more">\u2026and %1$d more</string>
+        <string name="files_tree_batch_delete_result">Deleted %1$d, failed %2$d</string>
     <string name="files_error">Error</string>
     <string name="files_empty_folder">Empty folder</string>
     <string name="files_empty_folder_message">Nothing in this directory.</string>

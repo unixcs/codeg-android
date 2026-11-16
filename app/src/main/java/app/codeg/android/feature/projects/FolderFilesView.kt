@@ -335,38 +335,20 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
                 showNewSheet = false
                 // path param is the parent dir, workspace-relative ("" = root).
                 runFileAction(scope, refresh, { actionError = it }) {
-                    // Same 2MB ceiling the editor enforces — a multi-MB paste goes to the
-                    // editor (re-opened with the text) rather than a doomed save.
-                    if (!isDir && content.length > MAX_EDIT_CHARS) {
-                        actionError = tooLargeMsg
-                        editPath = dir.let { d -> if (d.endsWith("/")) "$d$name" else "$d/$name" }
-                        return@runFileAction
-                    }
-                    // 批v176 R2: an outside-root parent must not silently re-root the
-                    // create at the workspace root (relPathOrNull's old `?: ""` did
-                    // exactly that) — refuse with the explicit error instead.
-                    val relDir = relPathOrNull(rootPath, dir)
-                    if (relDir == null) {
-                        actionError = outsideWorkspaceMsg
-                        return@runFileAction
-                    }
-                    client.createFileTreeEntry(rootPath, relDir, name, if (isDir) "dir" else "file")
-                    // A file created WITH content: create returns no etag context, so chain a
-                    // read-for-edit (fetches a valid etag for the 0-byte file) then a save.
-                    // A save failure auto-opens the editor seeded with the pasted text.
-                    if (!isDir && content.isNotEmpty()) {
-                        val relNew = if (relDir.isEmpty()) name else "$relDir/$name"
-                        try {
-                            val edit = client.readFileForEdit(rootPath, relNew)
-                            client.saveFileContent(rootPath, relNew, content, edit.etag)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            actionError = e.message ?: genericErrorMsg
-                            editPath = dir.let { d -> if (d.endsWith("/")) "$d$name" else "$d/$name" }
-                            pastedRecovery = content
-                        }
-                    }
+                    // 批v180-D: the flow moved into createEntryWithContent — shared
+                    // with the 批v180 tree's create sheet. Recovery paths still land
+                    // in the editor (paste seed / empty new file), errors in actionError.
+                    createEntryWithContent(
+                        client, rootPath, dir, name, isDir, content,
+                        outsideWorkspaceMsg = outsideWorkspaceMsg,
+                        tooLargeMsg = tooLargeMsg,
+                        genericErrorMsg = genericErrorMsg,
+                        onError = { actionError = it },
+                        onRecoverInEditor = { absPath, seed ->
+                            editPath = absPath
+                            pastedRecovery = seed
+                        },
+                    )
                 }
             },
             onDismiss = { showNewSheet = false },
@@ -484,7 +466,7 @@ private fun runFileAction(
 /** Per-file/folder actions, opened by long-press on a row. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FileActionSheet(
+internal fun FileActionSheet(
     client: CodegClient,
     rootPath: String,
     target: DirectoryItem,
@@ -729,7 +711,7 @@ private fun ActionRow(icon: ImageVector, label: String, tint: Color = CodegTheme
  *  folder kind is selected — the typed text is kept, not cleared, on kind switch). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NewEntrySheet(parentPath: String, onCreate: (String, Boolean, String) -> Unit, onDismiss: () -> Unit) {
+internal fun NewEntrySheet(parentPath: String, onCreate: (String, Boolean, String) -> Unit, onDismiss: () -> Unit) {
     val colors = CodegTheme.colors
     var name by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
@@ -1331,11 +1313,60 @@ private fun FileEditorScreen(
 }
 
 /**
+ * 批v180-D: the shared create-with-content flow behind both NewEntrySheet call
+ * sites (drill-down browser + 批v180 tree). Same 2MB ceiling the editor enforces —
+ * a multi-MB paste goes to the editor on the new empty file rather than a doomed
+ * save; an outside-root parent refuses with the explicit error (批v176 R2); a
+ * failed content save re-opens the editor seeded with the pasted text.
+ * Recovery lands through [onRecoverInEditor](absPath, seedText-or-null).
+ */
+internal suspend fun createEntryWithContent(
+    client: CodegClient,
+    rootPath: String,
+    dir: String,
+    name: String,
+    isDir: Boolean,
+    content: String,
+    outsideWorkspaceMsg: String,
+    tooLargeMsg: String,
+    genericErrorMsg: String,
+    onError: (String) -> Unit,
+    onRecoverInEditor: (absPath: String, seedText: String?) -> Unit,
+) {
+    val absNew = dir.let { d -> if (d.endsWith("/")) "$d$name" else "$d/$name" }
+    if (!isDir && content.length > MAX_EDIT_CHARS) {
+        onError(tooLargeMsg)
+        onRecoverInEditor(absNew, null)
+        return
+    }
+    val relDir = relPathOrNull(rootPath, dir)
+    if (relDir == null) {
+        onError(outsideWorkspaceMsg)
+        return
+    }
+    client.createFileTreeEntry(rootPath, relDir, name, if (isDir) "dir" else "file")
+    // A file created WITH content: create returns no etag context, so chain a
+    // read-for-edit (fetches a valid etag for the 0-byte file) then a save.
+    if (!isDir && content.isNotEmpty()) {
+        val relNew = if (relDir.isEmpty()) name else "$relDir/$name"
+        try {
+            val edit = client.readFileForEdit(rootPath, relNew)
+            client.saveFileContent(rootPath, relNew, content, edit.etag)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            onError(e.message ?: genericErrorMsg)
+            onRecoverInEditor(absNew, content)
+        }
+    }
+}
+
+/**
  * Server tree APIs (create/rename/move, upload `target_path`) take workspace-relative
  * paths with `""` meaning the root — the directory browser hands out absolute paths.
  * Returns `null` when the picked path is outside this workspace.
  */
-private fun relPathOrNull(rootPath: String, absPath: String): String? = when {
+internal fun relPathOrNull(rootPath: String, absPath: String): String? = when {
     absPath == rootPath -> ""
     absPath.startsWith("$rootPath/") -> absPath.removePrefix("$rootPath/")
     else -> null

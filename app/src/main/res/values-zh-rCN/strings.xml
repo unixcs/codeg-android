@@ -923,6 +923,17 @@
 
     <!-- ===== Projects · Files / Commits ===== -->
     <string name="files_load_failed">无法列出文件</string>
+        <string name="files_tree_new">新建文件或文件夹</string>
+        <string name="files_tree_search">搜索</string>
+        <string name="files_tree_select">多选</string>
+        <string name="files_tree_search_hint">过滤已展开的文件</string>
+        <string name="files_tree_no_results">没有匹配</string>
+        <string name="files_tree_no_results_message">已展开的文件里没有匹配项。</string>
+        <string name="files_tree_select_all">全选</string>
+        <string name="files_tree_selected_count">已选 %1$d 项</string>
+        <string name="files_tree_batch_delete_title">删除 %1$d 项？</string>
+        <string name="files_tree_batch_delete_more">以及另外 %1$d 项</string>
+        <string name="files_tree_batch_delete_result">已删除 %1$d 项，失败 %2$d 项</string>
     <string name="files_error">错误</string>
     <string name="files_empty_folder">空文件夹</string>
     <string name="files_empty_folder_message">此目录为空。</string>
