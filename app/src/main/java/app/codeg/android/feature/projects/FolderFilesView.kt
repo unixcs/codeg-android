@@ -491,9 +491,13 @@ internal fun FileActionSheet(
     LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1500); copied = false } }
     val context = androidx.compose.ui.platform.LocalContext.current
     // 审查F4: the display root can sit ABOVE the write anchor (breadcrumb
-    // re-root / tree long-press) — a write anchored outside would hand the
-    // server an absolute path as "relative". All three write rows guard.
-    val rel = relPathOrNull(rootPath, target.path)
+    // re-root / tree long-press). Reads (display/open-with/download) keep the
+    // 批v178 re-root semantics and work anywhere; WRITES need a real in-anchor
+    // relative path — the three write rows refuse with the explicit error when
+    // the target sits outside ("" is an unreachable placeholder: the dialogs
+    // only open from the guarded rows).
+    val relForRead = target.path.removePrefix("$rootPath/")
+    val relForWrite = relPathOrNull(rootPath, target.path) ?: ""
 
     fun run(block: suspend () -> Unit) {
         scope.launch {
@@ -513,7 +517,7 @@ internal fun FileActionSheet(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text(target.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(rel, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = colors.textTertiary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            Text(relForRead, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = colors.textTertiary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             if (copied) {
                 Text(stringResource(R.string.folders_path_copied), color = colors.accent, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             }
@@ -537,7 +541,7 @@ internal fun FileActionSheet(
                                 // path (:readWorkspaceFileBase64 there) — 100MB base64
                                 // (~133MB string + bytes on decode) OOMs the app heap.
                                 // Larger files go through Download, which streams.
-                                val b64 = client.readWorkspaceFileBase64(rootPath, rel, maxBytes = 10 * 1024 * 1024)
+                                val b64 = client.readWorkspaceFileBase64(rootPath, relForRead, maxBytes = 10 * 1024 * 1024)
                                 val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
                                 val dir = java.io.File(context.cacheDir, "open_with").apply { mkdirs() }
                                 val file = java.io.File(dir, target.name)
@@ -577,13 +581,13 @@ internal fun FileActionSheet(
                 copied = true
             }
             ActionRow(Icons.Rounded.DriveFileRenameOutline, stringResource(R.string.files_action_rename)) {
-                if (rel == null) error = outsideWorkspaceMsg else showRename = true
+                if (relForWrite.isEmpty()) error = outsideWorkspaceMsg else showRename = true
             }
             ActionRow(Icons.Rounded.UploadFile, stringResource(R.string.files_action_move)) {
-                if (rel == null) error = outsideWorkspaceMsg else showMove = true
+                if (relForWrite.isEmpty()) error = outsideWorkspaceMsg else showMove = true
             }
             ActionRow(Icons.Rounded.Delete, stringResource(R.string.files_action_delete), tint = colors.danger) {
-                if (rel == null) error = outsideWorkspaceMsg else confirmDelete = true
+                if (relForWrite.isEmpty()) error = outsideWorkspaceMsg else confirmDelete = true
             }
 
             if (busy) {
@@ -599,7 +603,7 @@ internal fun FileActionSheet(
             confirmLabel = stringResource(R.string.files_action_delete),
             onConfirm = {
                 confirmDelete = false
-                run { client.deleteFileTreeEntry(rootPath, rel) }
+                run { client.deleteFileTreeEntry(rootPath, relForWrite) }
             },
             onDismiss = { confirmDelete = false },
         )
@@ -612,7 +616,7 @@ internal fun FileActionSheet(
             confirmLabel = stringResource(R.string.files_action_rename),
             onConfirm = { newName ->
                 showRename = false
-                run { client.renameFileTreeEntry(rootPath, rel, newName) }
+                run { client.renameFileTreeEntry(rootPath, relForWrite, newName) }
             },
             onDismiss = { showRename = false },
         )
@@ -630,7 +634,7 @@ internal fun FileActionSheet(
                 if (relDest == null) {
                     error = outsideWorkspaceMsg
                 } else {
-                    run { client.moveFileTreeEntry(rootPath, rel, relDest) }
+                    run { client.moveFileTreeEntry(rootPath, relForWrite, relDest) }
                 }
             },
             onDismiss = { showMove = false },
@@ -641,7 +645,7 @@ internal fun FileActionSheet(
         DownloadTargetBrowser(
             client = client,
             rootPath = rootPath,
-            rel = rel,
+            rel = relForRead,
             onDone = { showDownloadBrowser = false; onDone() },
             onDismiss = { showDownloadBrowser = false },
         )
