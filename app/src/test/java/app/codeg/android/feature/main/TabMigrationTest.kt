@@ -17,9 +17,10 @@ class TabMigrationTest {
     fun `saved order keeps survivors and re-appends the rest`() {
         val migrated = HomeTab.orderedBy(listOf("chats", "folders", "activity", "search", "settings"))
         // "chats"/"activity"/"settings" survive in saved order; the demoted push
-        // routes are dropped; the remaining tabs append in enum order (批v180:
-        // DEVICES sits between TASKS and SETTINGS in the enum, so it lands
-        // before SETTINGS in the appended tail).
+        // routes are dropped; the remaining tabs append in enum order. 批v180:
+        // SETTINGS survived in the saved head, so DEVICES (enum tail) lands
+        // AFTER it here — landing BEFORE 设置 only happens when
+        // setDevicesTabEnabled materializes the resolved order (审查R1).
         assertEquals(
             listOf(HomeTab.CHATS, HomeTab.ACTIVITY, HomeTab.SETTINGS, HomeTab.INBOX, HomeTab.TASKS, HomeTab.DEVICES),
             migrated,

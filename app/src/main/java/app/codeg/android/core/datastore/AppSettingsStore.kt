@@ -587,9 +587,24 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[NOTIFY_TURN_ENABLED] = enabled }
     }
 
-    /** 批v180-B: persist the devices-overview bottom-tab toggle (default OFF). */
+    /** 批v180-B: persist the devices-overview bottom-tab toggle (default OFF).
+     *  Enabling also parks "devices" in the saved order — inside the SAME edit,
+     *  on the RESOLVED order: a never-customized order is empty, and appending
+     *  to it would let the resolver put DEVICES at the bar's HEAD (orderedBy
+     *  renders known routes first) — the opposite of "right before 设置".
+     *  批v180 审查R1. */
     suspend fun setDevicesTabEnabled(enabled: Boolean) {
-        dataStore.edit { it[DEVICES_TAB_ENABLED] = enabled }
+        dataStore.edit { prefs ->
+            prefs[DEVICES_TAB_ENABLED] = enabled
+            if (!enabled) return@edit
+            val saved = prefs[TAB_ORDER]?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+            if ("devices" in saved) return@edit
+            val resolved = resolvedTabOrder(saved)
+            val before = resolved.indexOf("settings")
+            val next = if (before < 0) resolved + "devices"
+            else resolved.toMutableList().apply { add(before, "devices") }
+            prefs[TAB_ORDER] = next.joinToString(",")
+        }
     }
 
     /** 系统级通知体系: persist the device-offline notification toggle. */

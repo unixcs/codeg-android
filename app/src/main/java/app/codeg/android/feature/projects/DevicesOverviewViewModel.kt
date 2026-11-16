@@ -70,7 +70,13 @@ class DevicesOverviewViewModel @Inject constructor(
             repository.visibleProfiles.collect { profiles ->
                 val previous = _devices.value.associateBy { it.profile.id }
                 _devices.update { current ->
-                    profiles.map { p -> previous[p.id] ?: DeviceOverviewState(profile = p) }
+                    // 审查R2: keep the probe state but NOT a frozen profile — a
+                    // renamed/re-pointed device (same id) must show its new name
+                    // and probe its new address.
+                    profiles.map { p ->
+                        previous[p.id]?.let { if (it.profile != p) it.copy(profile = p) else it }
+                            ?: DeviceOverviewState(profile = p)
+                    }
                 }
                 if (!initialProbeStarted) {
                     initialProbeStarted = true

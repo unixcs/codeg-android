@@ -490,7 +490,10 @@ internal fun FileActionSheet(
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1500); copied = false } }
     val context = androidx.compose.ui.platform.LocalContext.current
-    val rel = target.path.removePrefix("$rootPath/")
+    // 审查F4: the display root can sit ABOVE the write anchor (breadcrumb
+    // re-root / tree long-press) — a write anchored outside would hand the
+    // server an absolute path as "relative". All three write rows guard.
+    val rel = relPathOrNull(rootPath, target.path)
 
     fun run(block: suspend () -> Unit) {
         scope.launch {
@@ -573,9 +576,15 @@ internal fun FileActionSheet(
                 clipboard.setText(AnnotatedString(target.path))
                 copied = true
             }
-            ActionRow(Icons.Rounded.DriveFileRenameOutline, stringResource(R.string.files_action_rename)) { showRename = true }
-            ActionRow(Icons.Rounded.UploadFile, stringResource(R.string.files_action_move)) { showMove = true }
-            ActionRow(Icons.Rounded.Delete, stringResource(R.string.files_action_delete), tint = colors.danger) { confirmDelete = true }
+            ActionRow(Icons.Rounded.DriveFileRenameOutline, stringResource(R.string.files_action_rename)) {
+                if (rel == null) error = outsideWorkspaceMsg else showRename = true
+            }
+            ActionRow(Icons.Rounded.UploadFile, stringResource(R.string.files_action_move)) {
+                if (rel == null) error = outsideWorkspaceMsg else showMove = true
+            }
+            ActionRow(Icons.Rounded.Delete, stringResource(R.string.files_action_delete), tint = colors.danger) {
+                if (rel == null) error = outsideWorkspaceMsg else confirmDelete = true
+            }
 
             if (busy) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp), color = colors.accent)
@@ -1314,11 +1323,13 @@ private fun FileEditorScreen(
 
 /**
  * 批v180-D: the shared create-with-content flow behind both NewEntrySheet call
- * sites (drill-down browser + 批v180 tree). Same 2MB ceiling the editor enforces —
- * a multi-MB paste goes to the editor on the new empty file rather than a doomed
- * save; an outside-root parent refuses with the explicit error (批v176 R2); a
- * failed content save re-opens the editor seeded with the pasted text.
- * Recovery lands through [onRecoverInEditor](absPath, seedText-or-null).
+ * sites (drill-down browser + 批v180 tree). A multi-MB paste (over the editor's
+ * 2MB ceiling) is refused BEFORE the file is created — the caller re-opens the
+ * editor at the not-yet-existing path, where the read fails (审查F6: the paste
+ * survives only in the caller's recovery seed, and only if the caller seeds
+ * one). An outside-root parent refuses with the explicit error (批v176 R2); a
+ * failed content save after a successful create re-opens the editor seeded with
+ * the pasted text. Recovery lands through [onRecoverInEditor](absPath, seed).
  */
 internal suspend fun createEntryWithContent(
     client: CodegClient,

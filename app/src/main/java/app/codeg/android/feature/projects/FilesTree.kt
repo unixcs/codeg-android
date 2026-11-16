@@ -121,6 +121,10 @@ class FilesTreeViewModel @Inject constructor(
         val selecting: Boolean = false,
         val selected: Set<String> = emptySet(),
         val query: String = "",
+        /** 审查F8: the VM's current display root — the view's breadcrumb and
+         *  create-sheet anchor must not drift back to the bind root when a
+         *  filtered tree renders zero rows. */
+        val root: String = "",
     )
 
     private val _ui = MutableStateFlow(TreeUi())
@@ -144,9 +148,6 @@ class FilesTreeViewModel @Inject constructor(
     private val errors = MutableStateFlow<Map<String, String>>(emptyMap())
     private val loadJobs = HashMap<String, Job>()
 
-    /** 批v180-D: path → isDir, filled centrally by [fetchChildren]; the batch
-     *  delete uses it to know which cached dir listings to drop. */
-    private val types = HashMap<String, Boolean>()
     private val selecting = MutableStateFlow(false)
     private val selected = MutableStateFlow<Set<String>>(emptySet())
     private val query = MutableStateFlow("")
@@ -161,7 +162,6 @@ class FilesTreeViewModel @Inject constructor(
         root = normalizedRoot
         bound = true
         children.clear()
-        types.clear()
         expanded.value = emptySet()
         loading.value = emptySet()
         errors.value = emptyMap()
@@ -262,7 +262,9 @@ class FilesTreeViewModel @Inject constructor(
             var ok = true
             var cur = target
             while (cur.length > root.length && cur != "/") {
-                cur = cur.substringBeforeLast('/')
+                // 审查F7: "/a".substringBeforeLast('/') is "" — map it back to "/"
+                // or a "/"-rooted tree can never materialize its saved expansions.
+                cur = cur.substringBeforeLast('/').ifEmpty { "/" }
                 if (cur.length < root.length) {
                     ok = false
                     break
@@ -316,8 +318,6 @@ class FilesTreeViewModel @Inject constructor(
         val client = this.client ?: error("FilesTreeViewModel not bound")
         val items = client.listDirectoryWithFiles(dir)
         children[dir] = items
-        types[dir] = true
-        for (item in items) types[item.path] = item.isDir
         return items
     }
 
@@ -344,9 +344,16 @@ class FilesTreeViewModel @Inject constructor(
         rebuild()
     }
 
-    /** Select every currently rendered row (the depth-0 root row stays out). */
+    /** Select every currently rendered row (the depth-0 root row stays out).
+     *  审查F2: with a filter active, ancestor-chain dirs render only to give
+     *  matches their folder context — selecting them would batch-delete whole
+     *  subtrees the filter never matched (server deletes recurse), so they stay
+     *  out of the sweep. */
     fun selectAllVisible() {
-        selected.value = selected.value + _ui.value.nodes.filter { it.depth > 0 }.map { it.path }
+        val q = query.value.trim()
+        selected.value = selected.value + _ui.value.nodes.filter { node ->
+            node.depth > 0 && (q.isEmpty() || node.name.contains(q, ignoreCase = true))
+        }.map { it.path }
         rebuild()
     }
 
@@ -372,7 +379,16 @@ class FilesTreeViewModel @Inject constructor(
         var deleted = 0
         var failed = 0
         val parents = mutableSetOf<String>()
+        val swept = mutableListOf<String>()
         for (path in selected.value) {
+            // 审查F3: a dir delete sweeps its whole subtree server-side — a
+            // selected descendant of an already-deleted ancestor is GONE, not
+            // failed (counting it failed would report "1 deleted, 12 failed"
+            // for a clean sweep).
+            if (swept.any { prefix -> path.startsWith(if (prefix.endsWith("/")) prefix else "$prefix/") }) {
+                deleted++
+                continue
+            }
             val rel = relPathOrNull(writeRoot, path)
             if (rel.isNullOrEmpty()) {
                 failed++
@@ -381,9 +397,13 @@ class FilesTreeViewModel @Inject constructor(
             try {
                 client.deleteFileTreeEntry(writeRoot, rel)
                 deleted++
+                swept.add(path)
                 parents.add(path.substringBeforeLast('/').ifEmpty { "/" })
-                types.remove(path)
                 expanded.value = expanded.value - path
+                // 审查F12: the deleted dir's own cached listing must not survive —
+                // a same-named recreate would briefly show ghost content.
+                children.remove(path)
+                errors.value = errors.value - path
                 val touched = children.keys.filter { dir -> children[dir]!!.any { it.path == path } }
                 for (dir in touched) children[dir] = children[dir]!!.filterNot { it.path == path }
             } catch (e: CancellationException) {
@@ -466,6 +486,7 @@ class FilesTreeViewModel @Inject constructor(
         _ui.update {
             it.copy(
                 nodes = visible,
+                root = root,
                 rootListingEmpty = children[root]?.isEmpty() == true,
                 selecting = selecting.value,
                 selected = selected.value,
@@ -525,6 +546,10 @@ fun FilesTreeView(
                 surfaceSeed = null
             },
         )
+        // 审查F5: one-shot — consumed on the very first frame like the
+        // drill-down side's pastedRecovery, so discarding an edit and re-entering
+        // the editor reads the file fresh instead of resurrecting abandoned text.
+        surfaceSeed = null
         return
     }
 
@@ -537,7 +562,9 @@ fun FilesTreeView(
     var showBatchConfirm by remember { mutableStateOf(false) }
     // Breadcrumb segments re-root the tree; the create sheet anchors on the
     // CURRENT display root (createEntryWithContent re-checks the write anchor).
-    val displayRoot = state.nodes.firstOrNull()?.path ?: rootPath
+    // 审查F8: read it from the VM state — nodes.first() vanishes when a filter
+    // matches nothing, which would silently re-anchor to the bind root.
+    val displayRoot = state.root.ifEmpty { rootPath }
 
     Column(modifier.fillMaxSize()) {
         if (state.selecting) {
@@ -718,6 +745,18 @@ fun FilesTreeView(
                                 surfaceSeed = seed
                             },
                         )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // 审查F1: createFileTreeEntry itself sits OUTSIDE the helper's
+                        // try — offline/duplicate/permission errors must toast, not
+                        // crash the process (the drill-down side is wrapped by
+                        // runFileAction; this side needs its own net).
+                        Toast.makeText(
+                            context,
+                            e.message ?: genericErrorMsg,
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     } finally {
                         viewModel.refreshDirs(listOf(displayRoot))
                     }

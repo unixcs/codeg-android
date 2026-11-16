@@ -195,21 +195,12 @@ class GeneralViewModel @Inject constructor(
 
     private fun reload() = load()
 
-    /** 批v180-B: the opt-in sixth tab. Enabling it also parks the route right
-     *  before 设置 in the saved order — orders from before this batch don't
-     *  mention "devices" and the resolver would append it behind settings.
-     *  (migrateHomeTabOrder stays untouched: its tests are the v152 spec.) */
+    /** 批v180-B: the opt-in sixth tab. The order parking moved INTO the store's
+     *  setter (批v180 审查R1) — one atomic edit, resolved against the full route
+     *  list so an empty saved order materializes the whole bar instead of
+     *  letting the resolver promote devices to the head. */
     fun setDevicesTabEnabled(enabled: Boolean) = launchPersist {
         appSettingsStore.setDevicesTabEnabled(enabled)
-        if (enabled) {
-            val order = appSettingsStore.settings.first().homeTabOrder
-            if ("devices" !in order) {
-                val before = order.indexOf("settings")
-                val next = if (before < 0) order + "devices"
-                else order.toMutableList().apply { add(before, "devices") }
-                appSettingsStore.setHomeTabOrder(next)
-            }
-        }
     }
 
     fun setHomeTabOrder(routes: List<String>) = launchPersist {

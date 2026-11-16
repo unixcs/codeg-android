@@ -429,4 +429,97 @@ class AppSettingsStoreTest {
             tmp.delete()
         }
     }
+
+    @Test
+    fun `审查R1 - enabling devices on a never-customized order materializes the full bar`() = runBlocking {
+        val tmp = TemporaryFolder()
+        tmp.create()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            store.setDevicesTabEnabled(true)
+            val settings = store.settings.first()
+            assertTrue(settings.devicesTabEnabled)
+            // Empty saved order → the whole bar materialized, DEVICES before 设置
+            // (plain appending would have put DEVICES at the HEAD via the resolver).
+            assertEquals(
+                listOf("activity", "chats", "inbox", "tasks", "devices", "settings"),
+                settings.homeTabOrder,
+            )
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
+    }
+
+    @Test
+    fun `审查R1 - enabling with a saved order parks devices right before settings`() = runBlocking {
+        val tmp = TemporaryFolder()
+        tmp.create()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            store.setHomeTabOrder(listOf("chats", "settings"))
+            store.setDevicesTabEnabled(true)
+            assertEquals(
+                listOf("chats", "activity", "inbox", "tasks", "devices", "settings"),
+                store.settings.first().homeTabOrder,
+            )
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
+    }
+
+    @Test
+    fun `审查R1 - a saved order already mentioning devices stays untouched`() = runBlocking {
+        val tmp = TemporaryFolder()
+        tmp.create()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            store.setHomeTabOrder(listOf("activity", "settings", "devices"))
+            store.setDevicesTabEnabled(true)
+            assertEquals(
+                listOf("activity", "settings", "devices"),
+                store.settings.first().homeTabOrder,
+            )
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
+    }
+
+    @Test
+    fun `审查R1 - disabling keeps the order and only flips the flag`() = runBlocking {
+        val tmp = TemporaryFolder()
+        tmp.create()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            store.setDevicesTabEnabled(true)
+            store.setDevicesTabEnabled(false)
+            val settings = store.settings.first()
+            assertFalse(settings.devicesTabEnabled)
+            assertEquals(
+                listOf("activity", "chats", "inbox", "tasks", "devices", "settings"),
+                settings.homeTabOrder,
+            )
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
+    }
 }
