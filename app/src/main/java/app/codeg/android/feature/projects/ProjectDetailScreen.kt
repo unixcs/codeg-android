@@ -259,9 +259,14 @@ fun ProjectDetailScreen(
                                     ProjectTab.COMMITS -> FolderCommitsView(viewModel, client, folder.path)
                                 }
                             } else {
-                                // Ephemeral: the browsed path anchors writes too —
-                                // ops beyond it fail with the clear outside-workspace error.
-                                FolderFilesView(client, rootPath = ui.browsePath.orEmpty())
+                                // 批v180-C: ephemeral browse renders the persistent
+                                // expand/collapse tree (lazy children, expand memory per
+                                // device/root, breadcrumb re-root). Writes stay anchored
+                                // to the browsed path — ops beyond it fail with the clear
+                                // outside-workspace error (FileSurfaceHost keeps the same
+                                // rootPath contract). Registered projects keep the
+                                // drill-down Files tab above.
+                                FilesTreeView(client, rootPath = ui.browsePath.orEmpty(), serverId = serverId)
                             }
                         }
                     }

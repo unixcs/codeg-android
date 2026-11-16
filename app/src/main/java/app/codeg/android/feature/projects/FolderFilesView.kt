@@ -120,26 +120,21 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
     var editPath by rememberSaveable { mutableStateOf<String?>(null) }
     // Content recovered from a failed create-with-content; consumed once by the editor.
     var pastedRecovery by remember { mutableStateOf<String?>(null) }
-    var editorDirty by remember { mutableStateOf(false) }
-    var confirmDiscard by remember { mutableStateOf(false) }
 
-    BackHandler(editPath, editorDirty, previewPath, stack) {
-        when {
-            // Same path as the in-app back arrow: dirty editors ask first.
-            editPath != null -> if (editorDirty) confirmDiscard = true else editPath = null
-            previewPath != null -> previewPath = null
-            stack.size > 1 -> stack = stack.dropLast(1)
-        }
+    // 批v180-C: preview/edit live in FileSurfaceHost now (one implementation
+    // shared with the 批v180 tree); back handling here only guards the stack —
+    // while a file surface is open, the host's own handler (composed later) wins.
+    androidx.activity.compose.BackHandler(enabled = editPath == null && previewPath == null && stack.size > 1) {
+        stack = stack.dropLast(1)
     }
 
     val editing = editPath
     if (editing != null) {
-        FileEditorScreen(
+        FileSurfaceHost(
             client, rootPath, editing,
-            onDirtyChange = { editorDirty = it },
-            onClose = { editPath = null },
-            onDirtyClose = { editPath = null; confirmDiscard = true },
+            startInEditor = true,
             initialText = pastedRecovery,
+            onDismiss = { editPath = null },
         )
         // One-shot seed: once consumed (or the user backs out without the editor taking
         // it), the paste must not reappear in a later unrelated edit.
@@ -149,9 +144,8 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
 
     val preview = previewPath
     if (preview != null) {
-        FilePreview(
+        FileSurfaceHost(
             client, rootPath, preview,
-            onEdit = { editPath = preview },
             onDismiss = { previewPath = null },
         )
         return
@@ -334,19 +328,6 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
         )
     }
 
-    if (confirmDiscard) {
-        ConfirmDialog(
-            title = stringResource(R.string.files_discard_title),
-            message = stringResource(R.string.files_discard_message),
-            confirmLabel = stringResource(R.string.files_discard_confirm),
-            onConfirm = {
-                confirmDiscard = false
-                editPath = null
-            },
-            onDismiss = { confirmDiscard = false },
-        )
-    }
-
     if (showNewSheet) {
         NewEntrySheet(
             parentPath = dir,
@@ -438,20 +419,6 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
 }
 
 /** Navigate back through the browser's three layers: editor → preview → directory stack. */
-@Composable
-private fun BackHandler(
-    editing: String?,
-    editorDirty: Boolean,
-    preview: String?,
-    stack: List<String>,
-    onBack: () -> Unit,
-) {
-    androidx.activity.compose.BackHandler(
-        enabled = editing != null || preview != null || stack.size > 1,
-        onBack = onBack,
-    )
-}
-
 /** Toolbar overflow: new file/folder + upload. Upload target chosen via server browser. */
 @Composable
 private fun FilesToolbarMenu(onNewFile: () -> Unit, onUpload: () -> Unit) {
@@ -1399,7 +1366,8 @@ private fun outsideRootRead(rootPath: String, absPath: String): Pair<String, Str
 /** Client cap for the on-device editor — Compose text fields choke far below the server's 50 MB limit. */
 private const val MAX_EDIT_CHARS = 2_000_000
 
-private fun sortItems(items: List<DirectoryItem>): List<DirectoryItem> =
+/** Dirs first, then names — shared by the drill-down browser and the 批v180 tree. */
+internal fun sortItems(items: List<DirectoryItem>): List<DirectoryItem> =
     items.sortedWith(compareByDescending<DirectoryItem> { it.isDir }.thenBy { it.name.lowercase() })
 
 
@@ -1436,5 +1404,63 @@ private fun formatBytes(bytes: Long): String {
         bytes >= 1_048_576 -> String.format(loc, "%.1f MB", bytes / 1_048_576.0)
         bytes >= 1024 -> String.format(loc, "%.1f KB", bytes / 1024.0)
         else -> "$bytes B"
+    }
+}
+
+/**
+ * 批v180-C: shared file preview/edit host. Owns the edit toggle, dirty tracking
+ * and the discard confirmation that used to live inline in [FolderFilesView], so
+ * the drill-down browser and the 批v180 tree render files through ONE
+ * implementation. Full-screen: callers render it INSTEAD of their listing body
+ * (early-return pattern, same as the old inline branches).
+ */
+@Composable
+internal fun FileSurfaceHost(
+    client: CodegClient,
+    rootPath: String,
+    path: String,
+    startInEditor: Boolean = false,
+    initialText: String? = null,
+    onDismiss: () -> Unit,
+) {
+    var editing by rememberSaveable { mutableStateOf(startInEditor) }
+    var editorDirty by remember { mutableStateOf(false) }
+    var confirmDiscard by remember { mutableStateOf(false) }
+
+    // Same path as the in-app chrome: dirty editors ask first, clean ones just close.
+    androidx.activity.compose.BackHandler(enabled = true) {
+        when {
+            editing -> if (editorDirty) confirmDiscard = true else editing = false
+            else -> onDismiss()
+        }
+    }
+
+    if (editing) {
+        FileEditorScreen(
+            client, rootPath, path,
+            onDirtyChange = { editorDirty = it },
+            onClose = { editing = false },
+            onDirtyClose = { editing = false; confirmDiscard = true },
+            initialText = initialText,
+        )
+    } else {
+        FilePreview(
+            client, rootPath, path,
+            onEdit = { editing = true },
+            onDismiss = onDismiss,
+        )
+    }
+
+    if (confirmDiscard) {
+        ConfirmDialog(
+            title = stringResource(R.string.files_discard_title),
+            message = stringResource(R.string.files_discard_message),
+            confirmLabel = stringResource(R.string.files_discard_confirm),
+            onConfirm = {
+                confirmDiscard = false
+                editing = false
+            },
+            onDismiss = { confirmDiscard = false },
+        )
     }
 }

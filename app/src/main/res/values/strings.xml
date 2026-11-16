@@ -524,7 +524,7 @@
     <string name="general_shell_section">Navigation</string>
     <!-- 批v180-B: the devices-overview bottom-tab toggle. -->
     <string name="general_devices_tab_title">Devices tab in the bottom bar</string>
-    <string name="general_devices_tab_subtitle">Pin the devices overview (each device's projects and all files) as a bottom tab. Off by default — the Files entry and the floating ball still open the same screen.</string>
+    <string name="general_devices_tab_subtitle">Pin the devices overview (each device\'s projects and all files) as a bottom tab. Off by default — the Files entry and the floating ball still open the same screen.</string>
     <string name="general_tab_order_subtitle">Tap ▲▼ to reorder the bottom bar; tap a row\'s name to make it the tab the app opens on.</string>
     <string name="general_tab_visibility_subtitle">Uncheck a tab to hide it from the bottom bar. Settings always stays visible.</string>
     <string name="general_tab_visible_subtitle">Show in the bottom bar</string>
