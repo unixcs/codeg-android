@@ -452,7 +452,7 @@ private fun TreeRow(
             .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onOpen)
-            .padding(start = 6.dp + node.depth * 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = 6.dp + 16.dp * node.depth, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

@@ -202,7 +202,7 @@ class GeneralViewModel @Inject constructor(
     fun setDevicesTabEnabled(enabled: Boolean) = launchPersist {
         appSettingsStore.setDevicesTabEnabled(enabled)
         if (enabled) {
-            val order = appSettingsStore.settings.value.homeTabOrder
+            val order = appSettingsStore.settings.first().homeTabOrder
             if ("devices" !in order) {
                 val before = order.indexOf("settings")
                 val next = if (before < 0) order + "devices"
