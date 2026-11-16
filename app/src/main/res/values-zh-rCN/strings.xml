@@ -215,6 +215,13 @@
     <string name="sessions_hidden_empty">此服务器没有隐藏任何分组。</string>
     <string name="sessions_restore">恢复</string>
 
+    <!-- 批v180-A：设备总览页（项目 tab） -->
+    <string name="devices_title">设备与项目</string>
+    <string name="devices_probing">连接中\u2026</string>
+    <string name="devices_offline">离线，点按重试</string>
+    <string name="devices_retry">重试</string>
+    <string name="devices_browse_all">全部文件</string>
+    <string name="devices_no_folders">该设备还没有注册的项目</string>
     <!-- Projects / Folders -->
     <string name="projects_add">添加</string>
     <!-- 批v174 P2：顶栏布局切换（图标指向点击后切换成的形态） -->

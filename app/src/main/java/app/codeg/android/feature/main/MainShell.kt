@@ -1456,7 +1456,22 @@ fun MainShell(appViewModel: AppViewModel, servers: List<ServerProfile>) {
                 }
             }
             composable(ROUTE_FOLDERS) {
-                ProjectListScreen(onOpenFolder = { id -> nav.navigate("project/$id") })
+                // 批v180-A: the projects tab is the devices overview; folder taps
+                // carry the owning device's serverId (page-pinned detail, 批v176
+                // semantics), and the "all files" row opens the ephemeral browser
+                // (folderId = -1 + home path + serverId).
+                ProjectListScreen(
+                    onOpenFolder = { id, serverId ->
+                        if (serverId == null) {
+                            nav.navigate("project/$id")
+                        } else {
+                            nav.navigate("project/$id?serverId=${android.net.Uri.encode(serverId)}")
+                        }
+                    },
+                    onBrowseAll = { serverId, home ->
+                        nav.navigate("project/-1?path=${android.net.Uri.encode(home)}&serverId=${android.net.Uri.encode(serverId)}")
+                    },
+                )
             }
             composable(HomeTab.ACTIVITY.route) {
                 InterfaceFontScale(sessionFontScale) {

@@ -7,6 +7,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,9 +17,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.AltRoute
@@ -27,16 +26,13 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.FolderOpen
-import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.LinkOff
-import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -58,7 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -70,50 +65,56 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
-import app.codeg.android.core.common.RelativeTime
-import app.codeg.android.core.data.isLiveFresh
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.FolderBadge
 import app.codeg.android.core.designsystem.component.GlassCard
-import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LivePulse
-import app.codeg.android.core.designsystem.component.LoadingView
+import app.codeg.android.core.designsystem.component.deviceBadgeColor
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.designsystem.theme.colorFromHex
 import app.codeg.android.core.model.FolderDetail
 import kotlinx.coroutines.launch
 
+/**
+ * 批v180-A: the projects tab IS the devices overview now. One section per
+ * visible device — a probe-status header (identity dot + name + host), that
+ * device's workspace folders as tappable chips, and an "all files" row that
+ * opens the ephemeral full-disk browser pinned to the device. Folder taps
+ * navigate with the owning device's serverId so the detail page is page-pinned
+ * (批v176), not a silent re-selection of the global device.
+ *
+ * The FAB still talks to the globally-selected device (open-folder / clone are
+ * "add something on the current device" operations, unchanged from 批v129/174).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectListScreen(
-    onOpenFolder: (Int) -> Unit,
+    onOpenFolder: (Int, String?) -> Unit,
+    onBrowseAll: (String, String) -> Unit,
     viewModel: ProjectsViewModel = hiltViewModel(),
+    overviewViewModel: DevicesOverviewViewModel = hiltViewModel(),
 ) {
-    val ui by viewModel.ui.collectAsStateWithLifecycle()
+    val devices by overviewViewModel.devices.collectAsStateWithLifecycle()
+    val refreshing by overviewViewModel.refreshing.collectAsStateWithLifecycle()
+    val selectedServerId by overviewViewModel.selectedServerId.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
-    // 批v174 P2: the projects layout — 1 = the classic grouped list, 2 = a card
-    // grid (2 cards per row on phones, 3 on tablets). Persisted in AppSettings;
-    // 批v175 审查: the VM narrows the flow to this one field so unrelated settings
-    // writes don't recompose the screen.
-    val projectListColumns by viewModel.projectListColumns.collectAsStateWithLifecycle()
-    val columns = projectListColumns.coerceIn(1, 2)
-    val configuration = LocalConfiguration.current
     var menuOpen by remember { mutableStateOf(false) }
     var showBrowser by remember { mutableStateOf(false) }
     var showClone by remember { mutableStateOf(false) }
-    // 批v129: long-press a folder row → action sheet (copy path / remove from workspace).
-    var actionFolder by remember { mutableStateOf<FolderDetail?>(null) }
+    // 批v129: long-press a folder chip → action sheet (copy path / remove from
+    // workspace). 批v180-A: removal targets the OWNING device, so the sheet is
+    // keyed by (serverId, folder) instead of the folder alone.
+    var actionTarget by remember { mutableStateOf<Pair<String, FolderDetail>?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 批v175 审查: the sort and the per-folder running counts used to be
-    // recomputed on EVERY recomposition (25s poll, any settings write) and each
-    // card re-scanned all conversations (O(F×C)) — hoist behind remember, keyed
-    // on the exact inputs.
-    val sortedFoldersList = remember(ui.folders) { sortedFolders(ui.folders) }
-    val runningByFolder = remember(ui.conversations) {
-        ui.conversations.filter { it.isLiveFresh() }
-            .groupBy { it.folderId }
-            .mapValues { (_, live) -> live.size }
+
+    // Selected device first, then alphabetical — the section the FAB writes to
+    // leads the page.
+    val devicesSorted = remember(devices, selectedServerId) {
+        devices.sortedWith(
+            compareByDescending<DeviceOverviewState> { it.profile.id == selectedServerId }
+                .thenBy { it.profile.name.lowercase() },
+        )
     }
 
     Scaffold(
@@ -121,25 +122,12 @@ fun ProjectListScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.tab_folders)) },
+                title = { Text(stringResource(R.string.devices_title)) },
                 windowInsets = WindowInsets(0, 0, 0, 0), // device bar in MainShell owns the status-bar inset
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     titleContentColor = colors.textPrimary,
                 ),
-                actions = {
-                    // 批v174 P2: list ⇄ card-grid toggle (same icon language as the
-                    // inbox's column toggle: the icon shows what the tap SWITCHES to).
-                    IconButton(onClick = { viewModel.setProjectListColumns(if (columns == 2) 1 else 2) }) {
-                        Icon(
-                            if (columns == 2) Icons.Rounded.ViewAgenda else Icons.Rounded.GridView,
-                            contentDescription = stringResource(
-                                if (columns == 2) R.string.projects_columns_list else R.string.projects_columns_cards,
-                            ),
-                            tint = colors.textSecondary,
-                        )
-                    }
-                },
             )
         },
         floatingActionButton = {
@@ -167,57 +155,32 @@ fun ProjectListScreen(
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            when {
-                ui.loading && !ui.hasLoaded ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(stringResource(R.string.common_loading)) }
-                !ui.hasLoaded && ui.error != null ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        InlineError(Icons.Rounded.FolderOpen, stringResource(R.string.projects_load_failed), ui.error!!, viewModel::refresh)
-                    }
-                ui.hasLoaded && ui.folders.isEmpty() ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        EmptyState(Icons.Rounded.FolderOpen, stringResource(R.string.projects_empty_title), stringResource(R.string.projects_empty_message))
-                    }
-                else -> PullToRefreshBox(isRefreshing = ui.refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
-                    if (columns == 2) {
-                        // 批v174 P2: the card grid — same glass-card language as the
-                        // list, one standalone card per folder. Tablet-width (>= 600dp)
-                        // gets a third column.
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(if (configuration.screenWidthDp >= 600) 3 else 2),
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            gridItems(sortedFoldersList, key = { it.id }) { folder ->
-                                FolderCard(
-                                    folder,
-                                    runningByFolder[folder.id] ?: 0,
-                                    onLongClick = { actionFolder = folder },
-                                    onClick = { onOpenFolder(folder.id) },
-                                )
-                            }
-                        }
-                    } else {
-                        LazyColumn(
-                            Modifier.fillMaxSize(),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp),
-                        ) {
-                            // One continuous grouped surface holding every folder as a
-                            // borderless row split by inset hairlines — the iOS grouped-list
-                            // look, matching the Settings tab. Folder counts are small, so a
-                            // single card inside the lazy list is fine.
-                            item {
-                                GlassCard(padding = 0.dp) {
-                                    sortedFoldersList.forEachIndexed { index, folder ->
-                                        if (index > 0) {
-                                            HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(start = 66.dp))
-                                        }
-                                        FolderRow(folder, runningByFolder[folder.id] ?: 0, onLongClick = { actionFolder = folder }) { onOpenFolder(folder.id) }
-                                    }
-                                }
-                            }
+            if (devicesSorted.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState(Icons.Rounded.FolderOpen, stringResource(R.string.projects_empty_title), stringResource(R.string.projects_empty_message))
+                }
+            } else {
+                PullToRefreshBox(isRefreshing = refreshing, onRefresh = overviewViewModel::refresh, modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(
+                            count = devicesSorted.size,
+                            key = { devicesSorted[it].profile.id },
+                        ) { index ->
+                            val state = devicesSorted[index]
+                            DeviceSection(
+                                state = state,
+                                onOpenFolder = { folder -> onOpenFolder(folder.id, state.profile.id) },
+                                onBrowseAll = {
+                                    val home = state.home
+                                    if (home != null) onBrowseAll(state.profile.id, home)
+                                },
+                                onRetry = { overviewViewModel.retry(state.profile.id) },
+                                onLongPressFolder = { folder -> actionTarget = state.profile.id to folder },
+                            )
                         }
                     }
                 }
@@ -241,155 +204,202 @@ fun ProjectListScreen(
             loadHome = viewModel::homeDirectory,
             loadDirs = viewModel::listDirectories,
             clone = viewModel::clone,
-            onCloned = { showClone = false; viewModel.refresh() },
+            // 批v180-A: clone registers the folder, ProjectsViewModel broadcasts
+            // foldersChanged, and the overview refetches on its own.
+            onCloned = { showClone = false },
             onDismiss = { showClone = false },
         )
     }
-    actionFolder?.let { folder ->
+    actionTarget?.let { (serverId, folder) ->
         FolderActionSheet(
             folder = folder,
             onRemove = {
-                actionFolder = null
+                actionTarget = null
                 scope.launch {
-                    // Surface the failure — a silent return leaves the row in place with
-                    // zero feedback (review round 3).
-                    viewModel.removeFolder(folder.id)?.let { err ->
+                    // Surface the failure — a silent return leaves the chip in place
+                    // with zero feedback (review round 3, still true per-device).
+                    overviewViewModel.removeFolder(serverId, folder.id)?.let { err ->
                         android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_LONG).show()
                     }
                 }
             },
-            onDismiss = { actionFolder = null },
+            onDismiss = { actionTarget = null },
         )
     }
 }
 
 /**
- * One folder as a borderless grouped row: a colored [FolderBadge] tile, the name
- * with its full path + branch underneath, a trailing running-count pill or
- * relative last-opened time, then a drill-in chevron. The enclosing [GlassCard]
- * draws the surface; rows are split by inset hairlines. Long-press opens the
- * [FolderActionSheet] (copy path / remove from workspace) — batch v129.
- * 批v151 polish (mandate 图二): 56dp row floor, 44dp tile, 12sp mono path with
- * MIDDLE ellipsis (long absolute paths keep their head AND tail visible).
+ * One device as a glass section: probe-status header, then the device's
+ * workspace folders as chips (long-press = action sheet), then the "all files"
+ * row into the ephemeral browser. While probing the body shows a connecting
+ * row; a failed probe collapses to an offline row whose whole area is tappable
+ * for a retry.
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
-private fun FolderRow(
-    folder: FolderDetail,
-    running: Int,
-    modifier: Modifier = Modifier,
-    onLongClick: () -> Unit,
-    onClick: () -> Unit,
+private fun DeviceSection(
+    state: DeviceOverviewState,
+    onOpenFolder: (FolderDetail) -> Unit,
+    onBrowseAll: () -> Unit,
+    onRetry: () -> Unit,
+    onLongPressFolder: (FolderDetail) -> Unit,
 ) {
     val colors = CodegTheme.colors
-    val tile = colorFromHex(folder.color) ?: colors.accent
-    Row(
-        modifier
-            .fillMaxWidth()
-            .heightIn(min = 56.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        FolderBadge(color = tile, size = 44.dp)
-        Column(Modifier.weight(1f)) {
-            Text(folder.name, style = MaterialTheme.typography.bodyLarge, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    folder.path,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = colors.textTertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                folder.gitBranch?.let { BranchPill(it) }
-            }
-        }
-        if (running > 0) {
-            RunningPill(running)
-        } else {
-            folder.lastOpenedAt?.let { Text(RelativeTime.compact(it), fontSize = 11.sp, color = colors.textTertiary) }
-        }
-        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(18.dp))
-    }
-}
-
-/**
- * 批v174 P2: one folder as a standalone card in the grid — the [FolderRow]
- * content re-flowed vertically: badge + name on top, then the mono path, then
- * branch pill + running pill / last-opened time. Click and long-press semantics
- * are identical to the row (open / [FolderActionSheet]).
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun FolderCard(
-    folder: FolderDetail,
-    running: Int,
-    onLongClick: () -> Unit,
-    onClick: () -> Unit,
-) {
-    val colors = CodegTheme.colors
-    val tile = colorFromHex(folder.color) ?: colors.accent
-    // 批v175 审查必修: GlassCard's default 16dp padding sat OUTSIDE the clickable
-    // modifier — a dead band around every card's edge ignored taps/long-presses
-    // (the single-column rows already use padding 0 + inner padding for exactly
-    // this reason). Padding moved after combinedClickable: the whole card answers.
     GlassCard(padding = 0.dp) {
-        Column(
-            Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FolderBadge(color = tile, size = 40.dp)
+        Column(Modifier.fillMaxWidth()) {
+            // Header: identity dot (stable per-device hue from the device bar),
+            // name, and the host as the "what am I looking at" subtitle. The
+            // trailing slot carries the probe status; tapping a failed header
+            // retries the probe.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (state.online) Modifier else Modifier.clickable(onClick = onRetry))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(10.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(deviceBadgeColor(state.profile.name)),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        state.profile.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        android.net.Uri.parse(state.profile.baseUrl).host ?: state.profile.baseUrl,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = colors.textTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                when {
+                    state.probing -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            LivePulse(dotSize = 7.dp)
+                            Text(stringResource(R.string.devices_probing), fontSize = 11.sp, color = colors.textTertiary)
+                        }
+                    }
+                    !state.online -> Text(
+                        stringResource(R.string.devices_offline),
+                        fontSize = 11.sp,
+                        color = colors.danger,
+                    )
+                }
+            }
+
+            HorizontalDivider(color = colors.hairline)
+
+            when {
+                state.probing -> SectionMessageRow(stringResource(R.string.devices_probing))
+                !state.online -> Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Text(
+                        state.error ?: stringResource(R.string.devices_offline),
+                        fontSize = 12.sp,
+                        color = colors.textTertiary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        stringResource(R.string.devices_retry),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.accent,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                else -> {
+                    if (state.folders.isEmpty()) {
+                        SectionMessageRow(stringResource(R.string.devices_no_folders))
+                    } else {
+                        // Workspace folders as compact chips — the overview is a map
+                        // across devices, so chips keep N devices scannable without
+                        // each one eating a full-height row per folder.
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            state.folders.forEach { folder ->
+                                val tile = colorFromHex(folder.color) ?: colors.accent
+                                Row(
+                                    Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.textPrimary.copy(alpha = 0.05f))
+                                        .combinedClickable(onClick = { onOpenFolder(folder) }, onLongClick = { onLongPressFolder(folder) })
+                                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    FolderBadge(color = tile, size = 16.dp)
+                                    Text(
+                                        folder.name,
+                                        fontSize = 13.sp,
+                                        color = colors.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.size(width = 160.dp, height = 20.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = colors.hairline, modifier = Modifier.padding(start = 34.dp))
+
+            // "All files": the full-disk browser rooted at the device home,
+            // pinned to this device (folderId = -1 + path + serverId).
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 44.dp)
+                    .then(if (state.online && state.home != null) Modifier.clickable(onClick = onBrowseAll) else Modifier)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.FolderOpen,
+                    contentDescription = null,
+                    tint = if (state.online && state.home != null) colors.textSecondary else colors.textTertiary,
+                    modifier = Modifier.size(18.dp),
+                )
                 Text(
-                    folder.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    stringResource(R.string.devices_browse_all),
+                    fontSize = 13.sp,
+                    color = if (state.online && state.home != null) colors.textSecondary else colors.textTertiary,
                     modifier = Modifier.weight(1f),
                 )
-            }
-            Text(
-                folder.path,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                color = colors.textTertiary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // 批v175 审查必修: a long branch name had no width cap and squeezed
-                // the running pill / last-opened time out of the card entirely —
-                // the card then claims an idle project that is actually running.
-                // fill=false keeps short names hug-sized.
-                folder.gitBranch?.let { Box(Modifier.weight(1f, fill = false)) { BranchPill(it) } }
-                if (running > 0) {
-                    RunningPill(running)
-                } else {
-                    folder.lastOpenedAt?.let { Text(RelativeTime.compact(it), fontSize = 11.sp, color = colors.textTertiary) }
+                if (state.online && state.home != null) {
+                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(18.dp))
                 }
             }
         }
     }
 }
 
-/** Active-task indicator: a pulsing dot + count in an accent capsule (iOS folder row). */
+/** A full-width dim status line (connecting / nothing registered). */
 @Composable
-private fun RunningPill(count: Int) {
+private fun SectionMessageRow(message: String) {
     val colors = CodegTheme.colors
-    Row(
-        Modifier.clip(RoundedCornerShape(50)).background(colors.accentDim).padding(horizontal = 8.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        LivePulse(dotSize = 7.dp)
-        Text("$count", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.accent)
-    }
+    Text(
+        message,
+        fontSize = 12.sp,
+        color = colors.textTertiary,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+    )
 }
 
 @Composable
@@ -412,9 +422,6 @@ fun BranchPill(branch: String) {
     }
 }
 
-private fun sortedFolders(folders: List<FolderDetail>): List<FolderDetail> =
-    folders.sortedWith(compareBy({ it.sortOrder }, { it.name.lowercase() }))
-
 /** One action row in [FolderActionSheet]. */
 @Composable
 private fun FolderActionRow(icon: ImageVector, label: String, tint: Color = CodegTheme.colors.textPrimary, onClick: () -> Unit) {
@@ -433,6 +440,7 @@ private fun FolderActionRow(icon: ImageVector, label: String, tint: Color = Code
  * Long-press actions for a workspace folder (batch v129): copy its absolute
  * path (hand it to the agent as context) and remove it from the workspace view
  * — the server only unregisters the folder, files stay on disk.
+ * 批v180-A: the remove call goes to the folder's OWN device via the overview VM.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

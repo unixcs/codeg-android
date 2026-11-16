@@ -134,7 +134,12 @@ class ProjectsViewModel @Inject constructor(
             } catch (e: Exception) {
                 e.displayMessage()
             }
-            if (err == null) fetch(initial = false)
+            if (err == null) {
+                fetch(initial = false)
+                // 批v180-A: registering a folder changes the device's workspace
+                // set — broadcast so the devices-overview picks it up too.
+                repository.notifyFoldersChanged()
+            }
             onResult(err)
         }
     }
@@ -145,6 +150,7 @@ class ProjectsViewModel @Inject constructor(
         return try {
             c.removeFolderFromWorkspace(folderId)
             fetch(initial = false)
+            repository.notifyFoldersChanged()
             null
         } catch (e: CancellationException) {
             throw e
@@ -200,6 +206,7 @@ class ProjectsViewModel @Inject constructor(
             } catch (_: Exception) {
             }
             fetch(initial = false)
+            repository.notifyFoldersChanged()
             null
         } catch (e: CancellationException) {
             throw e
