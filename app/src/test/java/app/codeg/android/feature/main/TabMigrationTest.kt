@@ -17,9 +17,11 @@ class TabMigrationTest {
     fun `saved order keeps survivors and re-appends the rest`() {
         val migrated = HomeTab.orderedBy(listOf("chats", "folders", "activity", "search", "settings"))
         // "chats"/"activity"/"settings" survive in saved order; the demoted push
-        // routes are dropped; the remaining tabs append in enum order.
+        // routes are dropped; the remaining tabs append in enum order (批v180:
+        // DEVICES sits between TASKS and SETTINGS in the enum, so it lands
+        // before SETTINGS in the appended tail).
         assertEquals(
-            listOf(HomeTab.CHATS, HomeTab.ACTIVITY, HomeTab.SETTINGS, HomeTab.INBOX, HomeTab.TASKS),
+            listOf(HomeTab.CHATS, HomeTab.ACTIVITY, HomeTab.SETTINGS, HomeTab.INBOX, HomeTab.TASKS, HomeTab.DEVICES),
             migrated,
         )
     }
@@ -32,9 +34,10 @@ class TabMigrationTest {
     @Test
     fun `unknown routes are dropped without resurrecting push surfaces`() {
         val migrated = HomeTab.orderedBy(listOf("chats", "search", "bogus", "inbox"))
-        // known=[CHATS, INBOX] first, then every remaining tab in enum order.
+        // known=[CHATS, INBOX] first, then every remaining tab in enum order
+        // (批v180: DEVICES rides the enum tail, before SETTINGS).
         assertEquals(
-            listOf(HomeTab.CHATS, HomeTab.INBOX, HomeTab.ACTIVITY, HomeTab.TASKS, HomeTab.SETTINGS),
+            listOf(HomeTab.CHATS, HomeTab.INBOX, HomeTab.ACTIVITY, HomeTab.TASKS, HomeTab.DEVICES, HomeTab.SETTINGS),
             migrated,
         )
     }
@@ -97,9 +100,9 @@ class TabMigrationTest {
         val with = visibleTabs(savedOrder = emptyList(), hidden = emptyList(), devicesTabEnabled = true)
         assertTrue(HomeTab.DEVICES in with)
         // The persisted route resolves even while the tab is hidden — resolveStartTab
-        // then falls back to the first visible tab.
+        // then falls back to the first visible tab (ACTIVITY leads the enum order).
         assertEquals(HomeTab.DEVICES, HomeTab.byRoute("devices"))
-        assertEquals(HomeTab.CHATS, resolveStartTab("devices", without))
+        assertEquals(HomeTab.ACTIVITY, resolveStartTab("devices", without))
     }
 
     @Test
