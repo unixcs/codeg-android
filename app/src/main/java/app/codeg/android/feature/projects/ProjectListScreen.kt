@@ -429,6 +429,7 @@ private fun DeviceSection(
 
 /** 批v181: one workspace-folder chip — equal-width cell, single-line ellipsized
  *  label, content-driven row height so nothing gets clipped. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DeviceFolderChip(
     folder: FolderDetail,
