@@ -7,6 +7,7 @@ import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.datastore.AppSettings
 import app.codeg.android.core.datastore.AppSettingsStore
+import app.codeg.android.core.datastore.LastBrowseStore
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.FolderDetail
 import app.codeg.android.core.network.displayMessage
@@ -54,6 +55,7 @@ data class DeviceOverviewState(
 class DevicesOverviewViewModel @Inject constructor(
     private val repository: ServerRepository,
     private val appSettingsStore: AppSettingsStore,
+    private val lastBrowseStore: LastBrowseStore,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -123,6 +125,10 @@ class DevicesOverviewViewModel @Inject constructor(
     fun setDeviceChipColumns(columns: Int) {
         viewModelScope.launch { appSettingsStore.setDeviceChipColumns(columns) }
     }
+
+    /** 批v181: where the user last browsed on this device — the "all files"
+     *  entry reopens there (null = never browsed → the device home). */
+    suspend fun lastBrowseRoot(profileId: String): String? = lastBrowseStore.lastNow(profileId)
 
     /**
      * Unregister a workspace folder on the SPECIFIC device that owns it. Returns

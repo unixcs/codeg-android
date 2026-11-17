@@ -933,6 +933,8 @@
     <!-- ===== Projects · Files / Commits ===== -->
     <string name="files_load_failed">Couldn\'t list files</string>
         <string name="files_tree_new">New file or folder</string>
+        <string name="files_tree_change_root">Change root directory…</string>
+        <string name="files_tree_change_root_confirm">Browse from here</string>
         <string name="files_tree_search">Search</string>
         <string name="files_tree_select">Select multiple</string>
         <string name="files_tree_search_hint">Filter the expanded tree</string>

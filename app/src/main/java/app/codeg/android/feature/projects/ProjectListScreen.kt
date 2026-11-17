@@ -191,7 +191,14 @@ fun ProjectListScreen(
                                 onOpenFolder = { folder -> onOpenFolder(folder.id, state.profile.id) },
                                 onBrowseAll = {
                                     val home = state.home
-                                    if (home != null) onBrowseAll(state.profile.id, home)
+                                    if (home != null) {
+                                        // 批v181: reopen at the last browsed root when
+                                        // there is one — home is just the first visit.
+                                        scope.launch {
+                                            val last = overviewViewModel.lastBrowseRoot(state.profile.id)
+                                            onBrowseAll(state.profile.id, last ?: home)
+                                        }
+                                    }
                                 },
                                 onRetry = { overviewViewModel.retry(state.profile.id) },
                                 onLongPressFolder = { folder -> actionTarget = state.profile.id to folder },

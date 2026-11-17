@@ -925,6 +925,8 @@
     <!-- ===== Projects · Files / Commits ===== -->
     <string name="files_load_failed">无法列出文件</string>
         <string name="files_tree_new">新建文件或文件夹</string>
+        <string name="files_tree_change_root">切换根目录…</string>
+        <string name="files_tree_change_root_confirm">从这里浏览</string>
         <string name="files_tree_search">搜索</string>
         <string name="files_tree_select">多选</string>
         <string name="files_tree_search_hint">过滤已展开的文件</string>

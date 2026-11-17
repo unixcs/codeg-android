@@ -65,6 +65,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
+import app.codeg.android.core.datastore.CommonDirsStore
+import app.codeg.android.core.datastore.LastBrowseStore
+import app.codeg.android.core.datastore.ServerCommonDir
 import app.codeg.android.core.datastore.TreeExpandStore
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.InlineError
@@ -98,6 +101,8 @@ import javax.inject.Inject
 @HiltViewModel
 class FilesTreeViewModel @Inject constructor(
     private val expandStore: TreeExpandStore,
+    private val commonDirsStore: CommonDirsStore,
+    private val lastBrowseStore: LastBrowseStore,
 ) : ViewModel() {
 
     /** One rendered row: a visible node of the flattened tree. */
@@ -125,6 +130,8 @@ class FilesTreeViewModel @Inject constructor(
          *  create-sheet anchor must not drift back to the bind root when a
          *  filtered tree renders zero rows. */
         val root: String = "",
+        /** 批v181: this device's 常用目录 chips (quick re-root). */
+        val commonDirs: List<ServerCommonDir> = emptyList(),
     )
 
     private val _ui = MutableStateFlow(TreeUi())
@@ -132,6 +139,7 @@ class FilesTreeViewModel @Inject constructor(
 
     private var client: CodegClient? = null
     private var serverId = ""
+    private var commonDirsJob: Job? = null
 
     /** Where the tree is rooted right now (breadcrumb moves this). */
     private var root = ""
@@ -168,6 +176,13 @@ class FilesTreeViewModel @Inject constructor(
         selecting.value = false
         selected.value = emptySet()
         query.value = ""
+        rememberBrowse(normalizedRoot)
+        commonDirsJob?.cancel()
+        commonDirsJob = viewModelScope.launch {
+            commonDirsStore.dirsFor(serverId.takeIf { it.isNotBlank() }).collect { dirs ->
+                _ui.update { it.copy(commonDirs = dirs) }
+            }
+        }
         _ui.value = TreeUi(busy = true)
         viewModelScope.launch {
             try {
@@ -198,6 +213,31 @@ class FilesTreeViewModel @Inject constructor(
         val client = this.client ?: return
         bound = false
         bind(client, writeRoot, serverId)
+    }
+
+    /**
+     * 批v181: jump the whole tree to an arbitrary root — the "change root"
+     * action and the common-dir chips. Rebind semantics: the new root becomes
+     * the write anchor and the expansion-memory context (a new workspace) and
+     * session state resets. Returning to the ORIGINAL bind root keeps the
+     * session and only moves the display root instead.
+     */
+    fun rebindTo(path: String) {
+        val c = client ?: return
+        val normalized = path.trimEnd('/').ifEmpty { "/" }
+        if (!normalized.startsWith("/")) return
+        if (bound && writeRoot == normalized) {
+            setRoot(normalized)
+        } else {
+            bind(c, normalized, serverId)
+        }
+    }
+
+    /** 批v181: remember where the user browsed (per device) — "全部文件" reopens
+     *  there instead of always landing on $HOME. Tracks the display root. */
+    private fun rememberBrowse(path: String) {
+        val id = serverId
+        if (id.isNotBlank()) viewModelScope.launch { lastBrowseStore.setLast(id, path) }
     }
 
     fun toggle(path: String) {
@@ -234,6 +274,7 @@ class FilesTreeViewModel @Inject constructor(
         }
         viewModelScope.launch {
             root = path
+            rememberBrowse(path)
             expanded.value = expanded.value + path
             if (path !in children) {
                 try {
@@ -560,6 +601,8 @@ fun FilesTreeView(
     var actionTarget by remember { mutableStateOf<DirectoryItem?>(null) }
     var showNewSheet by remember { mutableStateOf(false) }
     var showBatchConfirm by remember { mutableStateOf(false) }
+    // 批v181: the change-root browser — rebinds the whole tree to the pick.
+    var showRootBrowser by rememberSaveable { mutableStateOf(false) }
     // Breadcrumb segments re-root the tree; the create sheet anchors on the
     // CURRENT display root (createEntryWithContent re-checks the write anchor).
     // 审查F8: read it from the VM state — nodes.first() vanishes when a filter
@@ -597,6 +640,14 @@ fun FilesTreeView(
                                 showNewSheet = true
                             },
                         )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_tree_change_root)) },
+                            leadingIcon = { Icon(Icons.Rounded.FolderOpen, null) },
+                            onClick = {
+                                menuOpen = false
+                                showRootBrowser = true
+                            },
+                        )
                     }
                 }
                 IconButton(onClick = { searchOpen = !searchOpen }) {
@@ -612,6 +663,34 @@ fun FilesTreeView(
                         contentDescription = stringResource(R.string.files_tree_select),
                         tint = colors.textSecondary,
                     )
+                }
+            }
+            // 批v181: 常用目录 chips — one tap re-roots the whole tree (CommonDirsStore
+            // per-device bindings; falls back to /mnt, /mnt/Projects via the store).
+            if (!state.selecting && state.commonDirs.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    state.commonDirs.forEach { dir ->
+                        val active = displayRoot == dir.path
+                        Text(
+                            dir.label,
+                            fontSize = 11.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (active) colors.onAccent else colors.textSecondary,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (active) colors.accent else colors.textPrimary.copy(alpha = 0.06f))
+                                .clickable { viewModel.rebindTo(dir.path) }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
                 }
             }
             if (searchOpen) {
@@ -806,6 +885,23 @@ fun FilesTreeView(
             },
         )
     }
+    if (showRootBrowser) {
+        // 批v181: pick any start directory (same browser the ⋯ menu uses) and
+        // rebind — the pick becomes the new write anchor / expansion context.
+        DirectoryBrowserSheet(
+            title = stringResource(R.string.files_tree_change_root),
+            confirmLabel = stringResource(R.string.files_tree_change_root_confirm),
+            loadHome = { client.getHomeDirectory() },
+            loadDirs = { path -> client.listDirectoryEntries(path) },
+            onSelect = { path ->
+                showRootBrowser = false
+                viewModel.rebindTo(path)
+            },
+            onDismiss = { showRootBrowser = false },
+            showRoot = true,
+            initialPath = displayRoot,
+        )
+    }
 }
 
 /**
@@ -817,7 +913,6 @@ fun FilesTreeView(
 private fun BreadcrumbBar(currentRoot: String, onSegment: (String) -> Unit, modifier: Modifier = Modifier) {
     val colors = CodegTheme.colors
     val segments = currentRoot.split('/').filter { it.isNotBlank() }
-    if (segments.isEmpty()) return
     Row(
         modifier
             .horizontalScroll(rememberScrollState())
@@ -825,6 +920,20 @@ private fun BreadcrumbBar(currentRoot: String, onSegment: (String) -> Unit, modi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
+        // 批v181: the filesystem root is always one tap away — previously a
+        // /root-started tree had no segment above it and nowhere to climb.
+        Text(
+            "/",
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = if (segments.isEmpty()) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (segments.isEmpty()) colors.accent else colors.textSecondary,
+            maxLines = 1,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable { onSegment("/") }
+                .padding(horizontal = 2.dp, vertical = 2.dp),
+        )
         var acc = ""
         segments.forEachIndexed { index, segment ->
             acc = "$acc/$segment"
