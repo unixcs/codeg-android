@@ -330,7 +330,10 @@ private fun DeviceSection(
                     IconButton(onClick = { collapsed = !collapsed }, modifier = Modifier.size(28.dp)) {
                         Icon(
                             Icons.Rounded.ExpandMore,
-                            contentDescription = null,
+                            // 批v182: state-aware TalkBack label instead of null.
+                            contentDescription = stringResource(
+                                if (collapsed) R.string.devices_section_expand else R.string.devices_section_collapse
+                            ),
                             tint = colors.textTertiary,
                             modifier = Modifier.size(20.dp).rotate(if (collapsed) 0f else 180f),
                         )

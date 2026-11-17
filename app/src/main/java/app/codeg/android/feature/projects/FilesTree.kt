@@ -740,12 +740,20 @@ fun FilesTreeView(
                 }
             state.rootError != null ->
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    InlineError(
-                        Icons.Rounded.FolderOpen,
-                        stringResource(R.string.files_load_failed),
-                        state.rootError,
-                        onRetry = viewModel::retryRoot,
-                    )
+                    // 批v182: retry only repeats the same root — if it was deleted
+                    // server-side the user needs the root browser as an escape
+                    // hatch (its Home// rows climb out of any dead path).
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        InlineError(
+                            Icons.Rounded.FolderOpen,
+                            stringResource(R.string.files_load_failed),
+                            state.rootError,
+                            onRetry = viewModel::retryRoot,
+                        )
+                        TextButton(onClick = { showRootBrowser = true }) {
+                            Text(stringResource(R.string.files_tree_change_root), fontSize = 13.sp)
+                        }
+                    }
                 }
             else -> {
                 LazyColumn(

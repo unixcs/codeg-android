@@ -224,6 +224,8 @@
     <string name="devices_retry">重试</string>
     <string name="devices_browse_all">全部文件</string>
     <string name="devices_chip_columns_toggle">切换单双列</string>
+    <string name="devices_section_collapse">收起设备卡</string>
+    <string name="devices_section_expand">展开设备卡</string>
     <string name="devices_no_folders">该设备还没有注册的项目</string>
     <!-- Projects / Folders -->
     <string name="projects_add">添加</string>
