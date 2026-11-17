@@ -131,6 +131,10 @@ class FilesTreeViewModel @Inject constructor(
          *  create-sheet anchor must not drift back to the bind root when a
          *  filtered tree renders zero rows. */
         val root: String = "",
+        /** 批v181 审查: the VM's current write anchor — the view's per-item
+         *  write actions must anchor to the re-rooted tree, not the stale
+         *  navigation rootPath the screen was first bound with. */
+        val writeRoot: String = "",
         /** 批v181: this device's 常用目录 chips (quick re-root). */
         val commonDirs: List<ServerCommonDir> = emptyList(),
     )
@@ -141,6 +145,11 @@ class FilesTreeViewModel @Inject constructor(
     private var client: CodegClient? = null
     private var serverId = ""
     private var commonDirsJob: Job? = null
+
+    /** 批v181 审查: the root-load coroutine — a newer bind supersedes an
+     *  in-flight one (chips are rapid-fire) so its recovery never touches
+     *  the newer session's state. */
+    private var bindJob: Job? = null
 
     /** Where the tree is rooted right now (breadcrumb moves this). */
     private var root = ""
@@ -165,11 +174,14 @@ class FilesTreeViewModel @Inject constructor(
     fun bind(client: CodegClient, rootPath: String, serverId: String) {
         val normalizedRoot = rootPath.trimEnd('/').ifEmpty { "/" }
         if (bound && writeRoot == normalizedRoot && this.serverId == serverId) return
+        bindJob?.cancel()
         this.client = client
         this.serverId = serverId
         writeRoot = normalizedRoot
         root = normalizedRoot
         bound = true
+        loadJobs.values.forEach { it.cancel() }
+        loadJobs.clear()
         children.clear()
         expanded.value = emptySet()
         loading.value = emptySet()
@@ -184,27 +196,35 @@ class FilesTreeViewModel @Inject constructor(
                 _ui.update { it.copy(commonDirs = dirs) }
             }
         }
-        _ui.value = TreeUi(busy = true)
-        viewModelScope.launch {
+        _ui.value = TreeUi(busy = true, writeRoot = normalizedRoot)
+        bindJob = viewModelScope.launch {
+            // 批v181 审查: capture the bind identity — a superseded bind must
+            // not write state into the newer session (its root/worktree differ).
+            val boundRoot = root
+            val boundWriteRoot = writeRoot
+            val boundServer = serverId
             try {
-                fetchChildren(root)
+                fetchChildren(boundRoot)
                 // Restore saved expansions for THIS (device, root); the root row
                 // itself starts expanded. Saved descendants materialize through
                 // [materializeExpanded] — a saved dir whose parent chain is gone
                 // (moved/deleted) simply doesn't render, no error surface.
-                val prefix = "$serverId|$writeRoot|"
+                val prefix = "$boundServer|$boundWriteRoot|"
                 val saved = expandStore.expanded.first()
                     .filter { it.startsWith(prefix) }
                     .map { it.removePrefix(prefix) }
-                    .filter { it != root }
-                expanded.value = setOf(root) + saved
+                    .filter { it != boundRoot }
+                if (writeRoot != boundWriteRoot) return@launch
+                expanded.value = setOf(boundRoot) + saved
                 materializeExpanded()
                 _ui.update { it.copy(busy = false, rootError = null) }
                 rebuild()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _ui.update { it.copy(busy = false, rootError = e.displayMessage()) }
+                if (writeRoot == boundWriteRoot) {
+                    _ui.update { it.copy(busy = false, rootError = e.displayMessage()) }
+                }
             }
         }
     }
@@ -220,7 +240,7 @@ class FilesTreeViewModel @Inject constructor(
      * 批v181: jump the whole tree to an arbitrary root — the "change root"
      * action and the common-dir chips. Rebind semantics: the new root becomes
      * the write anchor and the expansion-memory context (a new workspace) and
-     * session state resets. Returning to the ORIGINAL bind root keeps the
+     * session state resets. Re-rooting to the CURRENT bind root keeps the
      * session and only moves the display root instead.
      */
     fun rebindTo(path: String) {
@@ -678,7 +698,10 @@ fun FilesTreeView(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     state.commonDirs.forEach { dir ->
-                        val active = displayRoot == dir.path
+                        // 批v181 审查: compare normalized (rebindTo normalizes too,
+                        // so a trailing-slash stored path would never light up).
+                        val active =
+                            displayRoot.trimEnd('/').ifEmpty { "/" } == dir.path.trimEnd('/').ifEmpty { "/" }
                         Text(
                             dir.label,
                             fontSize = 11.sp,
@@ -782,7 +805,10 @@ fun FilesTreeView(
     actionTarget?.let { target ->
         FileActionSheet(
             client = client,
-            rootPath = rootPath,
+            // 批v181 审查: anchor writes to the re-rooted tree — the navigation
+            // rootPath is stale after 换根/chips (per-item ops would otherwise
+            // all reject with "outside workspace").
+            rootPath = state.writeRoot.ifEmpty { rootPath },
             target = target,
             outsideWorkspaceMsg = outsideWorkspaceMsg,
             onDismiss = { actionTarget = null },
@@ -814,7 +840,7 @@ fun FilesTreeView(
                 scope.launch {
                     try {
                         createEntryWithContent(
-                            client, rootPath, displayRoot, name, isDir, content,
+                            client, state.writeRoot.ifEmpty { rootPath }, displayRoot, name, isDir, content,
                             outsideWorkspaceMsg = outsideWorkspaceMsg,
                             tooLargeMsg = tooLargeMsg,
                             genericErrorMsg = genericErrorMsg,

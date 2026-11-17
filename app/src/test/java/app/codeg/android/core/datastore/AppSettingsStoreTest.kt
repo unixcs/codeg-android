@@ -530,6 +530,8 @@ class AppSettingsStoreTest {
     }
     @Test
     fun `批v181 - device chip columns defaults to two and setter coerces into range`() = runBlocking {
+        val tmp = TemporaryFolder()
+        tmp.create()
         val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         try {
             val dataStore = PreferenceDataStoreFactory.create(scope = scope) {

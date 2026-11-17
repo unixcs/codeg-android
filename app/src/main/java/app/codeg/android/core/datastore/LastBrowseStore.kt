@@ -4,9 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -28,13 +26,14 @@ class LastBrowseStore @Inject constructor(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun lastFor(profileId: String?): Flow<String?> = dataStore.data.map { prefs ->
-        if (profileId == null) null else decode(prefs[KEY]).servers[profileId]
+    /** One-shot read for the "all files" entry point; a rare disk IO failure
+     *  yields null (fall back to home) instead of crashing the tap handler. */
+    suspend fun lastNow(profileId: String?): String? {
+        if (profileId == null) return null
+        return runCatching {
+            decode(dataStore.data.firstOrNull()?.get(KEY)).servers[profileId]
+        }.getOrNull()
     }
-
-    /** One-shot read for the "all files" entry point. */
-    suspend fun lastNow(profileId: String?): String? =
-        if (profileId == null) null else decode(dataStore.data.firstOrNull()?.get(KEY)).servers[profileId]
 
     suspend fun setLast(profileId: String, path: String) {
         dataStore.edit { prefs ->

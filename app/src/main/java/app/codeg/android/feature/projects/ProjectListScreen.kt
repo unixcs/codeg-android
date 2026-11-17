@@ -340,8 +340,10 @@ private fun DeviceSection(
 
             // 批v181-C: a folded card keeps only its header. The fold targets the
             // ONLINE body (the tall one); probing/offline states stay visible so
-            // retry remains reachable.
-            if (!collapsed || state.probing || !state.online) {
+            // retry remains reachable. 审查: gate on online only — probing keeps
+            // online=true during pull-to-refresh, and folding on `probing` would
+            // flash every folded card open each refresh.
+            if (!collapsed || !state.online) {
             HorizontalDivider(color = colors.hairline)
 
             when {
