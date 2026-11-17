@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
+import app.codeg.android.core.datastore.AppSettings
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.ServerProfile
 import app.codeg.android.core.model.FolderDetail
 import app.codeg.android.core.network.displayMessage
@@ -17,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -49,6 +53,7 @@ data class DeviceOverviewState(
 @HiltViewModel
 class DevicesOverviewViewModel @Inject constructor(
     private val repository: ServerRepository,
+    private val appSettingsStore: AppSettingsStore,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -61,6 +66,12 @@ class DevicesOverviewViewModel @Inject constructor(
     // The selected device sorts first on the page — the one FAB operations talk to.
     val selectedServerId: StateFlow<String?> = repository.selectedId
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    // 批v181: the folder-chip grid layout (1..2), persisted across launches.
+    val deviceChipColumns: StateFlow<Int> = appSettingsStore.settings
+        .map { it.deviceChipColumns }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings.DEFAULT_DEVICE_CHIP_COLUMNS)
 
     private var initialProbeStarted = false
     private val probes = mutableMapOf<String, Job>()
@@ -106,6 +117,11 @@ class DevicesOverviewViewModel @Inject constructor(
     /** Retry just one device's probe (its offline section is tappable). */
     fun retry(profileId: String) {
         probe(profileId)
+    }
+
+    /** 批v181: flip the overview folder-chip grid (1↔2). */
+    fun setDeviceChipColumns(columns: Int) {
+        viewModelScope.launch { appSettingsStore.setDeviceChipColumns(columns) }
     }
 
     /**

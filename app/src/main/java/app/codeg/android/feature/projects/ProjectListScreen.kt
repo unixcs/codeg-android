@@ -7,9 +7,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,13 +25,16 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -97,6 +99,7 @@ fun ProjectListScreen(
     val devices by overviewViewModel.devices.collectAsStateWithLifecycle()
     val refreshing by overviewViewModel.refreshing.collectAsStateWithLifecycle()
     val selectedServerId by overviewViewModel.selectedServerId.collectAsStateWithLifecycle()
+    val chipColumns by overviewViewModel.deviceChipColumns.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
     var menuOpen by remember { mutableStateOf(false) }
     var showBrowser by remember { mutableStateOf(false) }
@@ -123,6 +126,17 @@ fun ProjectListScreen(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.devices_title)) },
+                actions = {
+                    // 批v181: single/double column quick toggle for the folder-chip
+                    // grid, persisted via deviceChipColumns.
+                    IconButton(onClick = { overviewViewModel.setDeviceChipColumns(if (chipColumns == 2) 1 else 2) }) {
+                        Icon(
+                            if (chipColumns == 2) Icons.Rounded.GridView else Icons.Rounded.ViewAgenda,
+                            contentDescription = stringResource(R.string.devices_chip_columns_toggle),
+                            tint = colors.textSecondary,
+                        )
+                    }
+                },
                 windowInsets = WindowInsets(0, 0, 0, 0), // device bar in MainShell owns the status-bar inset
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
@@ -173,6 +187,7 @@ fun ProjectListScreen(
                             val state = devicesSorted[index]
                             DeviceSection(
                                 state = state,
+                                chipColumns = chipColumns,
                                 onOpenFolder = { folder -> onOpenFolder(folder.id, state.profile.id) },
                                 onBrowseAll = {
                                     val home = state.home
@@ -235,10 +250,11 @@ fun ProjectListScreen(
  * row; a failed probe collapses to an offline row whose whole area is tappable
  * for a retry.
  */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DeviceSection(
     state: DeviceOverviewState,
+    chipColumns: Int,
     onOpenFolder: (FolderDetail) -> Unit,
     onBrowseAll: () -> Unit,
     onRetry: () -> Unit,
@@ -322,34 +338,26 @@ private fun DeviceSection(
                     if (state.folders.isEmpty()) {
                         SectionMessageRow(stringResource(R.string.devices_no_folders))
                     } else {
-                        // Workspace folders as compact chips — the overview is a map
-                        // across devices, so chips keep N devices scannable without
-                        // each one eating a full-height row per folder.
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        // 批v181: folder chips as an equal-width grid (1 or 2
+                        // columns, persisted) — the old FlowRow locked the label in a
+                        // 20dp-tall box (24sp line height → vertical clipping) and
+                        // stacked single-column on phones, which read as "乱".
+                        val rows = remember(state.folders, chipColumns) { state.folders.chunked(chipColumns) }
+                        Column(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            state.folders.forEach { folder ->
-                                val tile = colorFromHex(folder.color) ?: colors.accent
-                                Row(
-                                    Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(colors.textPrimary.copy(alpha = 0.05f))
-                                        .combinedClickable(onClick = { onOpenFolder(folder) }, onLongClick = { onLongPressFolder(folder) })
-                                        .padding(horizontal = 9.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    FolderBadge(color = tile, size = 16.dp)
-                                    Text(
-                                        folder.name,
-                                        fontSize = 13.sp,
-                                        color = colors.textPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.size(width = 160.dp, height = 20.dp),
-                                    )
+                            rows.forEach { row ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    row.forEach { folder ->
+                                        DeviceFolderChip(
+                                            folder = folder,
+                                            modifier = Modifier.weight(1f),
+                                            onOpen = { onOpenFolder(folder) },
+                                            onLongPress = { onLongPressFolder(folder) },
+                                        )
+                                    }
+                                    repeat(chipColumns - row.size) { Spacer(Modifier.weight(1f)) }
                                 }
                             }
                         }
@@ -387,6 +395,39 @@ private fun DeviceSection(
                 }
             }
         }
+    }
+}
+
+/** 批v181: one workspace-folder chip — equal-width cell, single-line ellipsized
+ *  label, content-driven row height so nothing gets clipped. */
+@Composable
+private fun DeviceFolderChip(
+    folder: FolderDetail,
+    modifier: Modifier = Modifier,
+    onOpen: () -> Unit,
+    onLongPress: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    val tile = colorFromHex(folder.color) ?: colors.accent
+    Row(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.textPrimary.copy(alpha = 0.05f))
+            .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
+            .padding(horizontal = 9.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FolderBadge(color = tile, size = 16.dp)
+        Text(
+            folder.name,
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            color = colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

@@ -111,6 +111,9 @@ data class AppSettings(
     /** 批v179: the 添加到项目 sheet's grid columns — 1 (classic single list),
      *  2 (default, denser two-column cards) or 3 (wide screens). */
     val addToProjectColumns: Int = DEFAULT_ADD_TO_PROJECT_COLUMNS,
+    /** 批v181: the devices-overview folder-chip grid — 1 (full-width rows)
+     *  or 2 (default, two equal-width columns per row). */
+    val deviceChipColumns: Int = DEFAULT_DEVICE_CHIP_COLUMNS,
     /** 批v179: the sheet's project order — "count" (most sessions first, the
      *  拍板 default), "manual" (sortOrder), "name", "created" (newest first). */
     val addToProjectSort: String = DEFAULT_ADD_TO_PROJECT_SORT,
@@ -209,6 +212,9 @@ data class AppSettings(
         // 批v179: the 添加到项目 sheet defaults to two-column cards ordered by
         // session count (拍板 2026-11-14 — 常用项目沉底要下滑的痛点).
         const val DEFAULT_ADD_TO_PROJECT_COLUMNS = 2
+        // 批v181: overview chips default to two columns — the rc.18 single
+        // stack was the "界面乱" complaint.
+        const val DEFAULT_DEVICE_CHIP_COLUMNS = 2
         const val DEFAULT_ADD_TO_PROJECT_SORT = ADD_TO_PROJECT_SORT_COUNT
         const val DEFAULT_ACTIVITY_WINDOW_HOURS = 24
         const val DEFAULT_SESSION_CHIP_MODE = SESSION_CHIP_DEVICES
@@ -304,6 +310,8 @@ class AppSettingsStore @Inject constructor(
                 ?: AppSettings.DEFAULT_PROJECT_LIST_COLUMNS).coerceIn(1, 2),
             addToProjectColumns = (prefs[ADD_TO_PROJECT_COLUMNS]
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_COLUMNS).coerceIn(1, 3),
+            deviceChipColumns = (prefs[DEVICE_CHIP_COLUMNS]
+                ?: AppSettings.DEFAULT_DEVICE_CHIP_COLUMNS).coerceIn(1, 2),
             addToProjectSort = prefs[ADD_TO_PROJECT_SORT]?.takeIf { it in ADD_TO_PROJECT_SORTS }
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_SORT,
             activityWindowHours = (prefs[ACTIVITY_WINDOW_HOURS]
@@ -656,6 +664,11 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[ADD_TO_PROJECT_COLUMNS] = columns.coerceIn(1, 3) }
     }
 
+    /** 批v181: persist the overview folder-chip column count (1..2). */
+    suspend fun setDeviceChipColumns(columns: Int) {
+        dataStore.edit { it[DEVICE_CHIP_COLUMNS] = columns.coerceIn(1, 2) }
+    }
+
     /** 批v179: persist the sheet's project order mode (whitelist-guarded). */
     suspend fun setAddToProjectSort(sort: String) {
         dataStore.edit {
@@ -809,6 +822,7 @@ class AppSettingsStore @Inject constructor(
         val TASK_BOARD_LIST_COLUMNS = intPreferencesKey("task_board_list_columns")
         val PROJECT_LIST_COLUMNS = intPreferencesKey("project_list_columns")
         val ADD_TO_PROJECT_COLUMNS = intPreferencesKey("add_to_project_columns")
+        val DEVICE_CHIP_COLUMNS = intPreferencesKey("device_chip_columns")
         val ADD_TO_PROJECT_SORT = stringPreferencesKey("add_to_project_sort")
         val ACTIVITY_WINDOW_HOURS = intPreferencesKey("activity_window_hours")
         val ACTIVITY_UNREAD_ONLY = booleanPreferencesKey("activity_unread_only")

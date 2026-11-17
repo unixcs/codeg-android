@@ -223,6 +223,7 @@
     <string name="devices_offline">Offline, tap to retry</string>
     <string name="devices_retry">Retry</string>
     <string name="devices_browse_all">All files</string>
+    <string name="devices_chip_columns_toggle">Toggle folder column layout</string>
     <string name="devices_no_folders">No workspace folders on this device</string>
     <!-- Projects / Folders -->
     <string name="projects_add">Add</string>

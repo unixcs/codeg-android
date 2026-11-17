@@ -528,4 +528,25 @@ class AppSettingsStoreTest {
             tmp.delete()
         }
     }
+    @Test
+    fun `批v181 - device chip columns defaults to two and setter coerces into range`() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings-chip.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            assertEquals(2, store.settings.first().deviceChipColumns)
+
+            store.setDeviceChipColumns(3)
+            assertEquals(2, store.settings.first().deviceChipColumns)
+            store.setDeviceChipColumns(0)
+            assertEquals(1, store.settings.first().deviceChipColumns)
+            store.setDeviceChipColumns(1)
+            assertEquals(1, store.settings.first().deviceChipColumns)
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
+    }
 }
