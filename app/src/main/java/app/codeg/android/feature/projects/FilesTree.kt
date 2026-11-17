@@ -743,7 +743,10 @@ fun FilesTreeView(
                     // 批v182: retry only repeats the same root — if it was deleted
                     // server-side the user needs the root browser as an escape
                     // hatch (its Home// rows climb out of any dead path).
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
                         InlineError(
                             Icons.Rounded.FolderOpen,
                             stringResource(R.string.files_load_failed),
