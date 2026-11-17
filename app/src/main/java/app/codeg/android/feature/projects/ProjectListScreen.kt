@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.LinkOff
@@ -49,10 +50,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -268,6 +271,10 @@ private fun DeviceSection(
     onLongPressFolder: (FolderDetail) -> Unit,
 ) {
     val colors = CodegTheme.colors
+    // 批v181-C: name-sorted so same-prefix projects (090-task-1/3/11…) read as
+    // groups instead of server-order noise; the card folds to save screen space.
+    val folders = remember(state.folders) { state.folders.sortedBy { it.name.lowercase() } }
+    var collapsed by rememberSaveable { mutableStateOf(false) }
     GlassCard(padding = 0.dp) {
         Column(Modifier.fillMaxWidth()) {
             // Header: identity dot (stable per-device hue from the device bar),
@@ -319,8 +326,22 @@ private fun DeviceSection(
                         color = colors.danger,
                     )
                 }
+                if (state.online) {
+                    IconButton(onClick = { collapsed = !collapsed }, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Rounded.ExpandMore,
+                            contentDescription = null,
+                            tint = colors.textTertiary,
+                            modifier = Modifier.size(20.dp).rotate(if (collapsed) 0f else 180f),
+                        )
+                    }
+                }
             }
 
+            // 批v181-C: a folded card keeps only its header. The fold targets the
+            // ONLINE body (the tall one); probing/offline states stay visible so
+            // retry remains reachable.
+            if (!collapsed || state.probing || !state.online) {
             HorizontalDivider(color = colors.hairline)
 
             when {
@@ -349,7 +370,7 @@ private fun DeviceSection(
                         // columns, persisted) — the old FlowRow locked the label in a
                         // 20dp-tall box (24sp line height → vertical clipping) and
                         // stacked single-column on phones, which read as "乱".
-                        val rows = remember(state.folders, chipColumns) { state.folders.chunked(chipColumns) }
+                        val rows = remember(folders, chipColumns) { folders.chunked(chipColumns) }
                         Column(
                             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -400,6 +421,7 @@ private fun DeviceSection(
                 if (state.online && state.home != null) {
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.textTertiary, modifier = Modifier.size(18.dp))
                 }
+            }
             }
         }
     }
