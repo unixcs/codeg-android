@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -28,6 +30,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,10 +43,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +58,7 @@ import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.PrimaryButton
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.DirectoryEntry
+import androidx.compose.material3.LocalTextStyle
 import kotlinx.coroutines.launch
 
 /**
@@ -113,7 +119,56 @@ fun DirectoryBrowserSheet(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = androidx.compose.ui.graphics.Color.Transparent, titleContentColor = colors.textPrimary),
             )
-            Text(path, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = colors.textTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
+            // 批v183-B: the path line doubles as an address bar — tap to type any
+            // absolute path and jump straight there (Solid Explorer / Termius
+            // convention); invalid drafts are simply not applied.
+            var editingPath by remember { mutableStateOf(false) }
+            var pathDraft by remember { mutableStateOf("") }
+            val pathFocus = remember { FocusRequester() }
+            if (editingPath) {
+                TextField(
+                    value = pathDraft,
+                    onValueChange = { pathDraft = it },
+                    singleLine = true,
+                    placeholder = { Text(stringResource(R.string.dirbrowser_path_hint), fontSize = 12.sp) },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions = KeyboardActions(onGo = {
+                        val p = pathDraft.trim()
+                        if (p.startsWith("/")) {
+                            path = p.trimEnd('/').ifEmpty { "/" }
+                            editingPath = false
+                        }
+                    }),
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            val p = pathDraft.trim()
+                            if (p.startsWith("/")) {
+                                path = p.trimEnd('/').ifEmpty { "/" }
+                                editingPath = false
+                            }
+                        }) {
+                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.accent)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp).focusRequester(pathFocus),
+                )
+                LaunchedEffect(Unit) { pathFocus.requestFocus() }
+            } else {
+                Text(
+                    path,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = colors.textTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { pathDraft = path; editingPath = true }
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (loading) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.accent) }

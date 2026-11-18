@@ -911,6 +911,7 @@
     <string name="clone_choose_directory">选择目录</string>
     <string name="clone_select_this_folder">选择此文件夹</string>
     <string name="dirbrowser_close">关闭</string>
+    <string name="dirbrowser_path_hint">输入绝对路径直达（如 /mnt/Projects）</string>
     <string name="dirbrowser_home">主目录</string>
     <string name="branch_switch_branch">切换分支</string>
     <string name="branch_new_branch">新建分支</string>

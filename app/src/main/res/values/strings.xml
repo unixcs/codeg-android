@@ -919,6 +919,7 @@
     <string name="clone_choose_directory">Choose Directory</string>
     <string name="clone_select_this_folder">Select This Folder</string>
     <string name="dirbrowser_close">Close</string>
+    <string name="dirbrowser_path_hint">Type an absolute path (e.g. /mnt/Projects)</string>
     <string name="dirbrowser_home">Home</string>
     <string name="branch_switch_branch">Switch Branch</string>
     <string name="branch_new_branch">New branch</string>
