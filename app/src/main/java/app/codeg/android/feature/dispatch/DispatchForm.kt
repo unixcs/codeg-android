@@ -20,7 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountTree
-import androidx.compose.material.icons.rounded.Assignment
+import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
@@ -587,7 +587,7 @@ fun DispatchForm(
                     label = stringResource(R.string.dispatch_mode_task),
                     note = stringResource(R.string.dispatch_mode_task_note),
                     selected = !sessionMode,
-                    icon = Icons.Rounded.Assignment,
+                    icon = Icons.AutoMirrored.Rounded.Assignment,
                     onClick = { sessionMode = false },
                     modifier = Modifier.weight(1f),
                 )

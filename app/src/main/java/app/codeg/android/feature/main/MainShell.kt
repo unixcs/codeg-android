@@ -16,13 +16,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Assignment
+import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.rounded.Assignment
+import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.FolderOpen
@@ -136,7 +136,7 @@ enum class HomeTab(
     ACTIVITY("activity", R.string.tab_activity, Icons.Outlined.Bolt, Icons.Rounded.Bolt),
     CHATS("chats", R.string.tab_chats, Icons.Outlined.Forum, Icons.Rounded.Forum),
     INBOX("inbox", R.string.tab_inbox, Icons.Outlined.Inbox, Icons.Rounded.Inbox),
-    TASKS("tasks", R.string.tab_tasks, Icons.Outlined.Assignment, Icons.Rounded.Assignment),
+    TASKS("tasks", R.string.tab_tasks, Icons.AutoMirrored.Outlined.Assignment, Icons.AutoMirrored.Rounded.Assignment),
     // 批v180-B: the opt-in sixth tab — same devices-overview as the 文件 push
     // (ROUTE_FOLDERS). Route string is persisted (HOME_TAB_ROUTES/tab order), so
     // it must never change.

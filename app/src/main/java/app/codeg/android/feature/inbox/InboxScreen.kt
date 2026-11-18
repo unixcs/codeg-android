@@ -124,7 +124,7 @@ import app.codeg.android.core.designsystem.component.AgentChipRow
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.automirrored.rounded.CallMade
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.Send
 import app.codeg.android.core.designsystem.component.CodegAttachActions
 import app.codeg.android.core.designsystem.component.CodegAttachmentRow
 import app.codeg.android.core.designsystem.component.CodegFormTextField
@@ -301,7 +301,7 @@ fun InboxScreen(
                         // unresolved（探测中/UNKNOWN）时与派发 pill 同门禁用。
                         InboxSwipeAction.DISPATCH -> if (ref != null) null else SwipeSpec(
                             label = stringResource(R.string.inbox_swipe_action_dispatch),
-                            icon = Icons.Rounded.Send,
+                            icon = Icons.AutoMirrored.Rounded.Send,
                             background = colors.accent,
                             fire = { dispatchingId = idea.id },
                         )

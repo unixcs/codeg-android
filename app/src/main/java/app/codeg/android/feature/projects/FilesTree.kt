@@ -29,7 +29,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
-import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Search
@@ -1103,7 +1103,7 @@ private fun TreeRow(
                 )
             }
             else -> Icon(
-                Icons.Rounded.InsertDriveFile,
+                Icons.AutoMirrored.Rounded.InsertDriveFile,
                 contentDescription = null,
                 tint = colors.textSecondary,
                 modifier = Modifier.size(18.dp),

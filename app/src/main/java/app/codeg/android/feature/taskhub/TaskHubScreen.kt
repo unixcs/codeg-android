@@ -48,7 +48,7 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.automirrored.rounded.CallMade
 import androidx.compose.material.icons.automirrored.rounded.CallMerge
-import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.AccessTime
@@ -2133,7 +2133,7 @@ private fun buildCardActions(task: WorkTaskInfo): CardActions {
     }
     // The session is offered in every status once one exists; always last.
     if (task.conversationId != null) {
-        secondaries += CardAction(R.string.task_open_session, Icons.Rounded.Chat, CardAction.Kind.OPEN_SESSION)
+        secondaries += CardAction(R.string.task_open_session, Icons.AutoMirrored.Rounded.Chat, CardAction.Kind.OPEN_SESSION)
     }
     return CardActions(primary, secondaries)
 }
@@ -2243,7 +2243,7 @@ private fun ConversationCardWeb(
     ) {
         Row(verticalAlignment = Alignment.Top) {
             Icon(
-                Icons.Rounded.Chat,
+                Icons.AutoMirrored.Rounded.Chat,
                 contentDescription = null,
                 tint = colors.accent.copy(alpha = 0.85f),
                 modifier = Modifier
@@ -2310,7 +2310,7 @@ private fun ConversationCardWeb(
                     onClick = onOpen,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                 ) {
-                    Icon(Icons.Rounded.Chat, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = null, modifier = Modifier.size(14.dp))
                     Text(
                         stringResource(R.string.board_conv_open),
                         style = MaterialTheme.typography.labelMedium,
@@ -2346,7 +2346,7 @@ private fun ConversationCardWeb(
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.board_conv_open)) },
-                            leadingIcon = { Icon(Icons.Rounded.Chat, contentDescription = null) },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = null) },
                             onClick = { menuOpen = false; onOpen() },
                         )
                         DropdownMenuItem(
@@ -3047,7 +3047,7 @@ private fun TaskDetailSheet(
             task.conversationId?.let { convId ->
                 TextButton(onClick = { onOpenSession(entry.serverId, convId) }) {
                     Icon(
-                        Icons.Rounded.Chat,
+                        Icons.AutoMirrored.Rounded.Chat,
                         contentDescription = null,
                         tint = colors.accent,
                         modifier = Modifier.size(15.dp),

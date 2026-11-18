@@ -25,7 +25,7 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Save
-import androidx.compose.material.icons.rounded.Assignment
+import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -312,7 +312,7 @@ internal fun WorkbenchQuickRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if ("quickTask" in visibleCards) QuickCard(Icons.Rounded.Assignment, stringResource(R.string.workbench_quick_task), { onQuickAction("quickTask") }, Modifier.weight(1f))
+        if ("quickTask" in visibleCards) QuickCard(Icons.AutoMirrored.Rounded.Assignment, stringResource(R.string.workbench_quick_task), { onQuickAction("quickTask") }, Modifier.weight(1f))
         if ("folders" in visibleCards) QuickCard(Icons.Rounded.FolderOpen, stringResource(R.string.workbench_quick_folders), { onQuickAction("folders") }, Modifier.weight(1f))
         if ("search" in visibleCards) QuickCard(Icons.Rounded.Search, stringResource(R.string.workbench_quick_search), { onQuickAction("search") }, Modifier.weight(1f))
         if ("quickSave" in visibleCards) QuickCard(Icons.Rounded.Save, stringResource(R.string.workbench_quick_save), { onQuickAction("quickSave") }, Modifier.weight(1f))

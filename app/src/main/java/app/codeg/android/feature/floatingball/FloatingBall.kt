@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Assignment
+import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -461,7 +461,7 @@ private fun quickPanelIcon(id: String): androidx.compose.ui.graphics.vector.Imag
     // 批v153（UX 审查）：首卡换全局新建会话（注册表见 MainShell「quickNewSession」）。
     "quickNewSession" -> Icons.Rounded.Add
     "quickIdea" -> Icons.Rounded.Lightbulb
-    "quickTask" -> Icons.Rounded.Assignment
+    "quickTask" -> Icons.AutoMirrored.Rounded.Assignment
     "quickHandoff" -> Icons.Rounded.SwapHoriz
     else -> Icons.Rounded.Bolt
 }

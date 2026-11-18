@@ -19,7 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -91,7 +91,7 @@ private enum class SettingsLeaf(@StringRes val titleRes: Int, val icon: ImageVec
     PROJECTS(R.string.settings_leaf_projects, Icons.Rounded.Bookmark, R.string.settings_group_personalization, true),
     COMMON_DIRS(R.string.settings_leaf_common_dirs, Icons.Rounded.Folder, R.string.settings_group_personalization, true),
     AGENTS(R.string.settings_leaf_agents, Icons.Rounded.Person, R.string.settings_group_ai_agents, true),
-    DISPATCH(R.string.settings_leaf_dispatch, Icons.Rounded.Send, R.string.settings_group_ai_agents, true),
+    DISPATCH(R.string.settings_leaf_dispatch, Icons.AutoMirrored.Rounded.Send, R.string.settings_group_ai_agents, true),
     MODEL_PROVIDERS(R.string.settings_leaf_model_providers, Icons.Rounded.Memory, R.string.settings_group_ai_agents, true),
     EXPERTS(R.string.settings_leaf_experts, Icons.Rounded.School, R.string.settings_group_ai_agents, true),
     SKILLS(R.string.settings_leaf_skills, Icons.Rounded.Extension, R.string.settings_group_ai_agents, true),

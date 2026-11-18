@@ -32,7 +32,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.PhotoCamera
-import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -252,7 +252,7 @@ fun ComposeBar(
                 // turn ends). Only meaningful mid-run with something typed — the normal
                 // Send button covers the idle case.
                 if (onQueue != null && isInFlight && text.isNotBlank()) {
-                    ComposerAction(Icons.Rounded.PlaylistAdd, stringResource(R.string.queue_add), onQueue)
+                    ComposerAction(Icons.AutoMirrored.Rounded.PlaylistAdd, stringResource(R.string.queue_add), onQueue)
                 }
                 FilledIconButton(
                     onClick = { if (isInFlight) onStop() else onSend() },

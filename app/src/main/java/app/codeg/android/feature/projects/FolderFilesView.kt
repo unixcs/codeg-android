@@ -44,8 +44,8 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.NoteAdd
-import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.NoteAdd
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.UploadFile
@@ -460,7 +460,7 @@ private fun FilesToolbarMenu(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.files_new_file)) },
-                leadingIcon = { Icon(Icons.Rounded.NoteAdd, null, modifier = Modifier.size(18.dp)) },
+                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.NoteAdd, null, modifier = Modifier.size(18.dp)) },
                 onClick = { expanded = false; onNewFile() },
             )
             DropdownMenuItem(
@@ -593,7 +593,7 @@ internal fun FileActionSheet(
                 ActionRow(Icons.Rounded.Download, stringResource(R.string.files_action_download)) { showDownloadBrowser = true }
                 // 批v125: pull the file into the app cache, then hand the URI to the
                 // system — the Android open-with card decides which app handles it.
-                ActionRow(Icons.Rounded.OpenInNew, stringResource(R.string.files_action_open_with)) {
+                ActionRow(Icons.AutoMirrored.Rounded.OpenInNew, stringResource(R.string.files_action_open_with)) {
                     if (shareBusy) return@ActionRow
                     shareBusy = true
                     error = null
