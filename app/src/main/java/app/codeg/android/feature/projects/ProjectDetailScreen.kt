@@ -80,6 +80,8 @@ fun ProjectDetailScreen(
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val commonDirs by viewModel.commonDirs.collectAsStateWithLifecycle()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    // 批v183-C: the Files tab's sort mode — one pref shared by both file surfaces.
+    val fileSortMode by viewModel.fileSortMode.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
     var tab by remember { mutableStateOf(ProjectTab.FILES) }
     var showBranchPicker by remember { mutableStateOf(false) }
@@ -254,7 +256,12 @@ fun ProjectDetailScreen(
                         if (client != null) {
                             if (folder != null) {
                                 when (tab) {
-                                    ProjectTab.FILES -> FolderFilesView(client, folder.path)
+                                    ProjectTab.FILES -> FolderFilesView(
+                                        client,
+                                        folder.path,
+                                        fileSortMode = fileSortMode,
+                                        onSortChange = viewModel::setFileSortMode,
+                                    )
                                     ProjectTab.CHANGES -> FolderChangesView(viewModel, client, folder.path, onCommit = { showCommit = true })
                                     ProjectTab.COMMITS -> FolderCommitsView(viewModel, client, folder.path)
                                 }

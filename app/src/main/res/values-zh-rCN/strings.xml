@@ -930,6 +930,9 @@
         <string name="files_tree_new">新建文件或文件夹</string>
         <string name="files_tree_change_root">切换根目录…</string>
         <string name="files_tree_change_root_confirm">从这里浏览</string>
+        <!-- 批v183-C: 文件列表排序 -->
+        <string name="files_sort_name">按名称排序</string>
+        <string name="files_sort_size">按大小排序</string>
         <string name="files_tree_search">搜索</string>
         <string name="files_tree_select">多选</string>
         <string name="files_tree_search_hint">过滤已展开的文件</string>

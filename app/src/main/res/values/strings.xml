@@ -938,6 +938,9 @@
         <string name="files_tree_new">New file or folder</string>
         <string name="files_tree_change_root">Change root directory…</string>
         <string name="files_tree_change_root_confirm">Browse from here</string>
+        <!-- 批v183-C: file-list sort modes -->
+        <string name="files_sort_name">Sort by name</string>
+        <string name="files_sort_size">Sort by size</string>
         <string name="files_tree_search">Search</string>
         <string name="files_tree_select">Select multiple</string>
         <string name="files_tree_search_hint">Filter the expanded tree</string>

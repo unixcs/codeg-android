@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
@@ -66,7 +67,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
+import app.codeg.android.core.datastore.AppSettings
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.CommonDirsStore
+import app.codeg.android.core.datastore.FILE_SORT_MODE_NAME
+import app.codeg.android.core.datastore.FILE_SORT_MODE_SIZE
 import app.codeg.android.core.datastore.LastBrowseStore
 import app.codeg.android.core.datastore.ServerCommonDir
 import app.codeg.android.core.datastore.TreeExpandStore
@@ -104,6 +109,7 @@ class FilesTreeViewModel @Inject constructor(
     private val expandStore: TreeExpandStore,
     private val commonDirsStore: CommonDirsStore,
     private val lastBrowseStore: LastBrowseStore,
+    private val appSettingsStore: AppSettingsStore,
 ) : ViewModel() {
 
     /** One rendered row: a visible node of the flattened tree. */
@@ -137,6 +143,8 @@ class FilesTreeViewModel @Inject constructor(
         val writeRoot: String = "",
         /** 批v181: this device's 常用目录 chips (quick re-root). */
         val commonDirs: List<ServerCommonDir> = emptyList(),
+        /** 批v183-C: the active sort mode (name/size) — drives the menu checkmarks. */
+        val sortMode: String = FILE_SORT_MODE_NAME,
     )
 
     private val _ui = MutableStateFlow(TreeUi())
@@ -169,6 +177,25 @@ class FilesTreeViewModel @Inject constructor(
     private val selecting = MutableStateFlow(false)
     private val selected = MutableStateFlow<Set<String>>(emptySet())
     private val query = MutableStateFlow("")
+
+    /** 批v183-C: the sort mode — persisted pref, applied to every directory's
+     *  children on rebuild. */
+    private val sortMode = MutableStateFlow(AppSettings.DEFAULT_FILE_SORT_MODE)
+
+    init {
+        viewModelScope.launch {
+            sortMode.value = appSettingsStore.settings.first().fileSortMode
+            rebuild()
+        }
+    }
+
+    /** 批v183-C: switch the sort mode; persists and re-sorts what's loaded. */
+    fun setSortMode(mode: String) {
+        if (mode == sortMode.value) return
+        sortMode.value = mode
+        rebuild()
+        viewModelScope.launch { appSettingsStore.setFileSortMode(mode) }
+    }
 
     /** Idempotent bind: same (client, root, device) → keep state (recomposition). */
     fun bind(client: CodegClient, rootPath: String, serverId: String) {
@@ -536,7 +563,7 @@ class FilesTreeViewModel @Inject constructor(
 
         fun walk(dir: String, depth: Int) {
             val kids = children[dir] ?: return
-            for (item in sortItems(kids)) {
+            for (item in sortItems(kids, sortMode.value)) {
                 push(item.path, item.name, item.isDir, depth)
                 if (item.isDir && item.path in exp) walk(item.path, depth + 1)
             }
@@ -553,6 +580,7 @@ class FilesTreeViewModel @Inject constructor(
                 selecting = selecting.value,
                 selected = selected.value,
                 query = query.value,
+                sortMode = sortMode.value,
             )
         }
     }
@@ -667,6 +695,29 @@ fun FilesTreeView(
                             onClick = {
                                 menuOpen = false
                                 showRootBrowser = true
+                            },
+                        )
+                        // 批v183-C: sort mode as a radio pair inside the overflow —
+                        // the toolbar row already carries three icon buttons and the
+                        // "界面乱" feedback says keep it that way.
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_sort_name)) },
+                            trailingIcon = if (state.sortMode == FILE_SORT_MODE_NAME) {
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                            } else null,
+                            onClick = {
+                                menuOpen = false
+                                viewModel.setSortMode(FILE_SORT_MODE_NAME)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_sort_size)) },
+                            trailingIcon = if (state.sortMode == FILE_SORT_MODE_SIZE) {
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                            } else null,
+                            onClick = {
+                                menuOpen = false
+                                viewModel.setSortMode(FILE_SORT_MODE_SIZE)
                             },
                         )
                     }

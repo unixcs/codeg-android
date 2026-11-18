@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import app.codeg.android.R
 import app.codeg.android.core.data.ServerRepository
 import app.codeg.android.core.data.isLiveFresh
+import app.codeg.android.core.datastore.AppSettings
+import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.CommonDirsStore
 import app.codeg.android.core.datastore.ServerCommonDir
 import app.codeg.android.core.datastore.ServerProfile
@@ -28,9 +30,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -43,6 +48,7 @@ import javax.inject.Inject
 class ProjectDetailViewModel @Inject constructor(
     private val repository: ServerRepository,
     private val commonDirsStore: CommonDirsStore,
+    private val appSettingsStore: AppSettingsStore,
     savedStateHandle: SavedStateHandle,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
@@ -56,6 +62,19 @@ class ProjectDetailViewModel @Inject constructor(
 
     private val _ui = MutableStateFlow(ProjectDetailState(loading = true))
     val ui: StateFlow<ProjectDetailState> = _ui.asStateFlow()
+
+    /** 批v183-C: the Files tab's (drill-down browser) sort mode, persisted
+     *  through [AppSettingsStore]; the ephemeral tree reads the same pref via
+     *  its own VM. */
+    val fileSortMode: StateFlow<String> = appSettingsStore.settings
+        .map { it.fileSortMode }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings.DEFAULT_FILE_SORT_MODE)
+
+    /** 批v183-C: persist the Files tab's sort pick. */
+    fun setFileSortMode(mode: String) {
+        viewModelScope.launch { appSettingsStore.setFileSortMode(mode) }
+    }
 
     /** Per-device pinned dirs driving the jump menu (empty ⇒ built-in defaults). */
     private val _commonDirs = MutableStateFlow<List<ServerCommonDir>>(emptyList())

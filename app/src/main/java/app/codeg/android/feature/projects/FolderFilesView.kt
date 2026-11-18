@@ -98,6 +98,8 @@ import app.codeg.android.core.designsystem.component.PrimaryButton
 import app.codeg.android.core.designsystem.component.sheetContentScrollLock
 import app.codeg.android.core.designsystem.markdown.MarkdownContent
 import app.codeg.android.core.designsystem.theme.CodegTheme
+import app.codeg.android.core.datastore.FILE_SORT_MODE_NAME
+import app.codeg.android.core.datastore.FILE_SORT_MODE_SIZE
 import app.codeg.android.core.model.DirectoryItem
 import app.codeg.android.core.network.ApiError
 import app.codeg.android.core.network.CodegClient
@@ -109,7 +111,15 @@ import kotlinx.coroutines.withContext
 /** Recursive file browser with an internal directory stack + file preview. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = null) {
+fun FolderFilesView(
+    client: CodegClient,
+    rootPath: String,
+    startPath: String? = null,
+    // 批v183-C: sort preference lives in AppSettings; this view is VM-less so
+    // the hosting screen passes the current mode and a persistence callback.
+    fileSortMode: String = FILE_SORT_MODE_NAME,
+    onSortChange: (String) -> Unit = {},
+) {
     val colors = CodegTheme.colors
     // 批v176: startPath lets a jump land BELOW/OUTSIDE the workspace root without
     // registering anything; writes still anchor to rootPath and fail cleanly outside.
@@ -221,7 +231,7 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
             InlineError(Icons.AutoMirrored.Rounded.InsertDriveFile, stringResource(R.string.files_load_failed), r.exceptionOrNull()?.message ?: stringResource(R.string.files_error), onRetry = refresh)
         }
         else -> {
-            val items = sortItems(r.getOrDefault(emptyList()))
+            val items = sortItems(r.getOrDefault(emptyList()), fileSortMode)
             val dirName = dir.substringAfterLast('/')
             // Parent of the current dir ("/" has none) — lets the stack climb ABOVE
             // the workspace root toward /mnt, mirroring DirectoryBrowserSheet's "..".
@@ -250,6 +260,8 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
                     FilesToolbarMenu(
                         onNewFile = { showNewSheet = true },
                         onUpload = { showUploadBrowser = true },
+                        sortMode = fileSortMode,
+                        onSortChange = onSortChange,
                     )
                 }
                 if (outsideRoot) {
@@ -401,9 +413,14 @@ fun FolderFilesView(client: CodegClient, rootPath: String, startPath: String? = 
 }
 
 /** Navigate back through the browser's three layers: editor → preview → directory stack. */
-/** Toolbar overflow: new file/folder + upload. Upload target chosen via server browser. */
+/** Toolbar overflow: new file/folder + upload + sort mode. Upload target chosen via server browser. */
 @Composable
-private fun FilesToolbarMenu(onNewFile: () -> Unit, onUpload: () -> Unit) {
+private fun FilesToolbarMenu(
+    onNewFile: () -> Unit,
+    onUpload: () -> Unit,
+    sortMode: String,
+    onSortChange: (String) -> Unit,
+) {
     val colors = CodegTheme.colors
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -420,6 +437,22 @@ private fun FilesToolbarMenu(onNewFile: () -> Unit, onUpload: () -> Unit) {
                 text = { Text(stringResource(R.string.files_upload)) },
                 leadingIcon = { Icon(Icons.Rounded.UploadFile, null, modifier = Modifier.size(18.dp)) },
                 onClick = { expanded = false; onUpload() },
+            )
+            // 批v183-C: sort mode as radio pair — kept in the overflow so the
+            // toolbar row itself stays uncluttered (the "界面乱" constraint).
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.files_sort_name)) },
+                trailingIcon = if (sortMode == FILE_SORT_MODE_NAME) {
+                    { Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
+                } else null,
+                onClick = { expanded = false; onSortChange(FILE_SORT_MODE_NAME) },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.files_sort_size)) },
+                trailingIcon = if (sortMode == FILE_SORT_MODE_SIZE) {
+                    { Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
+                } else null,
+                onClick = { expanded = false; onSortChange(FILE_SORT_MODE_SIZE) },
             )
         }
     }
@@ -1412,9 +1445,20 @@ private fun outsideRootRead(rootPath: String, absPath: String): Pair<String, Str
 /** Client cap for the on-device editor — Compose text fields choke far below the server's 50 MB limit. */
 private const val MAX_EDIT_CHARS = 2_000_000
 
-/** Dirs first, then names — shared by the drill-down browser and the 批v180 tree. */
-internal fun sortItems(items: List<DirectoryItem>): List<DirectoryItem> =
-    items.sortedWith(compareByDescending<DirectoryItem> { it.isDir }.thenBy { it.name.lowercase() })
+/** Dirs first — "name" is plain alpha (the legacy order), "size" sorts files
+ *  biggest-first under their dirs (批v183-C). Shared by the drill-down browser
+ *  and the 批v180 tree. */
+internal fun sortItems(items: List<DirectoryItem>, mode: String = FILE_SORT_MODE_NAME): List<DirectoryItem> =
+    when (mode) {
+        FILE_SORT_MODE_SIZE -> items.sortedWith(
+            compareByDescending<DirectoryItem> { it.isDir }
+                // Dirs keep alpha among themselves (uniform MIN_VALUE here);
+                // files rank by size desc, null/unknown last within ties.
+                .thenByDescending { if (it.isDir) Long.MIN_VALUE else it.size ?: 0L }
+                .thenBy { it.name.lowercase() },
+        )
+        else -> items.sortedWith(compareByDescending<DirectoryItem> { it.isDir }.thenBy { it.name.lowercase() })
+    }
 
 
 /**

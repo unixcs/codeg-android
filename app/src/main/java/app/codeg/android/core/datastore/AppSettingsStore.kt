@@ -117,6 +117,9 @@ data class AppSettings(
     /** 批v179: the sheet's project order — "count" (most sessions first, the
      *  拍板 default), "manual" (sortOrder), "name", "created" (newest first). */
     val addToProjectSort: String = DEFAULT_ADD_TO_PROJECT_SORT,
+    /** 批v183: the file browsers' sort — "name" (dirs first, alpha, the legacy
+     *  order) or "size" (dirs first by name, then biggest files first). */
+    val fileSortMode: String = DEFAULT_FILE_SORT_MODE,
     /** 批v179: the 动态 tab's RECENT window in hours — 24 (default), 48, 72
      *  (3 days), 120 (5), 168 (7) or 0 = everything the feed has loaded. */
     val activityWindowHours: Int = DEFAULT_ACTIVITY_WINDOW_HOURS,
@@ -216,6 +219,7 @@ data class AppSettings(
         // stack was the "界面乱" complaint.
         const val DEFAULT_DEVICE_CHIP_COLUMNS = 2
         const val DEFAULT_ADD_TO_PROJECT_SORT = ADD_TO_PROJECT_SORT_COUNT
+        const val DEFAULT_FILE_SORT_MODE = FILE_SORT_MODE_NAME
         const val DEFAULT_ACTIVITY_WINDOW_HOURS = 24
         const val DEFAULT_SESSION_CHIP_MODE = SESSION_CHIP_DEVICES
         const val DEFAULT_SESSION_SWIPE_LEFT = "copy"
@@ -314,6 +318,8 @@ class AppSettingsStore @Inject constructor(
                 ?: AppSettings.DEFAULT_DEVICE_CHIP_COLUMNS).coerceIn(1, 2),
             addToProjectSort = prefs[ADD_TO_PROJECT_SORT]?.takeIf { it in ADD_TO_PROJECT_SORTS }
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_SORT,
+            fileSortMode = prefs[FILE_SORT_MODE]?.takeIf { it in FILE_SORT_MODES }
+                ?: AppSettings.DEFAULT_FILE_SORT_MODE,
             activityWindowHours = (prefs[ACTIVITY_WINDOW_HOURS]
                 ?: AppSettings.DEFAULT_ACTIVITY_WINDOW_HOURS)
                 .takeIf { it in ACTIVITY_WINDOW_HOURS_CHOICES }
@@ -680,6 +686,17 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
+    /** 批v183: persist the file browsers' sort mode (whitelist-guarded). */
+    suspend fun setFileSortMode(mode: String) {
+        dataStore.edit {
+            it[FILE_SORT_MODE] = if (mode in FILE_SORT_MODES) {
+                mode
+            } else {
+                AppSettings.DEFAULT_FILE_SORT_MODE
+            }
+        }
+    }
+
     /** 批v179: persist the 动态 RECENT window (whitelist-guarded, 0 = all). */
     suspend fun setActivityWindowHours(hours: Int) {
         dataStore.edit {
@@ -824,6 +841,7 @@ class AppSettingsStore @Inject constructor(
         val ADD_TO_PROJECT_COLUMNS = intPreferencesKey("add_to_project_columns")
         val DEVICE_CHIP_COLUMNS = intPreferencesKey("device_chip_columns")
         val ADD_TO_PROJECT_SORT = stringPreferencesKey("add_to_project_sort")
+        val FILE_SORT_MODE = stringPreferencesKey("file_sort_mode")
         val ACTIVITY_WINDOW_HOURS = intPreferencesKey("activity_window_hours")
         val ACTIVITY_UNREAD_ONLY = booleanPreferencesKey("activity_unread_only")
         val SESSION_CHIP_MODE = stringPreferencesKey("session_chip_mode")
@@ -866,6 +884,11 @@ val TASK_BOARD_LAYOUTS = setOf(TASK_BOARD_KANBAN, TASK_BOARD_LIST)
 const val SESSION_CHIP_DEVICES = "devices"
 const val SESSION_CHIP_PROJECTS = "projects"
 val SESSION_CHIP_MODES = setOf(SESSION_CHIP_DEVICES, SESSION_CHIP_PROJECTS)
+
+/** Legal file-browser sort modes (批v183) — the shared sortItems branches on these. */
+const val FILE_SORT_MODE_NAME = "name"
+const val FILE_SORT_MODE_SIZE = "size"
+val FILE_SORT_MODES = setOf(FILE_SORT_MODE_NAME, FILE_SORT_MODE_SIZE)
 
 /** Legal 添加到项目 order modes (批v179) — sheets branch on the constants. */
 const val ADD_TO_PROJECT_SORT_COUNT = "count"
