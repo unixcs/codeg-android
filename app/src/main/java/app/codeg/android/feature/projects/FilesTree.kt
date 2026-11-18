@@ -997,6 +997,9 @@ fun FilesTreeView(
             onDismiss = { showRootBrowser = false },
             showRoot = true,
             initialPath = displayRoot,
+            // 批v185: the tree's own 常用目录 ride the root browser — quick jump
+            // without typing a path (the address bar stays for anything else).
+            commonDirs = state.commonDirs,
         )
     }
 }

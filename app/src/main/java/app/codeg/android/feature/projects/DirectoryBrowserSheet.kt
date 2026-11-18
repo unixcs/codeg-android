@@ -2,6 +2,8 @@ package app.codeg.android.feature.projects
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.codeg.android.R
+import app.codeg.android.core.datastore.ServerCommonDir
 import app.codeg.android.core.designsystem.component.PrimaryButton
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.DirectoryEntry
@@ -85,6 +88,9 @@ fun DirectoryBrowserSheet(
     /** 批v172 D7: open directly on an absolute path (quick-save's last dir)
      *  instead of loading home first. */
     initialPath: String? = null,
+    /** 批v185: 常用目录 quick-jump chips (the tree's own row set) — tap to
+     *  preview the listing, the confirm button still commits the pick. */
+    commonDirs: List<ServerCommonDir> = emptyList(),
 ) {
     val colors = CodegTheme.colors
     val scope = rememberCoroutineScope()
@@ -180,6 +186,36 @@ fun DirectoryBrowserSheet(
                         .clickable { pathDraft = path; editingPath = true }
                         .padding(horizontal = 16.dp, vertical = 6.dp),
                 )
+            }
+            // 批v185: 常用目录 chips — one tap jumps the browser (loadDirs runs
+            // through the path LaunchedEffect); visual language matches the
+            // tree's chip row (批v181).
+            if (commonDirs.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    commonDirs.forEach { dir ->
+                        val active =
+                            path.trimEnd('/').ifEmpty { "/" } == dir.path.trimEnd('/').ifEmpty { "/" }
+                        Text(
+                            dir.label,
+                            fontSize = 11.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (active) colors.onAccent else colors.textSecondary,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (active) colors.accent else colors.textPrimary.copy(alpha = 0.06f))
+                                .clickable { path = dir.path }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
+                }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (loading) {
