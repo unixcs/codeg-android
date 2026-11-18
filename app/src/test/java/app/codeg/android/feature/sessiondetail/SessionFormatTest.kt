@@ -205,6 +205,23 @@ class SessionFormatTest {
     }
 
     @Test
+    fun modelLabelCompactsPlumbingStyleNames() {
+        // 批v188: magpie-style routing names ("provider › group/model") and raw
+        // provider-prefixed ids read as plumbing — the status line compacts them
+        // to the model itself; normal display names pass through untouched.
+        val magpie = modelOption(
+            currentValue = "group/deepseek-v4.1-flash",
+            options = listOf(
+                SessionConfigSelectOption(value = "group/deepseek-v4.1-flash", name = "magpie › group/deepseek-v4.1-flash"),
+            ),
+        )
+        assertEquals("deepseek-v4.1-flash", currentModelLabel(listOf(magpie)))
+        val raw = modelOption(currentValue = "magpie/group/x")
+        assertEquals("x", currentModelLabel(listOf(raw)))
+        assertEquals("GLM-5.3", currentModelLabel(listOf(modelOption())))
+    }
+
+    @Test
     fun modelLabelIsNullWithoutAModelSelector() {
         val effort = SessionConfigOption(
             id = "reasoning_effort",

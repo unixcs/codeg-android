@@ -57,7 +57,13 @@ internal fun currentModelLabel(options: List<SessionConfigOption>): String? {
         ?: kind.groups.asSequence()
             .flatMap { g -> g.options.asSequence() }
             .firstOrNull { it.value == current }?.name?.takeIf { it.isNotBlank() }
-    return named ?: current
+    // 批v188: plumbing-style labels ("magpie › group/deepseek-v4.1-flash", or a
+    // raw "magpie/group/x" fallback) read as provider routing, not a model — the
+    // status line wants the model itself. Only names actually carrying the
+    // "›"/path plumbing shape get compacted; normal display names pass through.
+    val label = named ?: current
+    return label.takeIf { !it.contains('›') && !it.contains('/') }
+        ?: label.substringAfterLast("›").substringAfterLast('/').trim().ifEmpty { label }
 }
 
 /** Absolute completion time `MM-dd HH:mm` (24h, system timezone) for a reply's footer. */
