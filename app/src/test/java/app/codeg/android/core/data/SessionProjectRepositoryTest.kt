@@ -74,12 +74,14 @@ class SessionProjectRepositoryTest {
             org.junit.Assert.assertTrue(
                 "projects flow must catch up eventually",
                 runBlocking {
+                    // 批v183: 20s budget like awaitMemberKey — the 2s one flaked on
+                    // loaded CI runners (rc.1, rc.18 Release gates).
                     var ok = false
-                    repeat(100) {
+                    repeat(200) {
                         if (repo.projects.value.any { it.id == created.id }) {
                             ok = true; return@repeat
                         }
-                        Thread.sleep(20)
+                        Thread.sleep(100)
                     }
                     ok
                 },
@@ -198,9 +200,9 @@ class SessionProjectRepositoryTest {
             // The in-memory scope clears synchronously (remove's first line).
             assertNull(repo.activeProjectId.value)
             var gone = false
-            repeat(100) {
+            repeat(200) {
                 if (repo.projects.value.none { it.id == p.id }) { gone = true; return@repeat }
-                Thread.sleep(20)
+                Thread.sleep(100)
             }
             org.junit.Assert.assertTrue("projects flow must drop the removed id", gone)
         } finally {
