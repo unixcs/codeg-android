@@ -31,9 +31,23 @@ class SessionProjectRepositoryTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
+    // 批v191: the 20s budget did NOT cure every flake — the rc.21 night run failed
+    // the projects poll once (rerun passed, 11 greens around it). A swallowed
+    // exception in `scope` (e.g. a dead DataStore actor) means the flows never
+    // re-emit and NO poll budget helps; record those exceptions so the polls can
+    // fail fast with the real cause instead of burning the whole budget and
+    // reporting an unreadable "never echoed".
+    private val scaffoldErrors = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
+
+    private fun failFastOnScaffoldError() {
+        scaffoldErrors.firstOrNull()?.let { throw it }
+    }
+
     private fun newRepo(): Pair<SessionProjectRepository, CoroutineScope> {
+        scaffoldErrors.clear()
         val scope = CoroutineScope(Dispatchers.Default + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->
             println("SessionProjectRepositoryTest: swallowed scaffolding exception: $throwable")
+            scaffoldErrors.add(throwable)
         })
         val dir = tmp.newFolder()
         val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
@@ -52,6 +66,7 @@ class SessionProjectRepositoryTest {
      *  regression still fails, just later. */
     private fun awaitMemberKey(repo: SessionProjectRepository, key: String) {
         repeat(200) {
+            failFastOnScaffoldError()
             if (repo.members.value.values.any { refs -> refs.any { it.key == key } }) return
             Thread.sleep(100)
         }
@@ -78,6 +93,7 @@ class SessionProjectRepositoryTest {
                     // loaded CI runners (rc.1, rc.18 Release gates).
                     var ok = false
                     repeat(200) {
+                        failFastOnScaffoldError()
                         if (repo.projects.value.any { it.id == created.id }) {
                             ok = true; return@repeat
                         }
