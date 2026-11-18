@@ -3407,6 +3407,9 @@ class SessionDetailViewModel @Inject constructor(
         valueId: String,
     ): OptionApplyOutcome =
         if (rememberConfig(serverId, forAgent, convId, configId, valueId)) {
+            // 批v188: draft-time picks ship as preferredConfigValues on the next
+            // connect — echo them too so the status line never trails the pick.
+            echoConfigOption(configId, valueId)
             OptionApplyOutcome.Applied(valueId)
         } else {
             OptionApplyOutcome.Failed

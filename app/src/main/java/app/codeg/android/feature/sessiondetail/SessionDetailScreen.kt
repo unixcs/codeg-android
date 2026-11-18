@@ -513,17 +513,22 @@ fun SessionDetailScreen(
                         }
                     }
                     // The agent avatar is the options button (mode / config / folder / branch).
-                    Box(
-                        Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .clickable(
-                                onClickLabel = stringResource(R.string.session_agent_options),
-                                role = Role.Button,
-                            ) { showOptions = true },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        AgentAvatar(ui.agent, size = 28.dp)
+                    // 批v188: hidden while loading/errored — ui.agent still holds the
+                    // CLAUDE_CODE default then, and the wrong (often disabled) logo
+                    // would flash in the top bar exactly like the chip row below.
+                    if (!ui.loading && ui.error == null) {
+                        Box(
+                            Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .clickable(
+                                    onClickLabel = stringResource(R.string.session_agent_options),
+                                    role = Role.Button,
+                                ) { showOptions = true },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            AgentAvatar(ui.agent, size = 28.dp)
+                        }
                     }
                     if (ui.summary != null) SessionActionsMenu(ui, viewModel, onDeleted = onBack, onHandoff = { showHandoff = true })
                 },
