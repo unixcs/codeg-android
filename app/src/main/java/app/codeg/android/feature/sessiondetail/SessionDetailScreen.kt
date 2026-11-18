@@ -1178,13 +1178,15 @@ private fun SessionContextChips(
                     }
                 }
             }
-        } else if (!ui.loading && ui.error == null) {
+        } else if (!ui.loading && ui.error == null && !ui.isNew) {
             // Restored in v123 (v122 had dropped it with the options move): a live
             // session's row-leading agent label — the CLI logo before 会话信息.
             // 批v188: hidden while the session is still loading (or failed) — the
             // UiState's agent field defaults to CLAUDE_CODE and only becomes the
             // session's real agent once conversationDetail returns, so rendering
             // the label during that window flashed a wrong (often disabled) agent.
+            // 批v188 审查P2-2: also gated to live sessions — a draft with no
+            // availableAgents has no real agent to show either (same fallback risk).
             item(key = "ctx-agent-label") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     AgentAvatar(ui.agent, size = 20.dp)

@@ -79,7 +79,12 @@ fun SessionDetailsSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                AgentAvatar(ui.agent, size = 40.dp)
+                // 批v188 审查P2-1: same default-agent flash as the composer chips — ui.agent
+                // stays on the CLAUDE_CODE fallback until conversationDetail lands, and this
+                // sheet is reachable during that window. No summary ⇒ no avatar yet.
+                if (summary != null) {
+                    AgentAvatar(ui.agent, size = 40.dp)
+                }
                 Text(
                     summary?.trimmedTitle ?: stringResource(R.string.sessionactions_untitled),
                     fontSize = 18.sp,
