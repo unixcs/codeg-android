@@ -97,6 +97,13 @@ fun DirectoryBrowserSheet(
     var path by remember { mutableStateOf("") }
     var dirs by remember { mutableStateOf<List<DirectoryEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    // 批v183-B: the path line doubles as an address bar — tap to type any
+    // absolute path and jump straight there (Solid Explorer / Termius
+    // convention); invalid drafts are simply not applied. Declared before the
+    // Dialog so every navigation point (Home/chips/rows) can leave edit mode.
+    var editingPath by remember { mutableStateOf(false) }
+    var pathDraft by remember { mutableStateOf("") }
+    val pathFocus = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { path = runCatching { initialPath ?: loadHome() }.getOrDefault("") }
     LaunchedEffect(path) {
@@ -121,7 +128,10 @@ fun DirectoryBrowserSheet(
                     IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.dirbrowser_close), tint = colors.textPrimary) }
                 },
                 actions = {
-                    IconButton(onClick = { scope.launch { path = runCatching { loadHome() }.getOrDefault("") } }) {
+                    IconButton(onClick = {
+                        scope.launch { path = runCatching { loadHome() }.getOrDefault("") }
+                        editingPath = false
+                    }) {
                         Icon(Icons.Rounded.Home, contentDescription = stringResource(R.string.dirbrowser_home), tint = colors.textSecondary)
                     }
                 },
@@ -130,9 +140,6 @@ fun DirectoryBrowserSheet(
             // 批v183-B: the path line doubles as an address bar — tap to type any
             // absolute path and jump straight there (Solid Explorer / Termius
             // convention); invalid drafts are simply not applied.
-            var editingPath by remember { mutableStateOf(false) }
-            var pathDraft by remember { mutableStateOf("") }
-            val pathFocus = remember { FocusRequester() }
             if (editingPath) {
                 // 批v183 审查 P2: the trailing icon doubles as state feedback —
                 // a valid draft commits (→), an invalid one offers the escape
@@ -211,7 +218,7 @@ fun DirectoryBrowserSheet(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (active) colors.accent else colors.textPrimary.copy(alpha = 0.06f))
-                                .clickable { path = dir.path }
+                                .clickable { path = dir.path; editingPath = false }
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                         )
                     }
@@ -227,13 +234,13 @@ fun DirectoryBrowserSheet(
                         // making any wrong first turn a dead end. "/" itself has no parent.
                         val parent = path.substringBeforeLast('/', "").ifEmpty { "/" }
                         if (parent != path) {
-                            item("up") { BrowserRow("..", hasChildren = false, icon = Icons.Rounded.ArrowUpward) { path = parent } }
+                            item("up") { BrowserRow("..", hasChildren = false, icon = Icons.Rounded.ArrowUpward) { path = parent; editingPath = false } }
                         }
                         if (showRoot && path != "/") {
-                            item("root") { BrowserRow("/", hasChildren = false, icon = Icons.Rounded.Home) { path = "/" } }
+                            item("root") { BrowserRow("/", hasChildren = false, icon = Icons.Rounded.Home) { path = "/"; editingPath = false } }
                         }
                         items(dirs, key = { it.path }) { entry ->
-                            BrowserRow(entry.name, entry.hasChildren, Icons.Rounded.Folder) { path = entry.path }
+                            BrowserRow(entry.name, entry.hasChildren, Icons.Rounded.Folder) { path = entry.path; editingPath = false }
                         }
                     }
                 }
