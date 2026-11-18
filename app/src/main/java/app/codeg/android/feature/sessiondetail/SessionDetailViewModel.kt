@@ -3199,6 +3199,21 @@ class SessionDetailViewModel @Inject constructor(
      *  There is NO migration: once the draft becomes a conversation, that conversation's
      *  own layer (already populated from the agent default at resolve time) shadows the
      *  draft-era value. */
+    /** 批v188: optimistic config echo — the apply already reconciled against the
+     *  live session, so reflect the new current value in the UiState right away.
+     *  The 生成中 status line (and anything else reading configOptions) otherwise
+     *  shows the PREVIOUS pick until a later snapshot/event re-fetches it, which
+     *  read as "switched to B but the bar still says the old default". */
+    private fun echoConfigOption(configId: String, valueId: String) {
+        _ui.update { st ->
+            st.copy(
+                configOptions = st.configOptions.map { opt ->
+                    if (opt.id == configId) opt.copy(kind = opt.kind.copy(currentValue = valueId)) else opt
+                },
+            )
+        }
+    }
+
     suspend fun applyConfig(configId: String, valueId: String): OptionApplyOutcome {
         val forAgent = agent
         val forFolder = folder
@@ -3224,6 +3239,7 @@ class SessionDetailViewModel @Inject constructor(
                     ReconcileResult.Confirmed -> {
                         rememberConfig(serverId, forAgent, convId, configId, valueId)
                         evictSnapshotCache()
+                        echoConfigOption(configId, valueId)
                         OptionApplyOutcome.Applied(valueId)
                     }
                     ReconcileResult.Rejected -> {
@@ -3247,6 +3263,7 @@ class SessionDetailViewModel @Inject constructor(
                         valueId -> {
                             rememberConfig(serverId, forAgent, convId, configId, valueId)
                             evictSnapshotCache()
+                            echoConfigOption(configId, valueId)
                             OptionApplyOutcome.Applied(valueId)
                         }
                         // Unknown (initializing / no selector), not a refusal — same
