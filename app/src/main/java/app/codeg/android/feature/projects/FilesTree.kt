@@ -121,6 +121,8 @@ class FilesTreeViewModel @Inject constructor(
         val expanded: Boolean,
         val loading: Boolean,
         val error: String?,
+        /** 批v184: file size in bytes — dirs/null stay unlabeled. */
+        val size: Long? = null,
     )
 
     data class TreeUi(
@@ -554,7 +556,7 @@ class FilesTreeViewModel @Inject constructor(
         val load = loading.value
         val errs = errors.value
 
-        fun push(path: String, name: String, isDir: Boolean, depth: Int) {
+        fun push(path: String, name: String, isDir: Boolean, depth: Int, size: Long? = null) {
             nodes += TreeNode(
                 path = path,
                 name = name,
@@ -563,13 +565,14 @@ class FilesTreeViewModel @Inject constructor(
                 expanded = path in exp,
                 loading = path in load,
                 error = errs[path],
+                size = size,
             )
         }
 
         fun walk(dir: String, depth: Int) {
             val kids = children[dir] ?: return
             for (item in sortItems(kids, sortMode.value)) {
-                push(item.path, item.name, item.isDir, depth)
+                push(item.path, item.name, item.isDir, depth, item.size)
                 if (item.isDir && item.path in exp) walk(item.path, depth + 1)
             }
         }
@@ -1111,6 +1114,17 @@ private fun TreeRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        // 批v184: file size on the row's tail — pairs with the size sort so big
+        // files are findable at a glance; dirs and unknown sizes stay unlabeled.
+        node.size?.takeIf { !node.isDir }?.let { bytes ->
+            Text(
+                formatBytes(bytes),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = colors.textTertiary,
+                maxLines = 1,
+            )
+        }
         when {
             node.loading -> CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
             node.error != null -> Text(

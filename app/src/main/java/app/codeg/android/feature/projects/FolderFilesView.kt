@@ -1488,7 +1488,8 @@ internal fun mimeForOpenWith(name: String): String {
     }
 }
 
-private fun formatBytes(bytes: Long): String {
+/** Shared with the 批v180 tree's row labels (批v184). */
+internal fun formatBytes(bytes: Long): String {
     val loc = java.util.Locale.US
     return when {
         bytes >= 1_073_741_824 -> String.format(loc, "%.1f GB", bytes / 1_073_741_824.0)
