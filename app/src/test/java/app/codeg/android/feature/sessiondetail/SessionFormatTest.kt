@@ -237,4 +237,17 @@ class SessionFormatTest {
         assertNull(currentModelLabel(listOf(modelOption(currentValue = null))))
         assertNull(currentModelLabel(listOf(modelOption(currentValue = "  "))))
     }
+
+    @Test
+    fun compactModelNameHandlesPlumbingPlainAndEdgeShapes() {
+        // 批v189: extracted for the 会话信息 sheet's model row — same shapes as the
+        // status line, plus the guard rails (blank-only suffix, nested plumbing).
+        assertEquals("deepseek-v4.1-flash", compactModelName("magpie › group/deepseek-v4.1-flash"))
+        assertEquals("x", compactModelName("magpie/group/x"))
+        assertEquals("GLM-5.3", compactModelName("GLM-5.3"))
+        assertEquals("x", compactModelName("a › b › magpie/group/x"))
+        // A name that is pure plumbing with no tail keeps the original label
+        // (ifEmpty fallback) rather than printing an empty string.
+        assertEquals("magpie › group/", compactModelName("magpie › group/"))
+    }
 }

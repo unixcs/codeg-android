@@ -61,10 +61,17 @@ internal fun currentModelLabel(options: List<SessionConfigOption>): String? {
     // raw "magpie/group/x" fallback) read as provider routing, not a model — the
     // status line wants the model itself. Only names actually carrying the
     // "›"/path plumbing shape get compacted; normal display names pass through.
-    val label = named ?: current
-    return label.takeIf { !it.contains('›') && !it.contains('/') }
-        ?: label.substringAfterLast("›").substringAfterLast('/').trim().ifEmpty { label }
+    return compactModelName(named ?: current)
 }
+
+/**
+ * 批v189: the same compaction as [currentModelLabel]'s tail, extracted so every
+ * surface that prints a server-supplied model string shows the same shape — the
+ * 会话信息 sheet's model row was still printing the full plumbing label.
+ */
+internal fun compactModelName(label: String): String =
+    label.takeIf { !it.contains('›') && !it.contains('/') }
+        ?: label.substringAfterLast("›").substringAfterLast('/').trim().ifEmpty { label }
 
 /** Absolute completion time `MM-dd HH:mm` (24h, system timezone) for a reply's footer. */
 internal fun completedAtLabel(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String =

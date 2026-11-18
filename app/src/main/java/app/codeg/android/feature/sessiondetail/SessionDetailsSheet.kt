@@ -104,7 +104,9 @@ fun SessionDetailsSheet(
                     DetailRow(stringResource(R.string.sessionactions_detail_status), statusLabel(summary.status), statusColor(summary.status))
                     ui.folderName?.let { DetailRow(stringResource(R.string.sessionactions_detail_folder), it) }
                     DetailRow(stringResource(R.string.sessionactions_detail_messages), summary.messageCount.toString())
-                    summary.model?.takeIf { it.isNotBlank() }?.let { DetailRow(stringResource(R.string.sessionactions_detail_model), it) }
+                    // 批v189: same plumbing-name compaction as the composer status line —
+                    // summary.model is server-supplied and may be "magpie › group/x".
+                    summary.model?.takeIf { it.isNotBlank() }?.let { DetailRow(stringResource(R.string.sessionactions_detail_model), compactModelName(it)) }
                     summary.gitBranch?.takeIf { it.isNotBlank() }?.let { DetailRow(stringResource(R.string.sessionactions_detail_branch), it) }
                     DetailRow(stringResource(R.string.sessionactions_detail_created), RelativeTime.compact(summary.createdAt))
                     DetailRow(stringResource(R.string.sessionactions_detail_updated), RelativeTime.compact(summary.updatedAt))
