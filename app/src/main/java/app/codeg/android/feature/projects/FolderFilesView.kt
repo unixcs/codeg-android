@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,10 +58,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -129,6 +132,9 @@ fun FolderFilesView(
     // Saveable: preview/edit survive rotation.
     var previewPath by rememberSaveable { mutableStateOf<String?>(null) }
     var editPath by rememberSaveable { mutableStateOf<String?>(null) }
+    // 批v186: name filter — mirrors the tree's search field (same strings).
+    var filterOpen by rememberSaveable { mutableStateOf(false) }
+    var filter by rememberSaveable { mutableStateOf("") }
     // Content recovered from a failed create-with-content; consumed once by the editor.
     var pastedRecovery by remember { mutableStateOf<String?>(null) }
 
@@ -233,6 +239,7 @@ fun FolderFilesView(
         }
         else -> {
             val items = sortItems(r.getOrDefault(emptyList()), fileSortMode)
+                .filter { filter.isBlank() || it.name.contains(filter, ignoreCase = true) }
             val dirName = dir.substringAfterLast('/')
             // Parent of the current dir ("/" has none) — lets the stack climb ABOVE
             // the workspace root toward /mnt, mirroring DirectoryBrowserSheet's "..".
@@ -258,11 +265,33 @@ fun FolderFilesView(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    // 批v186: filter toggle — accent while a query is active,
+                    // matching the tree's search button behavior.
+                    IconButton(onClick = { filterOpen = !filterOpen }) {
+                        Icon(
+                            Icons.Rounded.Search,
+                            contentDescription = stringResource(R.string.files_tree_search),
+                            tint = if (filter.isNotBlank()) colors.accent else colors.textSecondary,
+                        )
+                    }
                     FilesToolbarMenu(
                         onNewFile = { showNewSheet = true },
                         onUpload = { showUploadBrowser = true },
                         sortMode = fileSortMode,
                         onSortChange = onSortChange,
+                    )
+                }
+                if (filterOpen) {
+                    TextField(
+                        value = filter,
+                        onValueChange = { filter = it },
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.files_tree_search_hint), fontSize = 13.sp) },
+                        textStyle = LocalTextStyle.current.copy(fontSize = 13.sp),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
                     )
                 }
                 if (outsideRoot) {
