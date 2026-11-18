@@ -223,13 +223,18 @@ class FilesTreeViewModel @Inject constructor(
                 _ui.update { it.copy(commonDirs = dirs) }
             }
         }
-        _ui.value = TreeUi(busy = true, writeRoot = normalizedRoot)
+        _ui.value = TreeUi(busy = true, writeRoot = normalizedRoot, sortMode = sortMode.value)
         bindJob = viewModelScope.launch {
             // 批v181 审查: capture the bind identity — a superseded bind must
             // not write state into the newer session (its root/worktree differ).
             val boundRoot = root
             val boundWriteRoot = writeRoot
             val boundServer = serverId
+            // 批v183 审查 P2: re-sync the sort pref on each bind — the Files-tab
+            // browser shares this DataStore and may have changed it since init
+            // read it (a stale checkmark would linger otherwise).
+            runCatching { appSettingsStore.settings.first().fileSortMode }
+                .getOrNull()?.let { sortMode.value = it }
             try {
                 fetchChildren(boundRoot)
                 // Restore saved expansions for THIS (device, root); the root row

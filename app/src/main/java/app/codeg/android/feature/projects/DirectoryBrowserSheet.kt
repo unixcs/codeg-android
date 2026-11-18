@@ -128,6 +128,11 @@ fun DirectoryBrowserSheet(
             var pathDraft by remember { mutableStateOf("") }
             val pathFocus = remember { FocusRequester() }
             if (editingPath) {
+                // 批v183 审查 P2: the trailing icon doubles as state feedback —
+                // a valid draft commits (→), an invalid one offers the escape
+                // hatch (✕ cancels back to the read-only line) instead of the
+                // button silently doing nothing.
+                val draftValid = pathDraft.trim().startsWith("/")
                 TextField(
                     value = pathDraft,
                     onValueChange = { pathDraft = it },
@@ -143,19 +148,24 @@ fun DirectoryBrowserSheet(
                         }
                     }),
                     trailingIcon = {
-                        IconButton(onClick = {
-                            val p = pathDraft.trim()
-                            if (p.startsWith("/")) {
+                        if (draftValid) {
+                            IconButton(onClick = {
+                                val p = pathDraft.trim()
                                 path = p.trimEnd('/').ifEmpty { "/" }
                                 editingPath = false
+                            }) {
+                                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.accent)
                             }
-                        }) {
-                            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = colors.accent)
+                        } else {
+                            IconButton(onClick = { editingPath = false }) {
+                                Icon(Icons.Rounded.Close, contentDescription = null, tint = colors.textSecondary)
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp).focusRequester(pathFocus),
                 )
-                LaunchedEffect(Unit) { pathFocus.requestFocus() }
+                // 审查 P2: defensive — an unattached focus node would throw.
+                LaunchedEffect(Unit) { runCatching { pathFocus.requestFocus() } }
             } else {
                 Text(
                     path,
