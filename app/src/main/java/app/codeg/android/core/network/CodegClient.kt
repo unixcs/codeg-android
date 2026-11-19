@@ -173,6 +173,7 @@ import io.ktor.client.request.forms.ChannelProvider
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.forms.submitFormWithBinaryData
 import io.ktor.client.request.preparePost
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.Headers
 import io.ktor.http.content.PartData
@@ -181,6 +182,7 @@ import io.ktor.utils.io.core.Buffer
 import io.ktor.utils.io.core.isEmpty
 import io.ktor.utils.io.core.readBytes
 import io.ktor.utils.io.readRemaining
+import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -192,11 +194,13 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import kotlinx.serialization.DeserializationStrategy
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -229,15 +233,15 @@ class CodegClient(
 
     /** Validate connectivity + auth for a server profile. */
     suspend fun health(): HealthResponse =
-        decode(send("health", encode(EmptyBody)), HealthResponse.serializer())
+        sendDecoded("health", encode(EmptyBody), HealthResponse.serializer())
 
     /** All projects/folders known to the server. */
     suspend fun listFolders(): List<FolderDetail> =
-        decode(send("list_all_folder_details", encode(EmptyBody)), ListSerializer(FolderDetail.serializer()))
+        sendDecoded("list_all_folder_details", encode(EmptyBody), ListSerializer(FolderDetail.serializer()))
 
     /** Open (non-chat) folders only — the new-session folder picker's source. */
     suspend fun listOpenFolders(): List<FolderDetail> =
-        decode(send("list_open_folder_details", encode(EmptyBody)), ListSerializer(FolderDetail.serializer()))
+        sendDecoded("list_open_folder_details", encode(EmptyBody), ListSerializer(FolderDetail.serializer()))
 
     /** Conversations, optionally filtered by folder / status / search text. */
     suspend fun listConversations(
@@ -250,17 +254,15 @@ class CodegClient(
          *  members can be sub-sessions joined from the board. */
         includeChildren: Boolean? = null,
     ): List<ConversationSummary> =
-        decode(
-            send(
-                "list_all_conversations",
-                encode(
-                    ListConversationsBody(
-                        folderIds = folderIds,
-                        search = search,
-                        sortBy = sortBy,
-                        status = status,
-                        includeChildren = includeChildren,
-                    ),
+        sendDecoded(
+            "list_all_conversations",
+            encode(
+                ListConversationsBody(
+                    folderIds = folderIds,
+                    search = search,
+                    sortBy = sortBy,
+                    status = status,
+                    includeChildren = includeChildren,
                 ),
             ),
             ListSerializer(ConversationSummary.serializer()),
@@ -276,15 +278,13 @@ class CodegClient(
      * `turns` is the FULL list, exactly what old callers expect.
      */
     suspend fun conversationDetail(id: Int, tailTurns: Int? = null, fromIndex: Int? = null): ConversationDetail =
-        decode(
-            send(
-                "get_folder_conversation",
-                buildJsonObject {
-                    put("conversationId", id)
-                    tailTurns?.let { put("tailTurns", it) }
-                    fromIndex?.let { put("fromIndex", it) }
-                }.toString(),
-            ),
+        sendDecoded(
+            "get_folder_conversation",
+            buildJsonObject {
+                put("conversationId", id)
+                tailTurns?.let { put("tailTurns", it) }
+                fromIndex?.let { put("fromIndex", it) }
+            }.toString(),
             ConversationDetail.serializer(),
         )
 
@@ -296,22 +296,20 @@ class CodegClient(
      * [ConversationDetail.prefixHash] before splicing (web `requestOlderPage`).
      */
     suspend fun conversationTurnsPage(id: Int, beforeIndex: Int, limit: Int): ConversationTurnsPage =
-        decode(
-            send(
-                "get_folder_conversation_turns",
-                buildJsonObject {
-                    put("conversationId", id)
-                    put("beforeIndex", beforeIndex)
-                    put("limit", limit)
-                }.toString(),
-            ),
+        sendDecoded(
+            "get_folder_conversation_turns",
+            buildJsonObject {
+                put("conversationId", id)
+                put("beforeIndex", beforeIndex)
+                put("limit", limit)
+            }.toString(),
             ConversationTurnsPage.serializer(),
         )
 
     /** Create a conversation row up front and return its id (a bare JSON int). */
     suspend fun createConversation(folderId: Int, agentType: AgentType, title: String?): Int =
-        decode(
-            send("create_conversation", encode(CreateConversationBody(folderId, agentType, title))),
+        sendDecoded(
+            "create_conversation", encode(CreateConversationBody(folderId, agentType, title)),
             Int.serializer(),
         )
 
@@ -505,7 +503,7 @@ class CodegClient(
 
     /** Register/open a folder by absolute path; returns the upserted [FolderDetail]. */
     suspend fun openFolder(path: String): FolderDetail =
-        decode(send("open_folder", encode(PathBody(path))), FolderDetail.serializer())
+        sendDecoded("open_folder", encode(PathBody(path)), FolderDetail.serializer())
 
     /** Remove a folder from the workspace view (does not delete files on disk). */
     suspend fun removeFolderFromWorkspace(folderId: Int) {
@@ -518,7 +516,7 @@ class CodegClient(
 
     /** Directories under [path] (browser; dirs only). */
     suspend fun listDirectoryEntries(path: String): List<DirectoryEntry> =
-        decode(send("list_directory_entries", encode(PathBody(path))), ListSerializer(DirectoryEntry.serializer()))
+        sendDecoded("list_directory_entries", encode(PathBody(path)), ListSerializer(DirectoryEntry.serializer()))
 
     /** Files + directories under [path] (file browser; camelCase wire). */
     suspend fun listDirectoryWithFiles(path: String): List<DirectoryItem> =
@@ -526,15 +524,15 @@ class CodegClient(
 
     /** Read a file's text (path is relative to [rootPath]). */
     suspend fun readFilePreview(rootPath: String, path: String): FilePreviewContent =
-        decode(send("read_file_preview", encode(ReadFilePreviewBody(rootPath, path))), FilePreviewContent.serializer())
+        sendDecoded("read_file_preview", encode(ReadFilePreviewBody(rootPath, path)), FilePreviewContent.serializer())
 
     /** Working-tree changes. Throws [ApiError.Server] with code `not_a_git_repository` if not a repo. */
     suspend fun gitStatus(path: String, showAllUntracked: Boolean = true): List<GitStatusEntry> =
-        decode(send("git_status", encode(GitStatusBody(path, showAllUntracked))), ListSerializer(GitStatusEntry.serializer()))
+        sendDecoded("git_status", encode(GitStatusBody(path, showAllUntracked)), ListSerializer(GitStatusEntry.serializer()))
 
     /** Commit history (newest first). */
     suspend fun gitLog(path: String, limit: Int? = null): GitLogResult =
-        decode(send("git_log", encode(GitLogBody(path, limit))), GitLogResult.serializer())
+        sendDecoded("git_log", encode(GitLogBody(path, limit)), GitLogResult.serializer())
 
     /** Working-tree diff (bare unified-diff string; empty if none). */
     suspend fun gitDiff(path: String, file: String? = null): String =
@@ -551,7 +549,7 @@ class CodegClient(
 
     /** Local + remote + worktree branch names. */
     suspend fun gitListAllBranches(path: String): GitBranchList =
-        decode(send("git_list_all_branches", encode(PathBody(path))), GitBranchList.serializer())
+        sendDecoded("git_list_all_branches", encode(PathBody(path)), GitBranchList.serializer())
 
     /** Current branch name, or null for detached HEAD / non-git. */
     suspend fun getGitBranch(path: String): String? {
@@ -572,11 +570,11 @@ class CodegClient(
 
     /** Resolve where [branch] is checked out, relative to the repo at [repoPath]. */
     suspend fun resolveWorktreeFolder(repoPath: String, branch: String): WorktreeResolution =
-        decode(send("resolve_worktree_folder", encode(ResolveWorktreeFolderBody(repoPath, branch))), WorktreeResolution.serializer())
+        sendDecoded("resolve_worktree_folder", encode(ResolveWorktreeFolderBody(repoPath, branch)), WorktreeResolution.serializer())
 
     /** Register a worktree directory as a folder (parented to [sourceFolderId]); returns it. */
     suspend fun openWorktreeFolder(path: String, sourceFolderId: Int): FolderDetail =
-        decode(send("open_worktree_folder", encode(OpenWorktreeFolderBody(path, sourceFolderId))), FolderDetail.serializer())
+        sendDecoded("open_worktree_folder", encode(OpenWorktreeFolderBody(path, sourceFolderId)), FolderDetail.serializer())
 
     /**
      * Commit [files] (repo-root-relative paths) with [message]. The server stages
@@ -584,7 +582,7 @@ class CodegClient(
      * the server broadcast a commit event to other workspace clients.
      */
     suspend fun gitCommit(path: String, message: String, files: List<String>, folderId: Int? = null): GitCommitResult =
-        decode(send("git_commit", encode(GitCommitBody(folderId, path, message, files))), GitCommitResult.serializer())
+        sendDecoded("git_commit", encode(GitCommitBody(folderId, path, message, files)), GitCommitResult.serializer())
 
     /**
      * Push the current branch to [remote] (null = the branch's upstream / default).
@@ -592,11 +590,11 @@ class CodegClient(
      * throws `authentication_failed` when none match.
      */
     suspend fun gitPush(path: String, remote: String? = null, credentials: GitCredentials? = null, folderId: Int? = null): GitPushResult =
-        decode(send("git_push", encode(GitPushBody(folderId, path, remote, credentials))), GitPushResult.serializer())
+        sendDecoded("git_push", encode(GitPushBody(folderId, path, remote, credentials)), GitPushResult.serializer())
 
     /** Pull (fetch + merge) the current branch's upstream; reports changed files + any conflict. */
     suspend fun gitPull(path: String, credentials: GitCredentials? = null): GitPullResult =
-        decode(send("git_pull", encode(GitPullBody(path, credentials))), GitPullResult.serializer())
+        sendDecoded("git_pull", encode(GitPullBody(path, credentials)), GitPullResult.serializer())
 
     /** Fetch all remotes. Returns the raw fetch summary text (bare JSON string). */
     suspend fun gitFetch(path: String, credentials: GitCredentials? = null): String =
@@ -604,11 +602,11 @@ class CodegClient(
 
     /** Branch + remotes + tracking remote — drives the Commits tab sync header. */
     suspend fun gitPushInfo(path: String): GitPushInfo =
-        decode(send("git_push_info", encode(PathBody(path))), GitPushInfo.serializer())
+        sendDecoded("git_push_info", encode(PathBody(path)), GitPushInfo.serializer())
 
     /** The repo's configured remotes (used to resolve the origin host for credentials). */
     suspend fun gitListRemotes(path: String): List<GitRemote> =
-        decode(send("git_list_remotes", encode(PathBody(path))), ListSerializer(GitRemote.serializer()))
+        sendDecoded("git_list_remotes", encode(PathBody(path)), ListSerializer(GitRemote.serializer()))
 
     /** Stage (`git add`) untracked/modified [files] so git starts tracking them. */
     suspend fun gitAddFiles(path: String, files: List<String>) {
@@ -631,7 +629,7 @@ class CodegClient(
 
     /** Read a file for editing — content + concurrency [FileEditContent.etag]. */
     suspend fun readFileForEdit(rootPath: String, path: String): FileEditContent =
-        decode(send("read_file_for_edit", encode(ReadFileForEditBody(rootPath, path))), FileEditContent.serializer())
+        sendDecoded("read_file_for_edit", encode(ReadFileForEditBody(rootPath, path)), FileEditContent.serializer())
 
     /**
      * Save a text file. Pass the [expectedEtag] from [readFileForEdit] to guard
@@ -640,23 +638,23 @@ class CodegClient(
      * [isEtagConflict] rather than a status check to detect it.
      */
     suspend fun saveFileContent(rootPath: String, path: String, content: String, expectedEtag: String?): FileSaveResult =
-        decode(send("save_file_content", encode(SaveFileContentBody(rootPath, path, content, expectedEtag))), FileSaveResult.serializer())
+        sendDecoded("save_file_content", encode(SaveFileContentBody(rootPath, path, content, expectedEtag)), FileSaveResult.serializer())
 
     /** Create an empty file ("file") or directory ("dir") in [path] (parent dir, root-relative). */
     suspend fun createFileTreeEntry(rootPath: String, path: String, name: String, kind: String): String =
-        decode(send("create_file_tree_entry", encode(CreateFileTreeEntryBody(rootPath, path, name, kind))), String.serializer())
+        sendDecoded("create_file_tree_entry", encode(CreateFileTreeEntryBody(rootPath, path, name, kind)), String.serializer())
 
     /** Rename the entry at [path] to [newName]; returns the new root-relative path. */
     suspend fun renameFileTreeEntry(rootPath: String, path: String, newName: String): String =
-        decode(send("rename_file_tree_entry", encode(RenameFileTreeEntryBody(rootPath, path, newName))), String.serializer())
+        sendDecoded("rename_file_tree_entry", encode(RenameFileTreeEntryBody(rootPath, path, newName)), String.serializer())
 
     /** Move [sourcePath] into directory [destDir]; returns the new root-relative path. */
     suspend fun moveFileTreeEntry(rootPath: String, sourcePath: String, destDir: String): String =
-        decode(send("move_file_tree_entry", encode(MoveFileTreeEntryBody(rootPath, sourcePath, destDir))), String.serializer())
+        sendDecoded("move_file_tree_entry", encode(MoveFileTreeEntryBody(rootPath, sourcePath, destDir)), String.serializer())
 
     /** Read a (binary) workspace file as base64, e.g. an image preview. Max 100 MB. */
     suspend fun readWorkspaceFileBase64(rootPath: String, path: String, maxBytes: Int? = null): String =
-        decode(send("read_workspace_file_base64", encode(ReadWorkspaceFileBase64Body(rootPath, path, maxBytes))), String.serializer())
+        sendDecoded("read_workspace_file_base64", encode(ReadWorkspaceFileBase64Body(rootPath, path, maxBytes)), String.serializer())
 
     /**
      * Upload one file into [targetDir] (root-relative, "" = root) via multipart.
@@ -794,13 +792,13 @@ class CodegClient(
 
     /** Reusable message templates. */
     suspend fun quickMessagesList(): List<QuickMessage> =
-        decode(send("quick_messages_list", encode(EmptyBody)), ListSerializer(QuickMessage.serializer()))
+        sendDecoded("quick_messages_list", encode(EmptyBody), ListSerializer(QuickMessage.serializer()))
 
     suspend fun quickMessageCreate(title: String, content: String): QuickMessage =
-        decode(send("quick_messages_create", encode(QuickMessageCreateBody(title, content))), QuickMessage.serializer())
+        sendDecoded("quick_messages_create", encode(QuickMessageCreateBody(title, content)), QuickMessage.serializer())
 
     suspend fun quickMessageUpdate(id: Int, title: String, content: String): QuickMessage =
-        decode(send("quick_messages_update", encode(QuickMessageUpdateBody(id, title, content))), QuickMessage.serializer())
+        sendDecoded("quick_messages_update", encode(QuickMessageUpdateBody(id, title, content)), QuickMessage.serializer())
 
     suspend fun quickMessageDelete(id: Int) {
         send("quick_messages_delete", encode(IdBody(id)))
@@ -812,7 +810,7 @@ class CodegClient(
 
     /** "Live feedback" conversation-tool toggle. */
     suspend fun getFeedbackEnabled(): Boolean =
-        decode(send("get_feedback_settings", encode(EmptyBody)), EnabledFlag.serializer()).enabled
+        sendDecoded("get_feedback_settings", encode(EmptyBody), EnabledFlag.serializer()).enabled
 
     suspend fun setFeedbackEnabled(enabled: Boolean) {
         send("set_feedback_settings", encode(EnabledSettingsBody(EnabledFlag(enabled))))
@@ -820,7 +818,7 @@ class CodegClient(
 
     /** "Ask user questions" conversation-tool toggle. */
     suspend fun getQuestionEnabled(): Boolean =
-        decode(send("get_question_settings", encode(EmptyBody)), EnabledFlag.serializer()).enabled
+        sendDecoded("get_question_settings", encode(EmptyBody), EnabledFlag.serializer()).enabled
 
     suspend fun setQuestionEnabled(enabled: Boolean) {
         send("set_question_settings", encode(EnabledSettingsBody(EnabledFlag(enabled))))
@@ -886,32 +884,32 @@ class CodegClient(
     // spells it with @SerialName.
 
     suspend fun automationList(): List<AutomationInfo> =
-        decode(
-            send("automation_list", encode(EmptyBody)),
+        sendDecoded(
+            "automation_list", encode(EmptyBody),
             ListSerializer(AutomationInfo.serializer()),
         )
 
     suspend fun automationGet(id: Int): AutomationInfo =
-        decode(send("automation_get", encode(AutomationIdBody(id))), AutomationInfo.serializer())
+        sendDecoded("automation_get", encode(AutomationIdBody(id)), AutomationInfo.serializer())
 
     suspend fun automationRuns(automationId: Int, limit: Int = 100): List<AutomationRunInfo> =
-        decode(
-            send("automation_runs", encode(AutomationRunsBody(automationId, limit))),
+        sendDecoded(
+            "automation_runs", encode(AutomationRunsBody(automationId, limit)),
             ListSerializer(AutomationRunInfo.serializer()),
         )
 
     suspend fun automationCreate(draft: AutomationDraftDto): AutomationInfo =
-        decode(send("automation_create", encode(AutomationDraftBody(draft))), AutomationInfo.serializer())
+        sendDecoded("automation_create", encode(AutomationDraftBody(draft)), AutomationInfo.serializer())
 
     suspend fun automationUpdate(id: Int, draft: AutomationDraftDto): AutomationInfo =
-        decode(
-            send("automation_update", encode(AutomationUpdateBody(id, draft))),
+        sendDecoded(
+            "automation_update", encode(AutomationUpdateBody(id, draft)),
             AutomationInfo.serializer(),
         )
 
     suspend fun automationSetEnabled(id: Int, enabled: Boolean): AutomationInfo =
-        decode(
-            send("automation_set_enabled", encode(AutomationSetEnabledBody(id, enabled))),
+        sendDecoded(
+            "automation_set_enabled", encode(AutomationSetEnabledBody(id, enabled)),
             AutomationInfo.serializer(),
         )
 
@@ -953,23 +951,23 @@ class CodegClient(
     // camelCase struct (Rust `rename_all = "camelCase"`).
 
     suspend fun tokenUsageReport(filter: TokenUsageFilter): TokenUsageReport =
-        decode(
-            send("token_usage_report", encode(TokenUsageReportBody(filter))),
+        sendDecoded(
+            "token_usage_report", encode(TokenUsageReportBody(filter)),
             TokenUsageReport.serializer(),
         )
 
     suspend fun tokenUsageFacets(): TokenUsageFacets =
-        decode(send("token_usage_facets", encode(EmptyBody)), TokenUsageFacets.serializer())
+        sendDecoded("token_usage_facets", encode(EmptyBody), TokenUsageFacets.serializer())
 
     suspend fun tokenUsageStatus(): TokenUsageSyncStatus =
-        decode(send("token_usage_status", encode(EmptyBody)), TokenUsageSyncStatus.serializer())
+        sendDecoded("token_usage_status", encode(EmptyBody), TokenUsageSyncStatus.serializer())
 
     /** `full` 丢掉全部 facts 重解析每份 transcript——CLI 在 codeg 背后把会话
      *  文件写大了的逃生阀；日常用 incremental。 */
     suspend fun tokenUsageSync(mode: String = "incremental"): TokenUsageSyncResult =
-        decode(
-            send("token_usage_sync", encode(TokenUsageSyncBody(mode)), timeoutMs = SYNC_HTTP_TIMEOUT_MS),
-            TokenUsageSyncResult.serializer(),
+        sendDecoded(
+            "token_usage_sync", encode(TokenUsageSyncBody(mode)),
+            TokenUsageSyncResult.serializer(), timeoutMs = SYNC_HTTP_TIMEOUT_MS,
         )
 
     /** 会话导入（fleet M4）：扫本机各 CLI 的会话文件并与 DB 对账
@@ -977,31 +975,27 @@ class CodegClient(
      *  三个调用服务端都要全量解析本机 transcript（大库分钟级），统一走
      *  [IMPORT_HTTP_TIMEOUT_MS] 放宽——否则 OkHttp 引擎默认 30s 读超时先掐断。 */
     suspend fun scanImportableSessions(): ScanResult =
-        decode(
-            send("scan_importable_sessions", encode(EmptyBody), timeoutMs = IMPORT_HTTP_TIMEOUT_MS),
-            ScanResult.serializer(),
+        sendDecoded(
+            "scan_importable_sessions", encode(EmptyBody),
+            ScanResult.serializer(), timeoutMs = IMPORT_HTTP_TIMEOUT_MS,
         )
 
     /** 勾选导入：按 cwd 建夹/复用夹，逐会话导入；软删除的会话选中即原地恢复。 */
     suspend fun importSelectedSessions(selections: List<SelectedSessionKey>): ImportSelectedResult =
-        decode(
-            send(
-                "import_selected_sessions",
-                encode(ImportSelectedBody(selections)),
-                timeoutMs = IMPORT_HTTP_TIMEOUT_MS,
-            ),
+        sendDecoded(
+            "import_selected_sessions",
+            encode(ImportSelectedBody(selections)),
             ImportSelectedResult.serializer(),
+            timeoutMs = IMPORT_HTTP_TIMEOUT_MS,
         )
 
     /** 旧版整夹导入（服务端已无 UI 调用，仅为 API 对账保留）。 */
     suspend fun importLocalConversations(folderId: Int): ImportResult =
-        decode(
-            send(
-                "import_local_conversations",
-                encode(ImportLocalBody(folderId)),
-                timeoutMs = IMPORT_HTTP_TIMEOUT_MS,
-            ),
+        sendDecoded(
+            "import_local_conversations",
+            encode(ImportLocalBody(folderId)),
             ImportResult.serializer(),
+            timeoutMs = IMPORT_HTTP_TIMEOUT_MS,
         )
 
     suspend fun workTaskGet(id: Int): WorkTaskInfo? {
@@ -1028,14 +1022,14 @@ class CodegClient(
     // upsert（同名原地更新 title+config）；delete 对缺行静默成功。
 
     suspend fun workTaskTemplateList(): List<WorkTaskTemplateInfo> =
-        decode(
-            send("work_task_template_list", encode(EmptyBody)),
+        sendDecoded(
+            "work_task_template_list", encode(EmptyBody),
             ListSerializer(WorkTaskTemplateInfo.serializer()),
         )
 
     suspend fun workTaskTemplateSave(name: String, title: String, config: JsonObject): WorkTaskTemplateInfo =
-        decode(
-            send("work_task_template_save", WorkTaskWire.templateSaveBody(name, title, config).toString()),
+        sendDecoded(
+            "work_task_template_save", WorkTaskWire.templateSaveBody(name, title, config).toString(),
             WorkTaskTemplateInfo.serializer(),
         )
 
@@ -1187,7 +1181,7 @@ class CodegClient(
 
     /** Custom OpenAI-compatible model endpoints. */
     suspend fun listModelProviders(): List<ModelProviderInfo> =
-        decode(send("list_model_providers", encode(EmptyBody)), ListSerializer(ModelProviderInfo.serializer()))
+        sendDecoded("list_model_providers", encode(EmptyBody), ListSerializer(ModelProviderInfo.serializer()))
 
     suspend fun createModelProvider(name: String, apiUrl: String, apiKey: String, agentType: AgentType, model: String?) {
         send("create_model_provider", encode(CreateModelProviderBody(name, apiUrl, apiKey, agentType, model)))
@@ -1203,7 +1197,7 @@ class CodegClient(
 
     /** Server HTTP proxy settings. */
     suspend fun getSystemProxySettings(): SystemProxySettings =
-        decode(send("get_system_proxy_settings", encode(EmptyBody)), SystemProxySettings.serializer())
+        sendDecoded("get_system_proxy_settings", encode(EmptyBody), SystemProxySettings.serializer())
 
     suspend fun updateSystemProxySettings(enabled: Boolean, proxyUrl: String?) {
         val body = buildJsonObject {
@@ -1221,7 +1215,7 @@ class CodegClient(
 
     /** Locally-configured MCP servers. */
     suspend fun mcpScanLocal(): List<LocalMcpServer> =
-        decode(send("mcp_scan_local", encode(EmptyBody)), ListSerializer(LocalMcpServer.serializer()))
+        sendDecoded("mcp_scan_local", encode(EmptyBody), ListSerializer(LocalMcpServer.serializer()))
 
     suspend fun mcpUpsertLocalServer(serverId: String, spec: JsonElement, apps: List<String>) {
         val body = buildJsonObject {
@@ -1359,8 +1353,8 @@ class CodegClient(
      * an unauthenticated account — that's reported in the result — only for transport
      * failures.
      */
-    suspend fun acpCursorAuthStatus(apiKey: String): CursorAuthStatus = decode(
-        send("acp_cursor_auth_status", buildJsonObject { put("apiKey", apiKey) }.toString()),
+    suspend fun acpCursorAuthStatus(apiKey: String): CursorAuthStatus = sendDecoded(
+        "acp_cursor_auth_status", buildJsonObject { put("apiKey", apiKey) }.toString(),
         CursorAuthStatus.serializer(),
     )
 
@@ -1368,8 +1362,8 @@ class CodegClient(
      * Probe `cursor-agent models` for the Cursor panel's model picker. A probe that
      * could not run comes back as an empty list plus `error`.
      */
-    suspend fun acpCursorListModels(apiKey: String): CursorModelsResult = decode(
-        send("acp_cursor_list_models", buildJsonObject { put("apiKey", apiKey) }.toString()),
+    suspend fun acpCursorListModels(apiKey: String): CursorModelsResult = sendDecoded(
+        "acp_cursor_list_models", buildJsonObject { put("apiKey", apiKey) }.toString(),
         CursorModelsResult.serializer(),
     )
 
@@ -1406,11 +1400,11 @@ class CodegClient(
 
     /** Kimi Code's dedicated save (apikey/login/raw). Returns affected running sessions. */
     suspend fun acpUpdateKimiCodeConfig(body: UpdateKimiCodeConfigBody): Int =
-        decode(send("acp_update_kimi_code_config", encode(body)), Int.serializer())
+        sendDecoded("acp_update_kimi_code_config", encode(body), Int.serializer())
 
     /** Probe a Kimi provider's `/models` endpoint (also validates the key). */
     suspend fun acpFetchKimiModels(baseUrl: String, apiKey: String): List<String> =
-        decode(send("acp_fetch_kimi_models", encode(FetchKimiModelsBody(baseUrl, apiKey))), ListSerializer(String.serializer()))
+        sendDecoded("acp_fetch_kimi_models", encode(FetchKimiModelsBody(baseUrl, apiKey)), ListSerializer(String.serializer()))
 
     /**
      * Read pi's native config projection (defaults + linked/custom providers). The
@@ -1439,13 +1433,13 @@ class CodegClient(
 
     /** Git installation detection / custom path. */
     suspend fun detectGit(): GitDetectResult =
-        decode(send("detect_git", encode(EmptyBody)), GitDetectResult.serializer())
+        sendDecoded("detect_git", encode(EmptyBody), GitDetectResult.serializer())
 
     suspend fun testGitPath(path: String): GitDetectResult =
-        decode(send("test_git_path", encode(PathBody(path))), GitDetectResult.serializer())
+        sendDecoded("test_git_path", encode(PathBody(path)), GitDetectResult.serializer())
 
     suspend fun getGitSettings(): GitSettings =
-        decode(send("get_git_settings", encode(EmptyBody)), GitSettings.serializer())
+        sendDecoded("get_git_settings", encode(EmptyBody), GitSettings.serializer())
 
     suspend fun updateGitSettings(customPath: String?) {
         val body = buildJsonObject { putJsonObject("settings") { put("custom_path", customPath) } }.toString()
@@ -1454,11 +1448,11 @@ class CodegClient(
 
     /** Linked GitHub accounts. */
     suspend fun getGitHubAccounts(): List<GitHubAccount> =
-        decode(send("get_github_accounts", encode(EmptyBody)), GitHubAccountList.serializer()).accounts
+        sendDecoded("get_github_accounts", encode(EmptyBody), GitHubAccountList.serializer()).accounts
 
     /** Validate a GitHub token against [serverUrl] before saving it as an account. */
     suspend fun validateGithubToken(serverUrl: String, token: String): GitHubTokenValidation =
-        decode(send("validate_github_token", encode(ValidateGitHubTokenBody(serverUrl, token))), GitHubTokenValidation.serializer())
+        sendDecoded("validate_github_token", encode(ValidateGitHubTokenBody(serverUrl, token)), GitHubTokenValidation.serializer())
 
     /** Persist an account's keyring token (`save_account_token`). */
     suspend fun saveAccountToken(accountId: String, token: String) {
@@ -1494,10 +1488,10 @@ class CodegClient(
 
     /** Per-agent markdown skills. */
     suspend fun listAgentSkills(agentType: AgentType): AgentSkillsListResult =
-        decode(send("acp_list_agent_skills", encode(SkillListBody(agentType))), AgentSkillsListResult.serializer())
+        sendDecoded("acp_list_agent_skills", encode(SkillListBody(agentType)), AgentSkillsListResult.serializer())
 
     suspend fun readAgentSkill(agentType: AgentType, scope: String, skillId: String): AgentSkillContent =
-        decode(send("acp_read_agent_skill", encode(SkillReadBody(agentType, scope, skillId))), AgentSkillContent.serializer())
+        sendDecoded("acp_read_agent_skill", encode(SkillReadBody(agentType, scope, skillId)), AgentSkillContent.serializer())
 
     suspend fun saveAgentSkill(agentType: AgentType, scope: String, skillId: String, content: String, layout: String?) {
         send("acp_save_agent_skill", encode(SkillSaveBody(agentType, scope, skillId, content, layout = layout)))
@@ -1509,7 +1503,7 @@ class CodegClient(
 
     /** The global built-in expert catalog (`experts_list`). */
     suspend fun expertsList(): List<ExpertListItem> =
-        decode(send("experts_list", encode(EmptyBody)), ListSerializer(ExpertListItem.serializer()))
+        sendDecoded("experts_list", encode(EmptyBody), ListSerializer(ExpertListItem.serializer()))
 
     /**
      * Experts usable by [agentType] — the compose "+" Expert Skills menu set.
@@ -1526,7 +1520,7 @@ class CodegClient(
      *   everything — that choice must be honored).
      */
     suspend fun expertsListForAgent(agentType: AgentType): List<ExpertListItem> {
-        val experts = decode(send("experts_list", encode(EmptyBody)), ListSerializer(ExpertListItem.serializer()))
+        val experts = sendDecoded("experts_list", encode(EmptyBody), ListSerializer(ExpertListItem.serializer()))
         val statuses = runCatching {
             decodeCamel(
                 send("experts_list_all_install_statuses", encode(EmptyBody)),
@@ -1538,7 +1532,7 @@ class CodegClient(
 
     /** An expert's markdown content (`experts_read_content`, bare string). */
     suspend fun expertReadContent(expertId: String): String =
-        decode(send("experts_read_content", encode(ExpertIdBody(expertId))), String.serializer())
+        sendDecoded("experts_read_content", encode(ExpertIdBody(expertId)), String.serializer())
 
     /** Per-agent link state of an expert (camelCase wire). */
     suspend fun expertInstallStatus(expertId: String): List<ExpertInstallStatus> =
@@ -1555,16 +1549,16 @@ class CodegClient(
     // region Chat channels
 
     suspend fun listChatChannels(): List<ChatChannelInfo> =
-        decode(send("list_chat_channels", encode(EmptyBody)), ListSerializer(ChatChannelInfo.serializer()))
+        sendDecoded("list_chat_channels", encode(EmptyBody), ListSerializer(ChatChannelInfo.serializer()))
 
     suspend fun chatChannelStatus(): List<ChannelStatusInfo> =
-        decode(send("get_chat_channel_status", encode(EmptyBody)), ListSerializer(ChannelStatusInfo.serializer()))
+        sendDecoded("get_chat_channel_status", encode(EmptyBody), ListSerializer(ChannelStatusInfo.serializer()))
 
     suspend fun createChatChannel(
         name: String, channelType: ChannelType, configJson: String,
         enabled: Boolean, dailyReportEnabled: Boolean, dailyReportTime: String?,
-    ): ChatChannelInfo = decode(
-        send("create_chat_channel", encode(CreateChatChannelBody(name, channelType, configJson, enabled, dailyReportEnabled, dailyReportTime))),
+    ): ChatChannelInfo = sendDecoded(
+        "create_chat_channel", encode(CreateChatChannelBody(name, channelType, configJson, enabled, dailyReportEnabled, dailyReportTime)),
         ChatChannelInfo.serializer(),
     )
 
@@ -1581,7 +1575,7 @@ class CodegClient(
                 is FieldEdit.Set -> put("dailyReportTime", t.value)
             }
         }
-        return decode(send("update_chat_channel", json.toString()), ChatChannelInfo.serializer())
+        return sendDecoded("update_chat_channel", json.toString(), ChatChannelInfo.serializer())
     }
 
     suspend fun deleteChatChannel(id: Int) { send("delete_chat_channel", encode(IdBody(id))) }
@@ -1594,37 +1588,37 @@ class CodegClient(
     }
 
     suspend fun chatChannelHasToken(channelId: Int): Boolean =
-        runCatching { decode(send("get_chat_channel_has_token", encode(ChannelIdOnlyBody(channelId))), Boolean.serializer()) }.getOrDefault(false)
+        runCatching { sendDecoded("get_chat_channel_has_token", encode(ChannelIdOnlyBody(channelId)), Boolean.serializer()) }.getOrDefault(false)
 
     suspend fun deleteChatChannelToken(channelId: Int) {
         send("delete_chat_channel_token", encode(ChannelIdOnlyBody(channelId)))
     }
 
     suspend fun listChatChannelMessages(channelId: Int, limit: Int? = 50, offset: Int? = null): List<ChatChannelMessageLog> =
-        decode(send("list_chat_channel_messages", encode(ListChannelMessagesBody(channelId, limit, offset))), ListSerializer(ChatChannelMessageLog.serializer()))
+        sendDecoded("list_chat_channel_messages", encode(ListChannelMessagesBody(channelId, limit, offset)), ListSerializer(ChatChannelMessageLog.serializer()))
 
     suspend fun weixinGetQrcode(): WeixinQrcode =
-        decode(send("weixin_get_qrcode", encode(EmptyBody)), WeixinQrcode.serializer())
+        sendDecoded("weixin_get_qrcode", encode(EmptyBody), WeixinQrcode.serializer())
 
     /** Returns the raw status string (e.g. "pending"/"scanned"/"confirmed"/"expired"). */
     suspend fun weixinCheckQrcode(channelId: Int, qrcode: String): String =
-        decode(send("weixin_check_qrcode", encode(WeixinCheckBody(channelId, qrcode))), WeixinQrStatus.serializer()).status
+        sendDecoded("weixin_check_qrcode", encode(WeixinCheckBody(channelId, qrcode)), WeixinQrStatus.serializer()).status
 
     // Global chat behavior settings. GET endpoints return bare JSON fragments.
 
     suspend fun chatCommandPrefix(): String =
-        runCatching { decode(send("get_chat_command_prefix", encode(EmptyBody)), String.serializer()) }.getOrDefault("/")
+        runCatching { sendDecoded("get_chat_command_prefix", encode(EmptyBody), String.serializer()) }.getOrDefault("/")
 
     suspend fun setChatCommandPrefix(prefix: String) { send("set_chat_command_prefix", encode(ChatPrefixBody(prefix))) }
 
     suspend fun chatMessageLanguage(): String =
-        runCatching { decode(send("get_chat_message_language", encode(EmptyBody)), String.serializer()) }.getOrDefault("en")
+        runCatching { sendDecoded("get_chat_message_language", encode(EmptyBody), String.serializer()) }.getOrDefault("en")
 
     suspend fun setChatMessageLanguage(language: String) { send("set_chat_message_language", encode(ChatLanguageBody(language))) }
 
     /** `null` = the server's default-on set (it stored `null`). */
     suspend fun chatEventFilter(): List<String>? =
-        runCatching { decode(send("get_chat_event_filter", encode(EmptyBody)), ListSerializer(String.serializer())) }.getOrNull()
+        runCatching { sendDecoded("get_chat_event_filter", encode(EmptyBody), ListSerializer(String.serializer())) }.getOrNull()
 
     suspend fun setChatEventFilter(filter: List<String>?) {
         val json = buildJsonObject {
@@ -1635,7 +1629,7 @@ class CodegClient(
     }
 
     suspend fun chatEventWebhooks(): List<WebhookConfig> =
-        decode(send("get_chat_event_webhooks", encode(EmptyBody)), ListSerializer(WebhookConfig.serializer()))
+        sendDecoded("get_chat_event_webhooks", encode(EmptyBody), ListSerializer(WebhookConfig.serializer()))
 
     suspend fun setChatEventWebhooks(webhooks: List<WebhookConfig>) {
         send("set_chat_event_webhooks", encode(ChatWebhooksBody(webhooks)))
@@ -1665,8 +1659,8 @@ class CodegClient(
         workingDir: String?,
         configValues: Map<String, String>? = null,
     ): AgentOptionsSnapshot =
-        decode(
-            send("acp_describe_agent_options", encode(DescribeAgentOptionsBody(agentType, workingDir, configValues))),
+        sendDecoded(
+            "acp_describe_agent_options", encode(DescribeAgentOptionsBody(agentType, workingDir, configValues)),
             AgentOptionsSnapshot.serializer(),
         )
 
@@ -1694,12 +1688,13 @@ class CodegClient(
     // region Transport
 
     /**
-     * `POST /api/<path>` with [bodyJson] as the body. Returns the raw response
-     * text, or throws an [ApiError] for any non-2xx / transport failure.
+     * `POST /api/<path>` with [bodyJson] as the body, under the optional
+     * per-request timeout. Transport failures throw [ApiError.Transport];
+     * cancellation stays cancellation.
      */
-    private suspend fun send(path: String, bodyJson: String, timeoutMs: Long? = null): String {
+    private suspend fun postForSend(path: String, bodyJson: String, timeoutMs: Long?): HttpResponse {
         val url = "$baseUrl/api/$path"
-        val response = try {
+        return try {
             http.post(url) {
                 header(HttpHeaders.Authorization, "Bearer $token")
                 contentType(ContentType.Application.Json)
@@ -1722,34 +1717,109 @@ class CodegClient(
         } catch (e: Exception) {
             throw ApiError.Transport(e.message ?: "Network error")
         }
+    }
 
-        val text = response.bodyAsText()
+    /** 批v192: the shared non-2xx → [ApiError] mapping (401 / 409 turn_in_progress /
+     *  server `detail` surfacing), over the already-read body text. */
+    private fun throwResponseError(response: HttpResponse, text: String): Nothing {
+        val code = response.status.value
+        if (code == 401) throw ApiError.Unauthorized
+        val parsed = runCatching {
+            CodegJson.response.decodeFromString(ServerError.serializer(), text)
+        }.getOrNull()
+        if (code == 409 || parsed?.code == "turn_in_progress") throw ApiError.TurnInProgress
+        throw ApiError.Server(
+            status = code,
+            code = parsed?.code,
+            // Surface the server's `detail` root cause (e.g. "not found:
+            // folder 0") — without it a database_error reads as a mystery.
+            serverMessage = listOfNotNull(
+                parsed?.message?.takeIf { it.isNotBlank() },
+                parsed?.detail?.takeIf { it.isNotBlank() },
+            ).joinToString(
+                separator = "（",
+                postfix = if (parsed?.detail?.isNotBlank() == true) "）" else "",
+            ).ifBlank { response.status.description },
+        )
+    }
+
+    /** Read one response's body as text. Error bodies and the fire-and-forget
+     *  endpoints that still go through [send] are small — but bodyAsText's UTF-8
+     *  step allocates 2 bytes per char, so it leaves the caller's (main)
+     *  dispatcher regardless. */
+    private suspend fun readBodyText(response: HttpResponse): String =
+        withContext(Dispatchers.IO) { response.bodyAsText() }
+
+    /**
+     * `POST /api/<path>` with [bodyJson] as the body. Returns the raw response
+     * text, or throws an [ApiError] for any non-2xx / transport failure.
+     *
+     * 批v192: the remaining callers are fire-and-forget endpoints whose 2xx
+     * bodies are small (`{}`, ids, JsonNull). Data-bearing endpoints go through
+     * [sendDecoded] — the crash report (OOM on `bodyAsText`, Dispatchers
+     * Main.immediate, ~23 MB transcript) was this line.
+     */
+    private suspend fun send(path: String, bodyJson: String, timeoutMs: Long? = null): String {
+        val response = postForSend(path, bodyJson, timeoutMs)
         val code = response.status.value
         if (code !in 200..299) {
-            if (code == 401) throw ApiError.Unauthorized
-            val parsed = runCatching {
-                CodegJson.response.decodeFromString(ServerError.serializer(), text)
-            }.getOrNull()
-            if (code == 409 || parsed?.code == "turn_in_progress") throw ApiError.TurnInProgress
-            throw ApiError.Server(
-                status = code,
-                code = parsed?.code,
-                // Surface the server's `detail` root cause (e.g. "not found:
-                // folder 0") — without it a database_error reads as a mystery.
-                serverMessage = listOfNotNull(
-                    parsed?.message?.takeIf { it.isNotBlank() },
-                    parsed?.detail?.takeIf { it.isNotBlank() },
-                ).joinToString(
-                    separator = "（",
-                    postfix = if (parsed?.detail?.isNotBlank() == true) "）" else "",
-                ).ifBlank { response.status.description },
-            )
+            throwResponseError(response, readBodyText(response))
         }
-        return text
+        return readBodyText(response)
+    }
+
+    /**
+     * 批v192 (P0 OOM): the data-bearing twin of [send]. `send()` materialized
+     * EVERY response as a String on the caller's dispatcher — `bodyAsText`
+     * holds a byte[] plus a char[] of the whole payload (a 23 MB transcript ≈
+     * 70 MB peak) and did that UTF-8 dance on Dispatchers.Main.immediate, so
+     * opening a big session OOM'd the 256 MB heap instead of rendering. This
+     * variant streams the 2xx body straight into the parser — ktor channel →
+     * InputStream → kotlinx-serialization `decodeFromStream`, on
+     * [Dispatchers.Default] — so the full payload never exists at once; the
+     * parsed model is the only copy. The error path keeps text decoding:
+     * error bodies are small.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    private suspend fun <T> sendDecoded(
+        path: String,
+        bodyJson: String,
+        deserializer: DeserializationStrategy<T>,
+        timeoutMs: Long? = null,
+    ): T {
+        val response = postForSend(path, bodyJson, timeoutMs)
+        val code = response.status.value
+        if (code !in 200..299) {
+            throwResponseError(response, readBodyText(response))
+        }
+        return withContext(Dispatchers.Default) {
+            val stream = response.bodyAsChannel().toInputStream()
+            try {
+                CodegJson.response.decodeFromStream(deserializer, stream)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                throw ApiError.Decoding(e.message ?: "Failed to decode response")
+            } finally {
+                runCatching { stream.close() }
+            }
+        }
     }
 
     private inline fun <reified T> encode(body: T): String =
         CodegJson.request.encodeToString(body)
+
+    // 批v165 R4 (P1): every VM caller runs on Dispatchers.Main.immediate, so the
+    // response JSON (a full board list, a multi-MB transcript) was parsed on the
+    // main thread. One hop to Default here covers every endpoint in the client.
+    // 批v192: the remaining callers all guard small bodies with isJsonNull — the
+    // multi-MB ones (conversation detail, board list, transcripts) moved to
+    // [sendDecoded]'s streaming path above.
+    private suspend fun <T> decode(text: String, deserializer: DeserializationStrategy<T>): T =
+        withContext(Dispatchers.Default) {
+            runCatching { CodegJson.response.decodeFromString(deserializer, text) }
+                .getOrElse { throw ApiError.Decoding(it.message ?: "Failed to decode response") }
+        }
 
     // 批v165 R4 (P1): every VM caller runs on Dispatchers.Main.immediate, so the
     // response JSON (a full board list, a multi-MB transcript) was parsed on the
