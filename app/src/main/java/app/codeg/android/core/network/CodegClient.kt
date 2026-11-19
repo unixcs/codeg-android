@@ -1821,15 +1821,6 @@ class CodegClient(
                 .getOrElse { throw ApiError.Decoding(it.message ?: "Failed to decode response") }
         }
 
-    // 批v165 R4 (P1): every VM caller runs on Dispatchers.Main.immediate, so the
-    // response JSON (a full board list, a multi-MB transcript) was parsed on the
-    // main thread. One hop to Default here covers every endpoint in the client.
-    private suspend fun <T> decode(text: String, deserializer: DeserializationStrategy<T>): T =
-        withContext(Dispatchers.Default) {
-            runCatching { CodegJson.response.decodeFromString(deserializer, text) }
-                .getOrElse { throw ApiError.Decoding(it.message ?: "Failed to decode response") }
-        }
-
     // endregion
 
     companion object {
