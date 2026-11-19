@@ -172,7 +172,7 @@ import java.time.format.DateTimeFormatter
  * inbox only when the server CONFIRMS the create; an UNKNOWN ref may only
  * re-dispatch after a probe verified "not created".
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun InboxScreen(
     viewModel: InboxViewModel = hiltViewModel(key = "inbox"),
