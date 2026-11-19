@@ -8,6 +8,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +65,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -74,7 +78,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -235,6 +242,38 @@ fun InboxScreen(
         ui.confirmedRefs.filter { it.sessionMode && it.ideaId != null }.associateBy { it.ideaId!! }
     }
 
+    // 批v193 一挂一定：「挂到任务板」小面板只认想法 id（saveable，仿 quickSavingId
+    // ——旋转丢面板退回列表，不丢"正在挂哪张卡"）。
+    var boardPanelId by rememberSaveable { mutableStateOf<String?>(null) }
+    val boardPanel = boardPanelId?.let { id -> ui.ideas.firstOrNull { it.id == id } }
+    // 回执上的 [⏰设时间]：plain remember，与 dispatchResult 同寿命（回执关/换即收，
+    // 见下方 takeIf 派生；旋转即关与回执本身的行为一致）。
+    var schedulingRefRaw by remember { mutableStateOf<DispatchRef?>(null) }
+    val schedulingRef = schedulingRefRaw?.takeIf { it.requestId == dispatchResult?.requestId }
+    // 定时成功后的回执注脚（requestId → iso），只在对应回执打开时显示。
+    var scheduledNoteRaw by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // 面板/卡面「无目标回退」打开编辑器时，一次性自动展开一键插待办的目标区。
+    var editorInsertExpanded by rememberSaveable { mutableStateOf(false) }
+
+    // 批v193: 卡面按钮 / 长按菜单 / 滑动共用的「挂到待办」一步插入（复用
+    // quickInsertTodo，autoStart=false → 落待办）。无复用目标时回退打开编辑器并
+    // 展开目标区——首次使用先选一次，之后全程免决策。不设 dispatchingId（那是
+    // 派发表单的锚）；防重复入账由 VM 的 ui.dispatching 在途闸兜住。
+    fun insertBoard(idea: IdeaEntry, autoOpenScheduler: Boolean = false) {
+        boardPanelId = null
+        if (ui.lastTaskTarget == null) {
+            editorInsertExpanded = true
+            editingId = idea.id
+            return
+        }
+        viewModel.insertToBoard(idea) { ref ->
+            dispatchResult = ref
+            if (autoOpenScheduler && ref.state == DispatchState.CONFIRMED && ref.remoteTodoId != null) {
+                schedulingRefRaw = ref
+            }
+        }
+    }
+
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         floatingActionButton = {
@@ -323,6 +362,14 @@ fun InboxScreen(
                             background = colors.accent,
                             fire = { appendingId = idea.id },
                         )
+                        // 批v193 一挂一定：挂到任务板——与卡面按钮同一步插入（含
+                        // 无目标回退编辑器）；未决卡与派发同门禁。
+                        InboxSwipeAction.INSERT_TO_BOARD -> if (ref != null) null else SwipeSpec(
+                            label = stringResource(R.string.inbox_swipe_action_insert_board),
+                            icon = Icons.Rounded.AddTask,
+                            background = colors.accent,
+                            fire = { insertBoard(idea) },
+                        )
                         // The swipe only opens the confirm dialog faster — same
                         // pending-state flow as the menu item.
                         InboxSwipeAction.DELETE -> SwipeSpec(
@@ -351,6 +398,11 @@ fun InboxScreen(
                             onEdit = { editingId = idea.id },
                             onCopy = copyIdea,
                             onDelete = { pendingDelete = idea },
+                            // 批v193 一挂一定：卡面 pill 直接一步插入；⋯菜单走小面板。
+                            onInsertBoard = { insertBoard(idea) },
+                            onOpenBoardPanel = { boardPanelId = idea.id },
+                            // 2 列网格窄卡：文字双 pill 互相截断，挂到待办切图标式。
+                            narrow = settings.inboxColumns == 2,
                             // 批v162 反向快链入口（⋯菜单与长按菜单同一条 DropdownMenu）。
                             onAppendToSession = { appendingId = idea.id },
                             // 批v172 D7: 预填快速保存（标题=idea.title，正文=description）。
@@ -467,7 +519,7 @@ fun InboxScreen(
             loadTarget = viewModel::loadTarget,
             probeAgentOptions = viewModel::probeAgentOptions,
             modelProviderEntries = viewModel::modelProviderEntries,
-            onDismiss = { creating = false; editingId = null },
+            onDismiss = { creating = false; editingId = null; editorInsertExpanded = false },
             // 批v164: draft memory rides along only in new-idea mode — an
             // existing idea's text lives in its own row, not in a draft slot.
             loadDraft = if (editing == null) ({ viewModel.loadIdeaDraft() }) else null,
@@ -476,7 +528,9 @@ fun InboxScreen(
                 viewModel.saveIdea(editing?.id, title, desc, source = editing, attachments = attachments)
                 creating = false
                 editingId = null
+                editorInsertExpanded = false
             },
+            insertStartExpanded = editorInsertExpanded,
             onInsert = { payload ->
                 viewModel.quickInsertTodo(
                     ideaId = payload.ideaId,
@@ -494,6 +548,7 @@ fun InboxScreen(
                     onDone = { ref ->
                         creating = false
                         editingId = null
+                        editorInsertExpanded = false
                         dispatchResult = ref
                     },
                 )
@@ -570,6 +625,24 @@ fun InboxScreen(
                     ui.dispatchError?.let { note ->
                         Text(note, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                     }
+                    // 批v193: 「挂完再定」成功后的回执注脚（只在对应回执上显示）。
+                    scheduledNoteRaw?.takeIf { it.first == ref.requestId }?.let { (_, iso) ->
+                        val pattern = stringResource(R.string.dispatch_schedule_pattern)
+                        Text(
+                            stringResource(
+                                R.string.inbox_receipt_scheduled,
+                                remember(iso, pattern) {
+                                    runCatching {
+                                        java.time.Instant.parse(iso)
+                                            .atZone(java.time.ZoneId.systemDefault())
+                                            .format(java.time.format.DateTimeFormatter.ofPattern(pattern))
+                                    }.getOrDefault(iso)
+                                },
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textPrimary,
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -577,6 +650,13 @@ fun InboxScreen(
                 // CONFIRMED（sessionMode + convId 非空）根本不会进本对话框，gate
                 // 只看 state——会话模式 convId=null 的死路回执同样有去处。
                 Row {
+                    // 批v193 一挂一定：任务型回执就地补定时——定时是挂入之后的
+                    // 属性，不是平行动作。会话型回执不出现（无 remoteTodoId）。
+                    if (ref.state == DispatchState.CONFIRMED && ref.remoteTodoId != null && !ref.sessionMode) {
+                        TextButton(onClick = { schedulingRefRaw = ref }) {
+                            Text(stringResource(R.string.inbox_receipt_schedule))
+                        }
+                    }
                     if (ref.state == DispatchState.CONFIRMED) {
                         TextButton(onClick = {
                             dispatchResult = null
@@ -591,6 +671,41 @@ fun InboxScreen(
                     }
                 }
             },
+        )
+    }
+
+    // 批v193 一挂一定：「挂到任务板」小面板（⋯菜单入口）——目标行 + 两动作。
+    boardPanel?.let { idea ->
+        BoardDropPanel(
+            lastTarget = ui.lastTaskTarget,
+            dispatching = ui.dispatching,
+            onInsert = { insertBoard(idea) },
+            onInsertAndSchedule = { insertBoard(idea, autoOpenScheduler = true) },
+            onChangeTarget = {
+                boardPanelId = null
+                editorInsertExpanded = true
+                editingId = idea.id
+            },
+            onDismiss = { boardPanelId = null },
+        )
+    }
+
+    // 批v193: 回执 [⏰设时间] 的定时弹层。schedulingRef 与回执同寿命——回执
+    // 关/换，弹层自动收回（P3-11）。
+    schedulingRef?.let { ref ->
+        BoardScheduleDialog(
+            onSchedule = { iso, onSettled ->
+                val todoId = ref.remoteTodoId
+                if (todoId == null) {
+                    onSettled(false, null)
+                } else {
+                    viewModel.scheduleTodo(ref.serverId, todoId, iso) { ok, err ->
+                        onSettled(ok, err)
+                        if (ok) scheduledNoteRaw = ref.requestId to iso
+                    }
+                }
+            },
+            onDismiss = { schedulingRefRaw = null },
         )
     }
 
@@ -687,6 +802,12 @@ private fun IdeaCard(
     onAppendToSession: () -> Unit,
     /** 批v172 D7: ⋯菜单 / 长按菜单的「保存为 Markdown」——预填打开快速保存。 */
     onSaveAsMarkdown: () -> Unit,
+    /** 批v193 一挂一定：卡面「挂到待办」pill——一步插入（无目标时屏侧回退编辑器）。 */
+    onInsertBoard: () -> Unit,
+    /** 批v193: ⋯菜单的「挂到任务板…」——打开小面板（目标行 + 直挂/直挂并定时）。 */
+    onOpenBoardPanel: () -> Unit,
+    /** 批v193: 2 列网格窄卡开关——双 pill 切「图标 + 派发」防文字互相截断。 */
+    narrow: Boolean = false,
     /** 批v162: 这条想法已有确认入账的会话追加（读 DispatchRef）——出小标。 */
     appendedToSession: Boolean,
     onProbe: () -> Unit,
@@ -741,6 +862,13 @@ private fun IdeaCard(
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.inbox_copy)) },
                                 onClick = { menuOpen = false; onCopy(context) },
+                            )
+                            // 批v193 一挂一定：打开小面板（目标行 + 直挂/直挂并定时）。
+                            // 未决卡与派发 pill 同门禁——结果未知的卡不许再入账。
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.inbox_menu_board)) },
+                                onClick = { menuOpen = false; onOpenBoardPanel() },
+                                enabled = unresolved == null,
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.inbox_append_to_session)) },
@@ -874,24 +1002,72 @@ private fun IdeaCard(
                     )
                 }
             }
-            androidx.compose.foundation.layout.Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp)
-                    .heightIn(min = 36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    // 克制化：派发是次级动作——透明底 + hairline 细边框（实心 accent
-                    // 只留给编辑器「保存」），未决态文字仍用 textTertiary 表示禁用。
-                    .border(0.75.dp, colors.hairline, RoundedCornerShape(8.dp))
-                    .clickable(enabled = !selectMode && unresolved == null, onClick = onDispatch)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
+            // 批v193 一挂一定：双 pill——「挂到待办」（一步插入，落板不启动）+
+            // 「派发」（打开派发表单）。同款次级样式：透明底 + hairline 细边框
+            // （实心 accent 只留给编辑器「保存」），未决态文字用 textTertiary。
+            // 窄卡（2 列）两枚文字 pill 互相截断 → 挂到待办切图标式（P2-8）。
+            val insertEnabled = !selectMode && unresolved == null
+            val pillStyle = if (narrow) {
+                MaterialTheme.typography.labelMedium
+            } else {
+                MaterialTheme.typography.labelLarge
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    stringResource(R.string.inbox_dispatch),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (unresolved == null) colors.textPrimary else colors.textTertiary,
-                )
+                if (narrow) {
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(0.75.dp, colors.hairline, RoundedCornerShape(8.dp))
+                            .clickable(enabled = insertEnabled, onClick = onInsertBoard),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Rounded.AddTask,
+                            contentDescription = stringResource(R.string.inbox_board_insert),
+                            tint = if (insertEnabled) colors.textPrimary else colors.textTertiary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                } else {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .heightIn(min = 36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(0.75.dp, colors.hairline, RoundedCornerShape(8.dp))
+                            .clickable(enabled = insertEnabled, onClick = onInsertBoard)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            stringResource(R.string.inbox_board_insert),
+                            style = pillStyle,
+                            color = if (insertEnabled) colors.textPrimary else colors.textTertiary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                androidx.compose.foundation.layout.Box(
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(0.75.dp, colors.hairline, RoundedCornerShape(8.dp))
+                        .clickable(enabled = !selectMode && unresolved == null, onClick = onDispatch)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(R.string.inbox_dispatch),
+                        style = pillStyle,
+                        color = if (unresolved == null) colors.textPrimary else colors.textTertiary,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
@@ -1079,6 +1255,9 @@ private fun IdeaEditorDialog(
      *  start). The caller owns closing the dialog via onDone, which fires on
      *  CONFIRMED only. */
     onInsert: (IdeaInsertPayload) -> Unit,
+    /** 批v193: 无目标回退进入编辑器时一次性展开插待办目标区（进程死亡恢复后
+     *  回落默认折叠——用户重开一次，无害）。 */
+    insertStartExpanded: Boolean = false,
 ) {
     var title by rememberSaveable(initial?.id ?: "new") { mutableStateOf(initial?.title.orEmpty()) }
     var description by rememberSaveable(initial?.id ?: "new") { mutableStateOf(initial?.description.orEmpty()) }
@@ -1306,6 +1485,8 @@ private fun IdeaEditorDialog(
                             targets = targets,
                             dispatching = dispatching,
                             dispatchError = dispatchError,
+                            // 批v193: 面板/卡面无目标回退进来时，目标区一开始就展开。
+                            startExpanded = insertStartExpanded,
                             contentReady = (description.isNotBlank() || attachments.isNotEmpty()) &&
                                 (title.isNotBlank() || description.isNotBlank()),
                             title = title,
@@ -1447,9 +1628,11 @@ private fun InsertTodoSection(
     probeAgentOptions: suspend (String, AgentType, String?, Map<String, String>) -> AgentOptionsSnapshot?,
     modelProviderEntries: suspend (String, AgentType) -> List<ModelProviderInfo>,
     onInsert: (IdeaInsertPayload) -> Unit,
+    /** 批v193: 首次使用的回退口——进来就把目标选择区展开（普通入口保持折叠）。 */
+    startExpanded: Boolean = false,
 ) {
     val colors = CodegTheme.colors
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(startExpanded) }
     var device by rememberSaveable { mutableStateOf<String?>(null) }
     var folderId by rememberSaveable { mutableStateOf<Int?>(null) }
     var agent by rememberSaveable { mutableStateOf<AgentType?>(null) }
@@ -1795,5 +1978,237 @@ private fun NewIdeaWideButton(onClick: () -> Unit) {
                 fontWeight = FontWeight.SemiBold,
             )
         }
+    }
+}
+
+/**
+ * 批v193 一挂一定：「挂到任务板」小面板（⋯菜单 / 长按菜单入口）。目标行复用
+ * [InboxViewModel.UiState.lastTaskTarget]（最近一笔任务型 CONFIRMED 派发的
+ * server/folder），两动作=直挂 / 直挂并定时；「换目标」回编辑器展开目标区。
+ * 与派发回执同层渲染：插入是异步的，点击先关面板再插——报错落列表顶、
+ * 成功开回执（回执上的 [⏰设时间] 接续「挂完再定」）。
+ */
+@Composable
+private fun BoardDropPanel(
+    lastTarget: DispatchRef?,
+    dispatching: Boolean,
+    onInsert: () -> Unit,
+    onInsertAndSchedule: () -> Unit,
+    onChangeTarget: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.board_panel_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = lastTarget?.let {
+                            stringResource(
+                                R.string.board_panel_target_last,
+                                listOf(it.serverName, it.folderName)
+                                    .filter { part -> part.isNotBlank() }
+                                    .joinToString(" / "),
+                            )
+                        } ?: stringResource(R.string.board_panel_target_none),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = onChangeTarget,
+                        enabled = !dispatching,
+                        contentPadding = PaddingValues(horizontal = 6.dp),
+                    ) {
+                        Text(stringResource(R.string.board_panel_change_target))
+                    }
+                }
+                if (lastTarget == null) {
+                    Text(
+                        stringResource(R.string.board_panel_target_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textTertiary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(
+                    enabled = !dispatching && lastTarget != null,
+                    onClick = onInsertAndSchedule,
+                ) {
+                    Text(stringResource(R.string.board_panel_insert_schedule))
+                }
+                Spacer(Modifier.width(4.dp))
+                TextButton(enabled = !dispatching && lastTarget != null, onClick = onInsert) {
+                    Text(stringResource(R.string.board_panel_insert))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+        },
+    )
+}
+
+/**
+ * 批v193: 收件箱回执「设时间」弹层——TaskHub [ScheduleDialog] 的平行实现
+ * （那份私有且耦合 ConfirmAction，不抽共享件；两份互为镜像，改 chips/过去
+ * 时间闸/30s ticker 需同步另一份）。差异：无「当前已定」行、无清除路（任务
+ * 刚创建，清除走任务板卡长按）；多一枚「今晚23:00」贴额度场景。
+ * 过去时间闸 + 30s ticker（v146 invariant, R1A）与 TaskHub 版一致：弹层跨
+ * 分钟悬停时闸不失效。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun BoardScheduleDialog(
+    onSchedule: (isoUtc: String, onSettled: (ok: Boolean, error: String?) -> Unit) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    var picked by remember { mutableStateOf<java.time.LocalDateTime?>(null) }
+    var showDate by remember { mutableStateOf(false) }
+    var pickedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var showTime by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var nowTick by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            nowTick = System.currentTimeMillis()
+        }
+    }
+
+    fun chip(millis: Long) {
+        picked = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDateTime()
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(stringResource(R.string.task_schedule_title)) },
+        text = {
+            Column {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    QuickChip(stringResource(R.string.task_schedule_chip_1h)) { chip(nowTick + 3_600_000L) }
+                    QuickChip(stringResource(R.string.task_schedule_chip_tonight)) {
+                        chip(LocalDate.now().atTime(20, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+                    }
+                    QuickChip(stringResource(R.string.inbox_schedule_chip_23)) {
+                        chip(LocalDate.now().atTime(23, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+                    }
+                    QuickChip(stringResource(R.string.task_schedule_chip_tomorrow)) {
+                        chip(LocalDate.now().plusDays(1).atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+                    }
+                    QuickChip(stringResource(R.string.task_schedule_chip_custom)) { showDate = true }
+                }
+                picked?.let { dt ->
+                    val pattern = stringResource(R.string.dispatch_schedule_pattern)
+                    Text(
+                        remember(dt, pattern) { dt.format(DateTimeFormatter.ofPattern(pattern)) },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = colors.textPrimary,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    val inPast = dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() <= nowTick
+                    if (inPast) {
+                        Text(
+                            stringResource(R.string.dispatch_schedule_past),
+                            color = colors.danger,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                error?.let {
+                    Text(
+                        it,
+                        color = colors.danger,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && picked != null &&
+                    picked!!.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() > nowTick,
+                onClick = {
+                    busy = true
+                    error = null
+                    val iso = picked!!
+                        .atZone(ZoneId.systemDefault()).toInstant().toString()
+                    onSchedule(iso) { ok, err ->
+                        busy = false
+                        if (ok) onDismiss() else error = err ?: "定时失败，请稍后再试"
+                    }
+                },
+            ) { Text(stringResource(android.R.string.ok)) }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) {
+                Text(stringResource(android.R.string.cancel))
+            }
+        },
+    )
+    if (showDate) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = System.currentTimeMillis())
+        DatePickerDialog(
+            onDismissRequest = { showDate = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { millis ->
+                        pickedDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                        showDate = false
+                        showTime = true
+                    }
+                }) { Text(stringResource(android.R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDate = false }) { Text(stringResource(android.R.string.cancel)) }
+            },
+        ) {
+            DatePicker(state = state)
+        }
+    }
+    if (showTime) {
+        val now = LocalTime.now()
+        val state = rememberTimePickerState(initialHour = now.hour, initialMinute = now.minute, is24Hour = true)
+        AlertDialog(
+            onDismissRequest = { showTime = false },
+            title = { Text(stringResource(R.string.task_schedule_pick_time)) },
+            text = { TimePicker(state = state) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val date = pickedDate ?: return@TextButton
+                    picked = date.atTime(LocalTime.of(state.hour, state.minute))
+                    showTime = false
+                }) { Text(stringResource(android.R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTime = false }) { Text(stringResource(android.R.string.cancel)) }
+            },
+        )
+    }
+}
+
+/** 批v193: 快捷时间 chip——TaskHub [QuickChip] 的镜像副本（那份私有，不跨文件共享）。 */
+@Composable
+private fun QuickChip(label: String, onClick: () -> Unit) {
+    val colors = CodegTheme.colors
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.bgElevated)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = colors.textSecondary)
     }
 }

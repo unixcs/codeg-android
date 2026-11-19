@@ -88,6 +88,9 @@ class InboxViewModel @Inject constructor(
          * left by a dead process until the age-gated sweep flips them). */
         val inFlightRefs: List<DispatchRef> = emptyList(),
         val confirmedRefs: List<DispatchRef> = emptyList(),
+        /** 批v193 一挂一定: latest task-mode CONFIRMED dispatch — the default
+         *  target for the card's one-tap insert and the panel's target row. */
+        val lastTaskTarget: DispatchRef? = null,
         val dispatching: Boolean = false,
         val dispatchError: String? = null,
         /** requestIds with a probe (回查) in flight, for card busy feedback. */
@@ -164,6 +167,7 @@ class InboxViewModel @Inject constructor(
                             pendingRefs = refs.filter { it.state == DispatchState.UNKNOWN },
                             inFlightRefs = refs.filter { it.state == DispatchState.PENDING },
                             confirmedRefs = refs.filter { it.state == DispatchState.CONFIRMED }.take(20),
+                            lastTaskTarget = pickLatestTaskRef(refs),
                         )
                         if (_target.value.profiles != profiles) {
                             _target.value = _target.value.copy(profiles = profiles)
@@ -315,6 +319,9 @@ class InboxViewModel @Inject constructor(
          *  unrelated half-typed 新想法 draft. */
         clearComposerDraft: Boolean,
         onDone: (DispatchRef) -> Unit,
+        /** 批v193: see [dispatch] — the card's one-tap insert replays a ledger
+         *  target without a loaded folder cache, so it skips the stale check. */
+        validateFolderAgainstLoaded: Boolean = true,
     ) {
         if (_ui.value.dispatching) {
             _ui.value = _ui.value.copy(dispatchError = "正在派发，请稍候")
@@ -379,7 +386,83 @@ class InboxViewModel @Inject constructor(
                 // destroyed on CONFIRMED (ideaStore.delete + discard) without
                 // ever being uploaded — the task carried no file paths either.
                 attachments = attachments,
+                validateFolderAgainstLoaded = validateFolderAgainstLoaded,
             )
+        }
+    }
+
+    /**
+     * 批v193 一挂一定: the card/menu/swipe one-tap insert — park the idea on
+     * the task board's 待办 (task mode, autoStart=false) using the last
+     * task-mode CONFIRMED dispatch as the default target ([pickLatestTaskRef],
+     * surfaced as [UiState.lastTaskTarget] for the panel's target row). The
+     * screen opens the editor's target picker instead when no target exists;
+     * this re-check is defensive. Content gate mirrors the editor's
+     * contentReady — a title-only card would 422 on the server otherwise.
+     * Scheduling (定时运行) is a follow-up on the receipt: [onDone] hands the
+     * confirmed ref to the screen, which may open the time picker on it.
+     */
+    fun insertToBoard(
+        idea: IdeaEntry,
+        onDone: (DispatchRef) -> Unit,
+    ) {
+        if (!insertContentReady(idea)) {
+            _ui.value = _ui.value.copy(dispatchError = "这条想法没有可挂的内容，先补一段描述再挂")
+            return
+        }
+        val target = _ui.value.lastTaskTarget
+        if (target == null) {
+            // Unreachable from the normal surfaces (the screen gates on
+            // lastTaskTarget); keep a friendly message instead of a dead tap.
+            _ui.value = _ui.value.copy(dispatchError = "还没有可复用的派发目标，请先在编辑器里选一次")
+            return
+        }
+        val payload = buildInsertPayload(idea, target)
+        quickInsertTodo(
+            ideaId = idea.id,
+            title = idea.title,
+            description = idea.description,
+            attachments = idea.attachments,
+            serverId = payload.serverId,
+            folderId = payload.folderId,
+            folderName = payload.folderName,
+            agentType = payload.agentType,
+            modeId = payload.modeId,
+            configValues = payload.configValues,
+            // An existing idea's insert must not retire the unrelated composer draft.
+            clearComposerDraft = false,
+            onDone = onDone,
+            // The replayed target's device may not be the cached folder list's
+            // device — see [dispatch].
+            validateFolderAgainstLoaded = false,
+        )
+    }
+
+    /**
+     * 批v193: schedule/un-schedule a created board task from the inbox receipt
+     * (work_task_schedule, 批v155 wire — same command TaskHub's 定时运行 uses).
+     * Result lands via [onSettled] so the caller renders it inline where the
+     * user tapped (the list-top dispatchError strip is danger-styled and is
+     * also consumed by InsertTodoSection — not a success channel).
+     */
+    fun scheduleTodo(
+        serverId: String,
+        todoId: Int,
+        scheduledAtIsoUtc: String,
+        onSettled: (ok: Boolean, error: String?) -> Unit = { _, _ -> },
+    ) {
+        viewModelScope.launch {
+            try {
+                val profile = repository.profiles.first().firstOrNull { it.id == serverId }
+                    ?: error("设备不可用")
+                val client = repository.client(profile) ?: error("Token 缺失")
+                client.workTaskSchedule(todoId, scheduledAtIsoUtc)
+                onSettled(true, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onSettled(false, e.displayMessage())
+            }
         }
     }
 
@@ -534,6 +617,13 @@ class InboxViewModel @Inject constructor(
         configValues: Map<String, String> = emptyMap(),
         /** 批v162 P1: session mode — put the created conversation on the board. */
         addToBoard: Boolean = false,
+        /** 批v193 一挂一定: the card's one-tap insert replays a ledger ref whose
+         *  target device may differ from whatever the form/editor happens to
+         *  have cached in [_target] — that stale-cache check guards UI-picked
+         *  selections only. The real double-create gate is the ledger mutex
+         *  (hasUnresolvedDuplicate) above; a truly dead folder id surfaces as
+         *  a clean 4xx → HardFailed. */
+        validateFolderAgainstLoaded: Boolean = true,
     ) {
         if (_ui.value.dispatching) {
             // A redispatch whose old ref was ALREADY removed must not lose it on
@@ -570,9 +660,11 @@ class InboxViewModel @Inject constructor(
                 val effectiveSchedule = scheduleLocalMillis?.takeIf { it > System.currentTimeMillis() }
                 // Same stale-selection check the handoff sheet has: the folder
                 // list reloads when the device changes; a restored sheet state
-                // could carry another device's folder id.
+                // could carry another device's folder id. 批v193: skipped on the
+                // card's one-tap insert path (validateFolderAgainstLoaded=false)
+                // — the replayed ref's device has no loaded folder cache.
                 val folders = _target.value.folders
-                if (folders.isNotEmpty() && folders.none { it.id == folderId }) {
+                if (validateFolderAgainstLoaded && folders.isNotEmpty() && folders.none { it.id == folderId }) {
                     fail("目标项目已失效，请重新选择项目后再派发")
                     return@launch
                 }

@@ -28,6 +28,12 @@ enum class InboxSwipeAction(val id: String) {
     /** 追加到会话 — opens the session picker (批v162 反向快链). */
     APPEND("append"),
 
+    /** 批v193 一挂一定: 挂到任务板待办 — one-tap quickInsertTodo replaying the
+     *  last task-mode ledger target (same handler as the card button/menu).
+     *  The persisted id must also be whitelisted in AppSettingsStore's
+     *  INBOX_SWIPE_ACTIONS or sanitize silently reverts the binding. */
+    INSERT_TO_BOARD("insert_board"),
+
     /** 删除 — destructive: firing it still lands in the confirm dialog. */
     DELETE("delete"),
     ;
@@ -53,5 +59,6 @@ fun inboxSwipeActionLabelRes(actionId: String): Int? = when (InboxSwipeAction.fr
     InboxSwipeAction.EDIT -> R.string.inbox_swipe_action_edit
     InboxSwipeAction.COPY -> R.string.inbox_swipe_action_copy
     InboxSwipeAction.APPEND -> R.string.inbox_swipe_action_append
+    InboxSwipeAction.INSERT_TO_BOARD -> R.string.inbox_swipe_action_insert_board
     InboxSwipeAction.DELETE -> R.string.common_delete
 }

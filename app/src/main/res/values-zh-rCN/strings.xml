@@ -1624,6 +1624,20 @@
     <string name="option_sheet_search">搜索选项</string>
     <string name="picker_no_options">暂无可选项</string>
     <string name="dispatch_created_title">%1$s已创建</string>
+    <!-- 批v193 一挂一定: 卡面「挂到待办」+ 挂板小面板 + 回执就地定时 -->
+    <string name="inbox_board_insert">挂到待办</string>
+    <string name="inbox_menu_board">挂到任务板…</string>
+    <string name="board_panel_title">挂到任务板</string>
+    <string name="board_panel_target_last">目标：上次 %1$s</string>
+    <string name="board_panel_target_none">还没有可复用的目标</string>
+    <string name="board_panel_target_hint">首次使用请先「换目标」进编辑器选一次设备与项目，之后一键直达。</string>
+    <string name="board_panel_change_target">换目标</string>
+    <string name="board_panel_insert">挂到待办</string>
+    <string name="board_panel_insert_schedule">挂到待办并定时…</string>
+    <string name="inbox_swipe_action_insert_board">挂到任务板</string>
+    <string name="inbox_receipt_schedule">设时间</string>
+    <string name="inbox_receipt_scheduled">已设定时：%1$s</string>
+    <string name="inbox_schedule_chip_23">今晚23:00</string>
     <string name="receipt_open_task_board">去任务板</string>
     <string name="dispatch_created_body">「%2$s」（%1$s）已提交成功，可到任务板或会话里查看实时状态。</string>
 

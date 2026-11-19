@@ -1639,6 +1639,20 @@
     <string name="option_sheet_search">Search options</string>
     <string name="picker_no_options">Nothing available</string>
     <string name="dispatch_created_title">%1$s created</string>
+    <!-- 批v193 一挂一定: card-level "add to to-do" + board panel + receipt scheduling -->
+    <string name="inbox_board_insert">Add to to-do</string>
+    <string name="inbox_menu_board">Add to task board…</string>
+    <string name="board_panel_title">Add to task board</string>
+    <string name="board_panel_target_last">Target: last used %1$s</string>
+    <string name="board_panel_target_none">No reusable target yet</string>
+    <string name="board_panel_target_hint">First time? Pick a device/folder once in the editor — after that it is one tap.</string>
+    <string name="board_panel_change_target">Change target</string>
+    <string name="board_panel_insert">Add to to-do</string>
+    <string name="board_panel_insert_schedule">Add &amp; schedule…</string>
+    <string name="inbox_swipe_action_insert_board">Add to board</string>
+    <string name="inbox_receipt_schedule">Set time</string>
+    <string name="inbox_receipt_scheduled">Scheduled: %1$s</string>
+    <string name="inbox_schedule_chip_23">Tonight 23:00</string>
     <string name="receipt_open_task_board">Go to task board</string>
     <string name="dispatch_created_body">“%2$s” on %1$s is in. Check the task board (or the session) for its live status.</string>
 

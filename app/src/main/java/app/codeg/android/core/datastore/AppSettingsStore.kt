@@ -927,6 +927,7 @@ val INBOX_SWIPE_ACTIONS = setOf(
     "edit",
     "copy",
     "append",
+    "insert_board", // 批v193 一挂一定: InboxSwipeAction.INSERT_TO_BOARD — whitelist or sanitize reverts the binding
     "delete",
 )
 
