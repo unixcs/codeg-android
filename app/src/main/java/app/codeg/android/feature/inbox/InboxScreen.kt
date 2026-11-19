@@ -363,8 +363,10 @@ fun InboxScreen(
                             fire = { appendingId = idea.id },
                         )
                         // 批v193 一挂一定：挂到任务板——与卡面按钮同一步插入（含
-                        // 无目标回退编辑器）；未决卡与派发同门禁。
-                        InboxSwipeAction.INSERT_TO_BOARD -> if (ref != null) null else SwipeSpec(
+                        // 无目标回退编辑器）；未决卡与派发同门禁，在途同样不亮
+                        // （审查二轮 P3-3：三个入口一门不缺）。
+                        InboxSwipeAction.INSERT_TO_BOARD ->
+                            if (ref != null || ui.dispatching) null else SwipeSpec(
                             label = stringResource(R.string.inbox_swipe_action_insert_board),
                             icon = Icons.Rounded.AddTask,
                             background = colors.accent,
@@ -650,8 +652,9 @@ fun InboxScreen(
                 // 批v153（UX 审查）：回执直达任务板。R4 墨菲审查：能自动跳会话的
                 // CONFIRMED（sessionMode + convId 非空）根本不会进本对话框，gate
                 // 只看 state——会话模式 convId=null 的死路回执同样有去处。
-                // 批v193 审查P2-1: 三枚按钮 EN/大字号会溢出 320dp——Row 改 FlowRow。
-                FlowRow {
+                // 批v193 审查P2-1: 三枚按钮 EN/大字号会溢出 320dp——Row 改 FlowRow；
+                // P3-1: 换行后确认钮落右下（M3 惯例），不是默认左对齐。
+                FlowRow(horizontalArrangement = Arrangement.End) {
                     // 批v193 一挂一定：任务型回执就地补定时——定时是挂入之后的
                     // 属性，不是平行动作。会话型不出现（无 remoteTodoId）；
                     // autoStart=true 的普通派发回执也不出现（任务已开跑，补定
@@ -1997,6 +2000,7 @@ private fun NewIdeaWideButton(onClick: () -> Unit) {
  * 与派发回执同层渲染：插入是异步的，点击先关面板再插——报错落列表顶、
  * 成功开回执（回执上的 [⏰设时间] 接续「挂完再定」）。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BoardDropPanel(
     lastTarget: DispatchRef?,
@@ -2044,7 +2048,9 @@ private fun BoardDropPanel(
             }
         },
         confirmButton = {
-            Row {
+            // 批v193 审查二轮 P3-4: 与回执同族——EN/大字号下双动作 + 取消会挤
+            // 压按钮文字，FlowRow 兜底换行（右对齐）。
+            FlowRow(horizontalArrangement = Arrangement.End) {
                 TextButton(
                     enabled = !dispatching && lastTarget != null,
                     onClick = onInsertAndSchedule,
