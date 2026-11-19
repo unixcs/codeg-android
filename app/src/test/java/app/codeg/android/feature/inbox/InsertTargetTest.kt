@@ -78,12 +78,28 @@ class InsertTargetTest {
         assertEquals(oldRow, pickLatestTaskRef(listOf(newer, oldRow)))
     }
 
+    @Test
+    fun sessionModeLatestButOlderTaskStillWins() {
+        // 账本里最近一笔是会话型（v149），更旧的任务型才可作挂板目标。
+        val olderTask = ref(dispatchedAt = 100)
+        val newerSession = ref(sessionMode = true, dispatchedAt = 200)
+        assertEquals(olderTask, pickLatestTaskRef(listOf(newerSession, olderTask)))
+    }
+
+    @Test
+    fun sameDispatchedAtFallsBackToFirstInList() {
+        // maxByOrNull 对相等键取首项——排序键含 dispatchedAt 时并列即取
+        // 账本序第一条，行为确定可测。
+        val a = ref(dispatchedAt = 100, agentTypeWire = "codex")
+        val b = ref(dispatchedAt = 100, agentTypeWire = "pi")
+        assertEquals(a, pickLatestTaskRef(listOf(a, b)))
+    }
+
     // ---- buildInsertPayload ----
 
     @Test
     fun payloadReplaysTargetSnapshot() {
-        val idea = IdeaEntry(id = "idea", title = "修复Codeg")
-        val payload = buildInsertPayload(idea, ref(agentTypeWire = "codex", modeId = "custom"))
+        val payload = buildInsertPayload(ref(agentTypeWire = "codex", modeId = "custom"))
         assertEquals("srv", payload.serverId)
         assertEquals(929, payload.folderId)
         assertEquals(AgentType.CODEX, payload.agentType)
@@ -92,14 +108,17 @@ class InsertTargetTest {
     }
 
     @Test
-    fun unknownAgentWireDropsOverride() {
-        val payload = buildInsertPayload(IdeaEntry(id = "i", title = "t"), ref(agentTypeWire = "future_agent"))
+    fun unknownAgentWireDropsOverrideButKeepsTarget() {
+        val payload = buildInsertPayload(ref(agentTypeWire = "future_agent"))
         assertNull(payload.agentType)
+        // agent 回落默认，但目标机器/项目/模式快照必须原样带走。
+        assertEquals("srv", payload.serverId)
+        assertEquals(929, payload.folderId)
     }
 
     @Test
     fun nullAgentWireStaysNull() {
-        val payload = buildInsertPayload(IdeaEntry(id = "i", title = "t"), ref(agentTypeWire = null))
+        val payload = buildInsertPayload(ref(agentTypeWire = null))
         assertNull(payload.agentType)
     }
 
@@ -114,6 +133,25 @@ class InsertTargetTest {
     fun titleOnlyIsNotReady() {
         // 有标题无正文/附件：没有 prompt，validate_draft 会 422。
         assertFalse(insertContentReady(IdeaEntry(id = "i", title = "只有标题")))
+    }
+
+    @Test
+    fun attachmentsOnlyWithoutTitleAndTextIsNotReady() {
+        // 纯附件卡：标题只能从正文派生，正文为空 → 插入必死端（与派发不同，
+        // 派发允许纯附件；挂板的内容闸更严，与编辑器 contentReady 同口径）。
+        assertFalse(
+            insertContentReady(
+                IdeaEntry(
+                    id = "i",
+                    title = "",
+                    attachments = listOf(
+                        app.codeg.android.core.data.LocalAttachment(
+                            id = "a1", name = "a.png", localPath = "/data/a.png", isImage = true,
+                        ),
+                    ),
+                ),
+            ),
+        )
     }
 
     @Test

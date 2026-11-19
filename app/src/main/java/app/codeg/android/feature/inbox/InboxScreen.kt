@@ -403,6 +403,7 @@ fun InboxScreen(
                             onOpenBoardPanel = { boardPanelId = idea.id },
                             // 2 列网格窄卡：文字双 pill 互相截断，挂到待办切图标式。
                             narrow = settings.inboxColumns == 2,
+                            dispatching = ui.dispatching,
                             // 批v162 反向快链入口（⋯菜单与长按菜单同一条 DropdownMenu）。
                             onAppendToSession = { appendingId = idea.id },
                             // 批v172 D7: 预填快速保存（标题=idea.title，正文=description）。
@@ -649,10 +650,15 @@ fun InboxScreen(
                 // 批v153（UX 审查）：回执直达任务板。R4 墨菲审查：能自动跳会话的
                 // CONFIRMED（sessionMode + convId 非空）根本不会进本对话框，gate
                 // 只看 state——会话模式 convId=null 的死路回执同样有去处。
-                Row {
+                // 批v193 审查P2-1: 三枚按钮 EN/大字号会溢出 320dp——Row 改 FlowRow。
+                FlowRow {
                     // 批v193 一挂一定：任务型回执就地补定时——定时是挂入之后的
-                    // 属性，不是平行动作。会话型回执不出现（无 remoteTodoId）。
-                    if (ref.state == DispatchState.CONFIRMED && ref.remoteTodoId != null && !ref.sessionMode) {
+                    // 属性，不是平行动作。会话型不出现（无 remoteTodoId）；
+                    // autoStart=true 的普通派发回执也不出现（任务已开跑，补定
+                    // 时反直觉——定时属于「挂到待办」这条路，审查P3-8 定版）。
+                    if (ref.state == DispatchState.CONFIRMED &&
+                        ref.remoteTodoId != null && !ref.sessionMode && !ref.autoStart
+                    ) {
                         TextButton(onClick = { schedulingRefRaw = ref }) {
                             Text(stringResource(R.string.inbox_receipt_schedule))
                         }
@@ -808,6 +814,9 @@ private fun IdeaCard(
     onOpenBoardPanel: () -> Unit,
     /** 批v193: 2 列网格窄卡开关——双 pill 切「图标 + 派发」防文字互相截断。 */
     narrow: Boolean = false,
+    /** 批v193 审查P3-5: 派发在途时挂到待办 pill 置灰（面板有门、卡面同门，
+     * 不让点击落一条事后 strip 报错）。 */
+    dispatching: Boolean = false,
     /** 批v162: 这条想法已有确认入账的会话追加（读 DispatchRef）——出小标。 */
     appendedToSession: Boolean,
     onProbe: () -> Unit,
@@ -1006,7 +1015,7 @@ private fun IdeaCard(
             // 「派发」（打开派发表单）。同款次级样式：透明底 + hairline 细边框
             // （实心 accent 只留给编辑器「保存」），未决态文字用 textTertiary。
             // 窄卡（2 列）两枚文字 pill 互相截断 → 挂到待办切图标式（P2-8）。
-            val insertEnabled = !selectMode && unresolved == null
+            val insertEnabled = !selectMode && unresolved == null && !dispatching
             val pillStyle = if (narrow) {
                 MaterialTheme.typography.labelMedium
             } else {
@@ -2006,12 +2015,12 @@ private fun BoardDropPanel(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = lastTarget?.let {
-                            stringResource(
-                                R.string.board_panel_target_last,
-                                listOf(it.serverName, it.folderName)
-                                    .filter { part -> part.isNotBlank() }
-                                    .joinToString(" / "),
-                            )
+                            // 批v193 审查P3-7: 两段全空不渲染「目标：上次 」尾巴。
+                            listOf(it.serverName, it.folderName)
+                                .filter { part -> part.isNotBlank() }
+                                .joinToString(" / ")
+                                .ifBlank { null }
+                                ?.let { label -> stringResource(R.string.board_panel_target_last, label) }
                         } ?: stringResource(R.string.board_panel_target_none),
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary,
@@ -2088,7 +2097,9 @@ private fun BoardScheduleDialog(
     }
 
     AlertDialog(
-        onDismissRequest = { if (!busy) onDismiss() },
+        // 批v193 审查P2-3: busy 中也允许退出（请求挂到超时前不能把用户锁死在
+        // 弹层里）——晚到的 onSettled 只写 requestId 门的回执注脚，无害。
+        onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.task_schedule_title)) },
         text = {
             Column {
@@ -2152,7 +2163,7 @@ private fun BoardScheduleDialog(
             ) { Text(stringResource(android.R.string.ok)) }
         },
         dismissButton = {
-            TextButton(enabled = !busy, onClick = onDismiss) {
+            TextButton(onClick = onDismiss) {
                 Text(stringResource(android.R.string.cancel))
             }
         },

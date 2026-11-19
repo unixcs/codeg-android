@@ -167,7 +167,12 @@ class InboxViewModel @Inject constructor(
                             pendingRefs = refs.filter { it.state == DispatchState.UNKNOWN },
                             inFlightRefs = refs.filter { it.state == DispatchState.PENDING },
                             confirmedRefs = refs.filter { it.state == DispatchState.CONFIRMED }.take(20),
-                            lastTaskTarget = pickLatestTaskRef(refs),
+                            // 批v193 审查P2-2: 最近一笔若来自已删设备，一键挂入
+                            // 必死在「设备不可用」——先按现存 profile 过滤，面板
+                            // 自动回退到下一个可用目标（idea 不丢但要多走一步）。
+                            lastTaskTarget = pickLatestTaskRef(
+                                refs.filter { r -> profiles.any { it.id == r.serverId } },
+                            ),
                         )
                         if (_target.value.profiles != profiles) {
                             _target.value = _target.value.copy(profiles = profiles)
@@ -417,7 +422,7 @@ class InboxViewModel @Inject constructor(
             _ui.value = _ui.value.copy(dispatchError = "还没有可复用的派发目标，请先在编辑器里选一次")
             return
         }
-        val payload = buildInsertPayload(idea, target)
+        val payload = buildInsertPayload(target)
         quickInsertTodo(
             ideaId = idea.id,
             title = idea.title,

@@ -39,7 +39,7 @@ data class InsertTargetPayload(
     val configValues: Map<String, String>,
 )
 
-fun buildInsertPayload(idea: IdeaEntry, ref: DispatchRef): InsertTargetPayload = InsertTargetPayload(
+fun buildInsertPayload(ref: DispatchRef): InsertTargetPayload = InsertTargetPayload(
     serverId = ref.serverId,
     folderId = ref.folderId,
     folderName = ref.folderName,
