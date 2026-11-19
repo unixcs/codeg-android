@@ -2238,6 +2238,27 @@ class SessionDetailViewModel @Inject constructor(
         }
     }
 
+    /** 批v192: agents whose CLI verifiably advertises the fork capability. The server
+     *  computes `fork_supported` PER CONNECTION at connect handshake (excluding only
+     *  ZCode) — with no live connection the verdict does not exist at all. Fork
+     *  shipped for Codex + OpenCode (v134), so those two are the fallback set for
+     *  connection-less sessions; other agents keep the fail-closed snapshot verdict. */
+    private val forkCapableAgent: Boolean
+        get() = agent == AgentType.CODEX || agent == AgentType.OPEN_CODE
+
+    /** 批v192: an idle conversation has no connection to fork on. The web spawns one
+     *  the moment it opens the conversation, so a web fork always has a target — the
+     *  App deliberately doesn't attach on open, which left exactly the sessions this
+     *  device never dispatched (the "sometimes there, sometimes not" report) with no
+     *  way to fork even though the button was visible. Mirror web: connect fresh,
+     *  resuming the session via [externalId] — the same connect the send path uses
+     *  for an idle conversation. Null = not fork capable or the connect failed
+     *  (caller reports fork_unavailable). */
+    private suspend fun connectForFork(c: CodegClient): String? {
+        if (!forkCapableAgent) return null
+        return runCatching { connectFresh(c) }.getOrNull()?.also { connectionId = it }
+    }
+
     /** Fork this conversation's session at [turnId] (batch v134). The gate is
      *  `ui.forkSupported` — the server's own verdict for the attached CLI, fed by the
      *  RPC snapshot, the WS snapshot and the `fork_supported` event. Agents the server
@@ -2264,6 +2285,7 @@ class SessionDetailViewModel @Inject constructor(
                 val conn = connectionId
                     ?: runCatching { c.findConnection(convId, externalId, agent)?.connectionId }.getOrNull()
                     ?: snapshotConnectionId
+                    ?: connectForFork(c)
                 if (conn == null) {
                     _ui.update { it.copy(notice = appContext.getString(R.string.fork_unavailable)) }
                     return@launch
@@ -2956,6 +2978,13 @@ class SessionDetailViewModel @Inject constructor(
             // RPC failed / conversation gone: drop the positive cache rather than let
             // it outlive its truth for the rest of the TTL.
             evictSnapshotCache()
+            // 批v192: with no live connection the server has no fork verdict to give
+            // (it's computed at connect handshake) — the web always has one because
+            // it spawns a connection on open; the App doesn't, so an idle fork-capable
+            // session never got a verdict and the button vanished. Seed the capability
+            // fallback; a later authoritative snapshot / `fork_supported` event still
+            // overwrites it the moment a connection exists.
+            if (forkCapableAgent) _ui.update { it.copy(forkSupported = true) }
             return null
         }
         if (snap.modes != null || snap.configOptions.isNotEmpty()) {
