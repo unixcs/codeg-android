@@ -1260,7 +1260,7 @@
     <string name="session_info_action_handoff">复制接手</string>
     <string name="session_info_action_export">导出 JSON</string>
     <string name="session_info_action_reconnect">重新连接</string>
-            <string name="doc_preview_outline">大纲</string>
+                <string name="doc_preview_outline">大纲</string>
 <string name="doc_preview_share">分享</string>
     <string name="doc_preview_outside_workspace">%1$s 不在本会话的工作目录内。</string>
     <string name="session_info_export_done">已导出：%1$s</string>

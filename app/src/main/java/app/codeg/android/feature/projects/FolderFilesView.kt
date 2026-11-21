@@ -247,7 +247,7 @@ fun FolderFilesView(
     // ≤30 probeable files per dir, ≤512 KB each, binary extensions skipped,
     // ≤4 concurrent probes, path+size cache survives dir navigation. Probed-null
     // files (big/binary/outside-root failures) simply sink to the oldest end.
-    val probeCache = remember { mutableMapOf<String, Long>() }
+    val probeCache = remember { java.util.concurrent.ConcurrentHashMap<String, Long>() }
     var mtimeMap by remember(dir) { mutableStateOf<Map<String, Long>>(emptyMap()) }
     LaunchedEffect(r) {
         val list = r?.getOrNull() ?: return@LaunchedEffect
@@ -258,7 +258,7 @@ fun FolderFilesView(
             mtimeMap = emptyMap()
             return@LaunchedEffect
         }
-        val dirMap = HashMap<String, Long>()
+        val dirMap = java.util.concurrent.ConcurrentHashMap<String, Long>()
         val sem = Semaphore(4)
         try {
             coroutineScope {
@@ -268,8 +268,10 @@ fun FolderFilesView(
                         dirMap[f.path] = cached
                         continue
                     }
-                    sem.withPermit {
-                        launch {
+                    // The permit must wrap the READ, not the launch — withPermit
+                    // around launch releases as soon as the child STARTS.
+                    launch {
+                        sem.withPermit {
                             runCatching { client.readFileForEdit(rootPath, f.path).mtimeMs }.getOrNull()
                                 ?.let { mt ->
                                     probeCache["${f.path}:${f.size}"] = mt
@@ -279,6 +281,8 @@ fun FolderFilesView(
                     }
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             // Probe failures are cosmetic (no time shown); never break the listing.
         }
@@ -970,7 +974,9 @@ private fun FileRow(item: DirectoryItem, mtimeMs: Long?, onLongClick: () -> Unit
         mtimeMs?.let { add(formatMtime(it)) }
     }.joinToString(" · ")
     ListItem(
-        headlineContent = { MiddleEllipsisText(item.name, fontSize = 14.sp) },
+        headlineContent = {
+            MiddleEllipsisText(item.name, style = LocalTextStyle.current.copy(fontSize = 14.sp))
+        },
         supportingContent = {
             Text(meta, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = colors.textTertiary)
         },
@@ -1605,9 +1611,15 @@ internal fun sortItems(
         FILE_SORT_MODE_TYPE -> compareBy<DirectoryItem> { it.extOrNull() }.thenBy { it.name.lowercase() }
         else -> compareBy { it.name.lowercase() }
     }
-    return items.sortedWith(
-        compareByDescending<DirectoryItem> { it.isDir }.then(if (desc) fileCmp.reversed() else fileCmp),
-    )
+    // Partition comparator: the desc flip applies to FILES ONLY — dirs keep
+    // alpha in both directions (`.then()` would flip the dir block too).
+    return items.sortedWith(Comparator { a, b ->
+        when {
+            a.isDir != b.isDir -> if (a.isDir) -1 else 1
+            a.isDir -> compareBy<DirectoryItem> { it.name.lowercase() }.compare(a, b)
+            else -> (if (desc) fileCmp.reversed() else fileCmp).compare(a, b)
+        }
+    })
 }
 
 /** Lowercased extension (""); directories count as extensionless. */

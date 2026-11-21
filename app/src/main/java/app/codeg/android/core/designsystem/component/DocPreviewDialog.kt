@@ -95,7 +95,10 @@ import kotlin.math.roundToInt
 @Composable
 fun DocPreviewDialog(state: DocPreviewState, onDismiss: () -> Unit) {
     val colors = CodegTheme.colors
-    val blocks = remember(state.content) { parseMarkdownBlocks(state.content) }
+    // Parse only for Markdown previews — HTML/text bodies skip the wasted pass.
+    val blocks = remember(state.content) {
+        if (state.kind == DocPreviewKind.MARKDOWN) parseMarkdownBlocks(state.content) else emptyList()
+    }
     val headings = remember(blocks) {
         blocks.mapIndexedNotNull { i, b -> (b as? MarkdownBlock.Heading)?.let { i to it } }
     }
@@ -227,9 +230,11 @@ private fun MarkdownPreviewBody(
             // Active heading: the last one whose anchor sits above the reading
             // line (scroll top + 40% viewport) — MindFS's highlight, cheap port.
             val activeIdx = headings.lastOrNull { (i, _) ->
+                // y-cy is already viewport-relative; adding scroll here would let
+                // every heading below the line qualify as the doc grows.
                 val cy = containerY.value
                 val y = anchorY[i]
-                cy != null && y != null && (y - cy) <= scrollState.value + viewportPx.value * 0.4f
+                cy != null && y != null && (y - cy) <= viewportPx.value * 0.4f
             }?.first ?: -1
 
             Surface(
@@ -270,7 +275,9 @@ private fun MarkdownPreviewBody(
                                         val cy = containerY.value
                                         val y = anchorY[idx]
                                         if (cy != null && y != null) {
-                                            val target = (y - cy - with(density) { 24.dp.toPx() })
+                                            // y-cy is viewport-relative at tap time; the
+                                            // absolute content offset adds the scroll back.
+                                            val target = ((y - cy) + scrollState.value - with(density) { 24.dp.toPx() })
                                                 .roundToInt().coerceAtLeast(0)
                                             scope.launch { scrollState.animateScrollTo(target) }
                                         }

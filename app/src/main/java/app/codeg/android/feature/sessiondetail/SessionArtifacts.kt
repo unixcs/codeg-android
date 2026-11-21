@@ -33,8 +33,8 @@ data class SessionArtifact(
 
 object SessionArtifacts {
 
-    /** One resolved write call awaiting its (non-error) result. */
-    private data class Call(val paths: List<String>, val op: ArtifactOp, val label: String)
+    /** One resolved write call awaiting its (non-error) result; ops are PER FILE. */
+    private data class Call(val writes: List<Pair<String, ArtifactOp>>, val label: String)
 
     private const val PATH_KEYS = "file_path,path,filename,file,target_file"
     private val docExts = setOf("md", "markdown", "txt", "html", "htm")
@@ -59,15 +59,15 @@ object SessionArtifacts {
                             continue
                         }
                         val call = pending.remove(id) ?: continue
-                        for (path in call.paths) {
+                        for ((path, op) in call.writes) {
                             seen += 1
                             byPath[path] = SessionArtifact(
                                 path = path,
                                 name = path.substringAfterLast('/'),
-                                dirTail = path.substringBeforeLast('/').substringAfterLast('/'),
+                                dirTail = if (path.contains('/')) path.substringBeforeLast('/').substringAfterLast('/') else "",
                                 ext = path.substringAfterLast('.', "").lowercase(),
                                 toolLabel = call.label,
-                                op = call.op,
+                                op = op,
                                 isDocLike = path.substringAfterLast('.', "").lowercase() in docExts,
                                 lastSeen = seen,
                             )
@@ -107,9 +107,8 @@ object SessionArtifacts {
             }
             if (paths.isEmpty()) return null
             val resolved = paths.map { resolve(it.first, workingDir) to it.second }
-            val op = if (resolved.all { it.second == ArtifactOp.DELETED }) ArtifactOp.DELETED else ArtifactOp.MODIFIED
             val label = if (resolved.size > 1) "Patch (${resolved.size})" else "Patch"
-            return Call(resolved.map { it.first }, op, label)
+            return Call(resolved, label)
         }
 
         val isWrite = n in writeNames
@@ -118,7 +117,7 @@ object SessionArtifacts {
         for (key in PATH_KEYS.split(',')) {
             val raw = args.string(key)?.trim().takeUnless { it.isNullOrEmpty() } ?: continue
             val op = if (isWrite) ArtifactOp.ADDED else ArtifactOp.MODIFIED
-            return Call(listOf(resolve(raw, workingDir)), op, labelOf(n))
+            return Call(listOf(resolve(raw, workingDir) to op), labelOf(n))
         }
         return null
     }
