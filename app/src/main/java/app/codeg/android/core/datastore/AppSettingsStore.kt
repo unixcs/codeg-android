@@ -118,8 +118,13 @@ data class AppSettings(
      *  拍板 default), "manual" (sortOrder), "name", "created" (newest first). */
     val addToProjectSort: String = DEFAULT_ADD_TO_PROJECT_SORT,
     /** 批v183: the file browsers' sort — "name" (dirs first, alpha, the legacy
-     *  order) or "size" (dirs first by name, then biggest files first). */
+     *  order), "size" (dirs first by name, then biggest files first), 批v194 adds
+     *  "time" (mtime, dirs keep alpha) and "type" (extension alpha). */
     val fileSortMode: String = DEFAULT_FILE_SORT_MODE,
+    /** 批v194: the sort direction. The absent-flag default resolves per mode at
+     *  read time ([defaultFileSortDesc]) — legacy "size" was biggest-first and
+     *  "time" exists to surface the just-written file, so both ship descending. */
+    val fileSortDesc: Boolean = false,
     /** 批v179: the 动态 tab's RECENT window in hours — 24 (default), 48, 72
      *  (3 days), 120 (5), 168 (7) or 0 = everything the feed has loaded. */
     val activityWindowHours: Int = DEFAULT_ACTIVITY_WINDOW_HOURS,
@@ -320,6 +325,8 @@ class AppSettingsStore @Inject constructor(
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_SORT,
             fileSortMode = prefs[FILE_SORT_MODE]?.takeIf { it in FILE_SORT_MODES }
                 ?: AppSettings.DEFAULT_FILE_SORT_MODE,
+            fileSortDesc = prefs[FILE_SORT_DESC]
+                ?: defaultFileSortDesc(prefs[FILE_SORT_MODE]),
             activityWindowHours = (prefs[ACTIVITY_WINDOW_HOURS]
                 ?: AppSettings.DEFAULT_ACTIVITY_WINDOW_HOURS)
                 .takeIf { it in ACTIVITY_WINDOW_HOURS_CHOICES }
@@ -697,6 +704,11 @@ class AppSettingsStore @Inject constructor(
         }
     }
 
+    /** 批v194: persist the file browsers' sort direction. */
+    suspend fun setFileSortDesc(desc: Boolean) {
+        dataStore.edit { it[FILE_SORT_DESC] = desc }
+    }
+
     /** 批v179: persist the 动态 RECENT window (whitelist-guarded, 0 = all). */
     suspend fun setActivityWindowHours(hours: Int) {
         dataStore.edit {
@@ -842,6 +854,7 @@ class AppSettingsStore @Inject constructor(
         val DEVICE_CHIP_COLUMNS = intPreferencesKey("device_chip_columns")
         val ADD_TO_PROJECT_SORT = stringPreferencesKey("add_to_project_sort")
         val FILE_SORT_MODE = stringPreferencesKey("file_sort_mode")
+        val FILE_SORT_DESC = booleanPreferencesKey("file_sort_desc")
         val ACTIVITY_WINDOW_HOURS = intPreferencesKey("activity_window_hours")
         val ACTIVITY_UNREAD_ONLY = booleanPreferencesKey("activity_unread_only")
         val SESSION_CHIP_MODE = stringPreferencesKey("session_chip_mode")
@@ -885,10 +898,20 @@ const val SESSION_CHIP_DEVICES = "devices"
 const val SESSION_CHIP_PROJECTS = "projects"
 val SESSION_CHIP_MODES = setOf(SESSION_CHIP_DEVICES, SESSION_CHIP_PROJECTS)
 
-/** Legal file-browser sort modes (批v183) — the shared sortItems branches on these. */
+/** Legal file-browser sort modes (批v183, 批v194 adds time/type) — the shared
+ *  sortItems branches on these. */
 const val FILE_SORT_MODE_NAME = "name"
 const val FILE_SORT_MODE_SIZE = "size"
-val FILE_SORT_MODES = setOf(FILE_SORT_MODE_NAME, FILE_SORT_MODE_SIZE)
+const val FILE_SORT_MODE_TIME = "time"
+const val FILE_SORT_MODE_TYPE = "type"
+val FILE_SORT_MODES = setOf(FILE_SORT_MODE_NAME, FILE_SORT_MODE_SIZE, FILE_SORT_MODE_TIME, FILE_SORT_MODE_TYPE)
+
+/** 批v194: default direction when the flag pref is absent — size/time descend
+ *  (the legacy "size" was biggest-first; "time" exists to surface the newest
+ *  file), name/type ascend. A corrupt mode string reads as ascending, matching
+ *  the "name" fallback. */
+internal fun defaultFileSortDesc(mode: String?): Boolean =
+    mode == FILE_SORT_MODE_SIZE || mode == FILE_SORT_MODE_TIME
 
 /** Legal 添加到项目 order modes (批v179) — sheets branch on the constants. */
 const val ADD_TO_PROJECT_SORT_COUNT = "count"

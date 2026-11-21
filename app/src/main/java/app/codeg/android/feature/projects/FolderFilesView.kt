@@ -1475,20 +1475,33 @@ private fun outsideRootRead(rootPath: String, absPath: String): Pair<String, Str
 /** Client cap for the on-device editor — Compose text fields choke far below the server's 50 MB limit. */
 private const val MAX_EDIT_CHARS = 2_000_000
 
-/** Dirs first — "name" is plain alpha (the legacy order), "size" sorts files
- *  biggest-first under their dirs (批v183-C). Shared by the drill-down browser
- *  and the 批v180 tree. */
-internal fun sortItems(items: List<DirectoryItem>, mode: String = FILE_SORT_MODE_NAME): List<DirectoryItem> =
-    when (mode) {
-        FILE_SORT_MODE_SIZE -> items.sortedWith(
-            compareByDescending<DirectoryItem> { it.isDir }
-                // Dirs keep alpha among themselves (uniform MIN_VALUE here);
-                // files rank by size desc, null/unknown last within ties.
-                .thenByDescending { if (it.isDir) Long.MIN_VALUE else it.size ?: 0L }
-                .thenBy { it.name.lowercase() },
-        )
-        else -> items.sortedWith(compareByDescending<DirectoryItem> { it.isDir }.thenBy { it.name.lowercase() })
+/** Dirs always first (alpha among themselves, never flipped); the desc flag
+ *  reverses the FILE ordering only. 批v183-C keys: "name" alpha, "size" big-first
+ *  (desc default). 批v194 adds "time" (mtime probe, newest-first default, files
+ *  without a probed mtime sink to the oldest end) and "type" (extension alpha).
+ *  Shared by the drill-down browser and the 批v180 tree. */
+internal fun sortItems(
+    items: List<DirectoryItem>,
+    mode: String = FILE_SORT_MODE_NAME,
+    desc: Boolean = false,
+): List<DirectoryItem> {
+    val fileCmp: Comparator<DirectoryItem> = when (mode) {
+        FILE_SORT_MODE_SIZE -> compareBy { it.size ?: 0L }
+        FILE_SORT_MODE_TIME ->
+            // Unprobed mtime must land at the OLDEST end in both directions:
+            // asc keeps MAX_VALUE last; desc (reversed) keeps MIN_VALUE last.
+            compareBy { it.mtimeMs ?: if (desc) Long.MIN_VALUE else Long.MAX_VALUE }
+        FILE_SORT_MODE_TYPE -> compareBy<DirectoryItem> { it.extOrNull() }.thenBy { it.name.lowercase() }
+        else -> compareBy { it.name.lowercase() }
     }
+    return items.sortedWith(
+        compareByDescending<DirectoryItem> { it.isDir }.then(if (desc) fileCmp.reversed() else fileCmp),
+    )
+}
+
+/** Lowercased extension (""); directories count as extensionless. */
+internal fun DirectoryItem.extOrNull(): String =
+    if (isDir) "" else name.substringAfterLast('.', "").lowercase()
 
 
 /**

@@ -15,6 +15,11 @@ data class DirectoryEntry(
  * A file or directory in the file browser (`list_directory_with_files`). NOTE:
  * this endpoint returns **camelCase** wire keys (`isDir`/`hasChildren`), so it is
  * decoded with the camelCase codec, not the snake_case response codec.
+ *
+ * [mtimeMs] has NO wire source yet — 批v194 fills it app-side via a read probe
+ * (D1=C: probe first, server patch drafted but not shipped, so the nullable
+ * default rides along harmlessly and a future server field lands with zero
+ * client change).
  */
 @Serializable
 data class DirectoryItem(
@@ -23,6 +28,7 @@ data class DirectoryItem(
     val isDir: Boolean = false,
     val hasChildren: Boolean = false,
     val size: Long? = null,
+    val mtimeMs: Long? = null,
 )
 
 /** Read-only file preview (`read_file_preview`). */
