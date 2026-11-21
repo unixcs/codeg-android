@@ -13,7 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -122,7 +122,7 @@ fun SessionArtifactsCard(
                                 .padding(horizontal = 10.dp, vertical = 5.dp),
                         ) {
                             Icon(
-                                if (artifact.isDocLike) Icons.Rounded.Description else Icons.Rounded.InsertDriveFile,
+                                if (artifact.isDocLike) Icons.Rounded.Description else Icons.AutoMirrored.Rounded.InsertDriveFile,
                                 contentDescription = null,
                                 tint = when (artifact.op) {
                                     ArtifactOp.ADDED -> colors.success
