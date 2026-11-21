@@ -941,6 +941,12 @@
         <!-- 批v183-C: file-list sort modes -->
         <string name="files_sort_name">Sort by name</string>
         <string name="files_sort_size">Sort by size</string>
+        <!-- 批v194: time/type keys + direction toggle -->
+        <string name="files_sort_time">Sort by time</string>
+        <string name="files_sort_type">Sort by type</string>
+        <string name="files_sort_desc">Descending</string>
+        <string name="files_type_dir">Folder</string>
+        <string name="files_type_file">File</string>
         <string name="files_tree_search">Search</string>
         <string name="files_tree_select">Select multiple</string>
         <string name="files_tree_search_hint">Filter the expanded tree</string>

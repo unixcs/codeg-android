@@ -104,12 +104,18 @@ import app.codeg.android.core.designsystem.markdown.MarkdownContent
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.datastore.FILE_SORT_MODE_NAME
 import app.codeg.android.core.datastore.FILE_SORT_MODE_SIZE
+import app.codeg.android.core.datastore.FILE_SORT_MODE_TIME
+import app.codeg.android.core.datastore.FILE_SORT_MODE_TYPE
+import app.codeg.android.core.designsystem.component.MiddleEllipsisText
 import app.codeg.android.core.model.DirectoryItem
 import app.codeg.android.core.network.ApiError
 import app.codeg.android.core.network.CodegClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /** Recursive file browser with an internal directory stack + file preview. */
@@ -121,8 +127,11 @@ fun FolderFilesView(
     startPath: String? = null,
     // 批v183-C: sort preference lives in AppSettings; this view is VM-less so
     // the hosting screen passes the current mode and a persistence callback.
+    // 批v194: the direction flag joins (dirs-first never flips; see sortItems).
     fileSortMode: String = FILE_SORT_MODE_NAME,
     onSortChange: (String) -> Unit = {},
+    fileSortDesc: Boolean = false,
+    onSortDescChange: (Boolean) -> Unit = {},
 ) {
     val colors = CodegTheme.colors
     // 批v176: startPath lets a jump land BELOW/OUTSIDE the workspace root without
@@ -232,13 +241,56 @@ fun FolderFilesView(
     }
 
     val r = result
+    // 批v194 M2 (D1=C): the server's list_directory_with_files carries no mtime,
+    // so "sort by time" is fed app-side: small text files get a read probe whose
+    // FileEditContent.mtimeMs fills DirectoryItem.mtimeMs. Caps keep it cheap —
+    // ≤30 probeable files per dir, ≤512 KB each, binary extensions skipped,
+    // ≤4 concurrent probes, path+size cache survives dir navigation. Probed-null
+    // files (big/binary/outside-root failures) simply sink to the oldest end.
+    val probeCache = remember { mutableMapOf<String, Long>() }
+    var mtimeMap by remember(dir) { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    LaunchedEffect(r) {
+        val list = r?.getOrNull() ?: return@LaunchedEffect
+        val probeable = list.filter {
+            !it.isDir && (it.size ?: 0L) <= PROBE_MAX_BYTES && it.name.substringAfterLast('.', "").lowercase() !in BINARY_EXTS
+        }
+        if (probeable.size > PROBE_MAX_FILES) {
+            mtimeMap = emptyMap()
+            return@LaunchedEffect
+        }
+        val dirMap = HashMap<String, Long>()
+        val sem = Semaphore(4)
+        try {
+            coroutineScope {
+                for (f in probeable) {
+                    val cached = probeCache["${f.path}:${f.size}"]
+                    if (cached != null) {
+                        dirMap[f.path] = cached
+                        continue
+                    }
+                    sem.withPermit {
+                        launch {
+                            runCatching { client.readFileForEdit(rootPath, f.path).mtimeMs }.getOrNull()
+                                ?.let { mt ->
+                                    probeCache["${f.path}:${f.size}"] = mt
+                                    dirMap[f.path] = mt
+                                }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Probe failures are cosmetic (no time shown); never break the listing.
+        }
+        mtimeMap = dirMap
+    }
     when {
         r == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoadingView(message = stringResource(R.string.common_loading)) }
         r.isFailure -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             InlineError(Icons.AutoMirrored.Rounded.InsertDriveFile, stringResource(R.string.files_load_failed), r.exceptionOrNull()?.message ?: stringResource(R.string.files_error), onRetry = refresh)
         }
         else -> {
-            val items = sortItems(r.getOrDefault(emptyList()), fileSortMode)
+            val items = sortItems(r.getOrDefault(emptyList()), fileSortMode, fileSortDesc)
                 .filter { filter.isBlank() || it.name.contains(filter, ignoreCase = true) }
             val dirName = dir.substringAfterLast('/')
             // Parent of the current dir ("/" has none) — lets the stack climb ABOVE
@@ -279,6 +331,8 @@ fun FolderFilesView(
                         onUpload = { showUploadBrowser = true },
                         sortMode = fileSortMode,
                         onSortChange = onSortChange,
+                        sortDesc = fileSortDesc,
+                        onSortDescChange = onSortDescChange,
                     )
                 }
                 if (filterOpen) {
@@ -339,7 +393,11 @@ fun FolderFilesView(
                         item("empty") { Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { EmptyState(Icons.Rounded.Folder, stringResource(R.string.files_empty_folder), stringResource(R.string.files_empty_folder_message)) } }
                     }
                     items(items, key = { it.path }) { item ->
-                        FileRow(item, onLongClick = { actionTarget = item }) {
+                        FileRow(
+                            item,
+                            mtimeMs = mtimeMap[item.path] ?: item.mtimeMs,
+                            onLongClick = { actionTarget = item },
+                        ) {
                             if (item.isDir) stack = stack + item.path else previewPath = item.path
                         }
                     }
@@ -450,6 +508,8 @@ private fun FilesToolbarMenu(
     onUpload: () -> Unit,
     sortMode: String,
     onSortChange: (String) -> Unit,
+    sortDesc: Boolean = false,
+    onSortDescChange: (Boolean) -> Unit = {},
 ) {
     val colors = CodegTheme.colors
     var expanded by remember { mutableStateOf(false) }
@@ -470,22 +530,37 @@ private fun FilesToolbarMenu(
             )
             // 批v183-C: sort mode as radio pair — kept in the overflow so the
             // toolbar row itself stays uncluttered (the "界面乱" constraint).
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.files_sort_name)) },
-                trailingIcon = if (sortMode == FILE_SORT_MODE_NAME) {
-                    { Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
-                } else null,
-                onClick = { expanded = false; onSortChange(FILE_SORT_MODE_NAME) },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.files_sort_size)) },
-                trailingIcon = if (sortMode == FILE_SORT_MODE_SIZE) {
-                    { Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
-                } else null,
-                onClick = { expanded = false; onSortChange(FILE_SORT_MODE_SIZE) },
-            )
+            // 批v194: the pair grows to four keys + a direction toggle; dirs stay
+            // first under every key, the flip only reverses the files.
+            SortMenuItem(stringResource(R.string.files_sort_name), sortMode == FILE_SORT_MODE_NAME) {
+                expanded = false; onSortChange(FILE_SORT_MODE_NAME)
+            }
+            SortMenuItem(stringResource(R.string.files_sort_size), sortMode == FILE_SORT_MODE_SIZE) {
+                expanded = false; onSortChange(FILE_SORT_MODE_SIZE)
+            }
+            SortMenuItem(stringResource(R.string.files_sort_time), sortMode == FILE_SORT_MODE_TIME) {
+                expanded = false; onSortChange(FILE_SORT_MODE_TIME)
+            }
+            SortMenuItem(stringResource(R.string.files_sort_type), sortMode == FILE_SORT_MODE_TYPE) {
+                expanded = false; onSortChange(FILE_SORT_MODE_TYPE)
+            }
+            SortMenuItem(stringResource(R.string.files_sort_desc), sortDesc) {
+                expanded = false; onSortDescChange(!sortDesc)
+            }
         }
     }
+}
+
+/** Radio-style overflow row: check marks the active sort key / direction. */
+@Composable
+private fun SortMenuItem(label: String, checked: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        trailingIcon = if (checked) {
+            { Icon(Icons.Rounded.Check, null, tint = CodegTheme.colors.accent, modifier = Modifier.size(18.dp)) }
+        } else null,
+        onClick = onClick,
+    )
 }
 
 /** SAF display-name lookup for a picked document. */
@@ -878,11 +953,27 @@ private fun TextInputDialog(title: String, initial: String, confirmLabel: String
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FileRow(item: DirectoryItem, onLongClick: () -> Unit, onClick: () -> Unit) {
+private fun FileRow(item: DirectoryItem, mtimeMs: Long?, onLongClick: () -> Unit, onClick: () -> Unit) {
     val colors = CodegTheme.colors
     val sizeLabel = item.size?.takeIf { !item.isDir }?.let { formatBytes(it) }
+    // 批v194 M2: the second line carries "type · size · time" — the 批v183 single
+    // line hid the extension on long names and gave no way to spot the file the
+    // agent just wrote. Type doubles as the extension reveal for long names.
+    val meta = buildList {
+        add(
+            when {
+                item.isDir -> stringResource(R.string.files_type_dir)
+                else -> item.name.substringAfterLast('.', "").uppercase().ifEmpty { stringResource(R.string.files_type_file) }
+            },
+        )
+        sizeLabel?.let { add(it) }
+        mtimeMs?.let { add(formatMtime(it)) }
+    }.joinToString(" · ")
     ListItem(
-        headlineContent = { Text(item.name, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { MiddleEllipsisText(item.name, fontSize = 14.sp) },
+        supportingContent = {
+            Text(meta, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = colors.textTertiary)
+        },
         leadingContent = {
             Icon(
                 if (item.isDir) Icons.Rounded.Folder else Icons.AutoMirrored.Rounded.InsertDriveFile,
@@ -891,12 +982,19 @@ private fun FileRow(item: DirectoryItem, onLongClick: () -> Unit, onClick: () ->
                 modifier = Modifier.size(20.dp),
             )
         },
-        trailingContent = sizeLabel?.let { { Text(it, fontSize = 11.sp, color = colors.textTertiary) } },
+        trailingContent = null,
         colors = ListItemDefaults.colors(containerColor = Color.Transparent, headlineColor = colors.textPrimary),
         modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     )
+}
+
+/** "MM-dd HH:mm" within the current year, else "yyyy-MM-dd" — the file-browser meta line. */
+private fun formatMtime(ms: Long): String {
+    val zoned = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
+    val pattern = if (zoned.year == java.time.LocalDate.now().year) "MM-dd HH:mm" else "yyyy-MM-dd"
+    return java.time.format.DateTimeFormatter.ofPattern(pattern).format(zoned)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1474,6 +1572,19 @@ private fun outsideRootRead(rootPath: String, absPath: String): Pair<String, Str
 
 /** Client cap for the on-device editor — Compose text fields choke far below the server's 50 MB limit. */
 private const val MAX_EDIT_CHARS = 2_000_000
+
+/** 批v194 M2 mtime probe caps (D1=C): a dir with more probeable files than this
+ *  skips probing entirely (mtime stays null; those files sort to the oldest end). */
+private const val PROBE_MAX_FILES = 30
+private const val PROBE_MAX_BYTES = 512_000L
+
+/** Extensions the mtime probe never reads (a content fetch for a timestamp is waste). */
+private val BINARY_EXTS = setOf(
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "icns", "svg",
+    "pdf", "zip", "gz", "tar", "7z", "rar", "apk", "ipa",
+    "mp3", "wav", "flac", "ogg", "aac", "m4a", "mp4", "mov", "mkv", "avi", "webm",
+    "ttf", "otf", "woff", "woff2", "psd", "ai", "sketch", "bin", "so", "dylib", "exe", "dll",
+)
 
 /** Dirs always first (alpha among themselves, never flipped); the desc flag
  *  reverses the FILE ordering only. 批v183-C keys: "name" alpha, "size" big-first

@@ -76,6 +76,17 @@ class ProjectDetailViewModel @Inject constructor(
         viewModelScope.launch { appSettingsStore.setFileSortMode(mode) }
     }
 
+    /** 批v194: the Files tab's sort direction (pairs with [fileSortMode]). */
+    val fileSortDesc: StateFlow<Boolean> = appSettingsStore.settings
+        .map { it.fileSortDesc }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** 批v194: persist the Files tab's sort direction. */
+    fun setFileSortDesc(desc: Boolean) {
+        viewModelScope.launch { appSettingsStore.setFileSortDesc(desc) }
+    }
+
     /** Per-device pinned dirs driving the jump menu (empty ⇒ built-in defaults). */
     private val _commonDirs = MutableStateFlow<List<ServerCommonDir>>(emptyList())
     val commonDirs: StateFlow<List<ServerCommonDir>> = _commonDirs.asStateFlow()

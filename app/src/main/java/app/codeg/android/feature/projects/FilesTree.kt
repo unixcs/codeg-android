@@ -72,6 +72,8 @@ import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.CommonDirsStore
 import app.codeg.android.core.datastore.FILE_SORT_MODE_NAME
 import app.codeg.android.core.datastore.FILE_SORT_MODE_SIZE
+import app.codeg.android.core.datastore.FILE_SORT_MODE_TIME
+import app.codeg.android.core.datastore.FILE_SORT_MODE_TYPE
 import app.codeg.android.core.datastore.LastBrowseStore
 import app.codeg.android.core.datastore.ServerCommonDir
 import app.codeg.android.core.datastore.TreeExpandStore
@@ -145,8 +147,10 @@ class FilesTreeViewModel @Inject constructor(
         val writeRoot: String = "",
         /** 批v181: this device's 常用目录 chips (quick re-root). */
         val commonDirs: List<ServerCommonDir> = emptyList(),
-        /** 批v183-C: the active sort mode (name/size) — drives the menu checkmarks. */
+        /** 批v183-C: the active sort mode (name/size/批v194 time/type) — drives the menu checkmarks. */
         val sortMode: String = FILE_SORT_MODE_NAME,
+        /** 批v194: the sort direction (files flip only; dirs stay first). */
+        val sortDesc: Boolean = false,
     )
 
     private val _ui = MutableStateFlow(TreeUi())
@@ -184,9 +188,14 @@ class FilesTreeViewModel @Inject constructor(
      *  children on rebuild. */
     private val sortMode = MutableStateFlow(AppSettings.DEFAULT_FILE_SORT_MODE)
 
+    /** 批v194: the sort direction — pairs with [sortMode], same persist + rebuild rules. */
+    private val sortDesc = MutableStateFlow(false)
+
     init {
         viewModelScope.launch {
-            sortMode.value = appSettingsStore.settings.first().fileSortMode
+            val s = appSettingsStore.settings.first()
+            sortMode.value = s.fileSortMode
+            sortDesc.value = s.fileSortDesc
             rebuild()
         }
     }
@@ -197,6 +206,14 @@ class FilesTreeViewModel @Inject constructor(
         sortMode.value = mode
         rebuild()
         viewModelScope.launch { appSettingsStore.setFileSortMode(mode) }
+    }
+
+    /** 批v194: flip the sort direction; persists and re-sorts what's loaded. */
+    fun setSortDesc(desc: Boolean) {
+        if (desc == sortDesc.value) return
+        sortDesc.value = desc
+        rebuild()
+        viewModelScope.launch { appSettingsStore.setFileSortDesc(desc) }
     }
 
     /** Idempotent bind: same (client, root, device) → keep state (recomposition). */
@@ -225,7 +242,7 @@ class FilesTreeViewModel @Inject constructor(
                 _ui.update { it.copy(commonDirs = dirs) }
             }
         }
-        _ui.value = TreeUi(busy = true, writeRoot = normalizedRoot, sortMode = sortMode.value)
+        _ui.value = TreeUi(busy = true, writeRoot = normalizedRoot, sortMode = sortMode.value, sortDesc = sortDesc.value)
         bindJob = viewModelScope.launch {
             // 批v181 审查: capture the bind identity — a superseded bind must
             // not write state into the newer session (its root/worktree differ).
@@ -235,8 +252,11 @@ class FilesTreeViewModel @Inject constructor(
             // 批v183 审查 P2: re-sync the sort pref on each bind — the Files-tab
             // browser shares this DataStore and may have changed it since init
             // read it (a stale checkmark would linger otherwise).
-            runCatching { appSettingsStore.settings.first().fileSortMode }
-                .getOrNull()?.let { sortMode.value = it }
+            runCatching { appSettingsStore.settings.first() }
+                .getOrNull()?.let {
+                    sortMode.value = it.fileSortMode
+                    sortDesc.value = it.fileSortDesc
+                }
             try {
                 fetchChildren(boundRoot)
                 // Restore saved expansions for THIS (device, root); the root row
@@ -571,7 +591,7 @@ class FilesTreeViewModel @Inject constructor(
 
         fun walk(dir: String, depth: Int) {
             val kids = children[dir] ?: return
-            for (item in sortItems(kids, sortMode.value)) {
+            for (item in sortItems(kids, sortMode.value, sortDesc.value)) {
                 push(item.path, item.name, item.isDir, depth, item.size)
                 if (item.isDir && item.path in exp) walk(item.path, depth + 1)
             }
@@ -589,6 +609,7 @@ class FilesTreeViewModel @Inject constructor(
                 selected = selected.value,
                 query = query.value,
                 sortMode = sortMode.value,
+                sortDesc = sortDesc.value,
             )
         }
     }
@@ -726,6 +747,37 @@ fun FilesTreeView(
                             onClick = {
                                 menuOpen = false
                                 viewModel.setSortMode(FILE_SORT_MODE_SIZE)
+                            },
+                        )
+                        // 批v194: time/type keys + the direction toggle join the radio.
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_sort_time)) },
+                            trailingIcon = if (state.sortMode == FILE_SORT_MODE_TIME) {
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                            } else null,
+                            onClick = {
+                                menuOpen = false
+                                viewModel.setSortMode(FILE_SORT_MODE_TIME)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_sort_type)) },
+                            trailingIcon = if (state.sortMode == FILE_SORT_MODE_TYPE) {
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                            } else null,
+                            onClick = {
+                                menuOpen = false
+                                viewModel.setSortMode(FILE_SORT_MODE_TYPE)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.files_sort_desc)) },
+                            trailingIcon = if (state.sortDesc) {
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                            } else null,
+                            onClick = {
+                                menuOpen = false
+                                viewModel.setSortDesc(!state.sortDesc)
                             },
                         )
                     }

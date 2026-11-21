@@ -933,6 +933,12 @@
         <!-- 批v183-C: 文件列表排序 -->
         <string name="files_sort_name">按名称排序</string>
         <string name="files_sort_size">按大小排序</string>
+        <!-- 批v194: 时间/类型键 + 倒序开关 -->
+        <string name="files_sort_time">按时间排序</string>
+        <string name="files_sort_type">按类型排序</string>
+        <string name="files_sort_desc">倒序</string>
+        <string name="files_type_dir">文件夹</string>
+        <string name="files_type_file">文件</string>
         <string name="files_tree_search">搜索</string>
         <string name="files_tree_select">多选</string>
         <string name="files_tree_search_hint">过滤已展开的文件</string>
