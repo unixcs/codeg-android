@@ -1274,7 +1274,8 @@
     <string name="session_info_action_handoff">Copy for handoff</string>
     <string name="session_info_action_export">Export JSON</string>
     <string name="session_info_action_reconnect">Reconnect</string>
-    <string name="doc_preview_share">Share</string>
+            <string name="doc_preview_outline">Outline</string>
+<string name="doc_preview_share">Share</string>
     <string name="doc_preview_outside_workspace">%1$s is outside this session\'s working directory.</string>
     <string name="session_info_export_done">Exported: %1$s</string>
     <string name="session_info_export_failed">Export failed: %1$s</string>
