@@ -3580,6 +3580,12 @@ class SessionDetailViewModel @Inject constructor(
         showNotice(appContext.getString(R.string.session_info_copied))
     }
 
+    /** 批v194 M3: copy an artifacts-card row's absolute path. */
+    fun copyArtifactPath(path: String) {
+        copyToClipboard(path)
+        showNotice(appContext.getString(R.string.session_info_copied))
+    }
+
     /**
      * One-tap copy of the session's alignment block (batch v123): working dir, title,
      * agent-prefixed CLI id, Codeg id, git branch. Pasting it into a fresh session gives

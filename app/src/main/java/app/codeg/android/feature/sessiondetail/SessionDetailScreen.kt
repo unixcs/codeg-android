@@ -540,6 +540,21 @@ fun SessionDetailScreen(
         },
         bottomBar = {
             Column(Modifier.imePadding()) {
+                // 批v194 M3: the MindFS artifacts strip — a pure function over the
+                // persisted turns (zero storage, zero server), so a doc the agent
+                // just wrote sits one tap above the composer. D2: every file type
+                // is collected, default expand at ≤3 rows, 「仅文档」 chip filters.
+                val artifacts = remember(ui.turns, ui.folderPath) {
+                    SessionArtifacts.derive(ui.turns, ui.folderPath)
+                }
+                if (artifacts.isNotEmpty()) {
+                    SessionArtifactsCard(
+                        artifacts = artifacts,
+                        sessionKey = ui.externalId,
+                        onOpen = { viewModel.openPathPreview(it.path) },
+                        onCopyPath = { viewModel.copyArtifactPath(it.path) },
+                    )
+                }
                 // 批v160: the interactive cards live in a bounded, scrollable strip —
                 // a tall card (expanded raw JSON, long plan, several questions) can
                 // no longer push its option row off-screen under the IME (the

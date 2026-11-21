@@ -947,6 +947,14 @@
         <string name="files_sort_desc">Descending</string>
         <string name="files_type_dir">Folder</string>
         <string name="files_type_file">File</string>
+        <!-- 批v194 M3: session artifacts card -->
+<string name="session_artifacts_title">Session artifacts (%1$d)</string>
+<string name="session_artifacts_docs_only">Docs only</string>
+<string name="session_artifacts_added">added</string>
+<string name="session_artifacts_modified">modified</string>
+<string name="session_artifacts_deleted">deleted</string>
+<string name="session_artifacts_copy_path">Copy path</string>
+<string name="session_artifacts_more">+%1$d more</string>
         <string name="files_tree_search">Search</string>
         <string name="files_tree_select">Select multiple</string>
         <string name="files_tree_search_hint">Filter the expanded tree</string>

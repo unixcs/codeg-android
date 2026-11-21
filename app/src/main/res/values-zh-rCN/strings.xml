@@ -939,6 +939,14 @@
         <string name="files_sort_desc">倒序</string>
         <string name="files_type_dir">文件夹</string>
         <string name="files_type_file">文件</string>
+        <!-- 批v194 M3: session artifacts card -->
+<string name="session_artifacts_title">本会话产物 %1$d</string>
+<string name="session_artifacts_docs_only">仅文档</string>
+<string name="session_artifacts_added">新增</string>
+<string name="session_artifacts_modified">修改</string>
+<string name="session_artifacts_deleted">删除</string>
+<string name="session_artifacts_copy_path">复制路径</string>
+<string name="session_artifacts_more">还有 %1$d 个</string>
         <string name="files_tree_search">搜索</string>
         <string name="files_tree_select">多选</string>
         <string name="files_tree_search_hint">过滤已展开的文件</string>
