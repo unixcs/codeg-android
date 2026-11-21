@@ -194,6 +194,8 @@ class HandoffViewModel @Inject constructor(
         agentType: AgentType?,
         /** 批v166: pinned model/effort picks from the shared rows (config_values). */
         configValues: Map<String, String> = emptyMap(),
+        /** 批v194 (D3): the mode picked in the shared rows; null = the agent's default. */
+        modeId: String? = null,
     ) {
         val pkg = _ui.value.pkg ?: return
         if (_ui.value.dispatching) {
@@ -249,6 +251,8 @@ class HandoffViewModel @Inject constructor(
                         // 批v166: the handoff task runs with the picked model
                         // instead of silently falling back to the agent default.
                         configValues = configValues,
+                        // 批v194 (D3): the picked permission mode rides along too.
+                        modeId = modeId,
                         // Handoff: starting the task is the receiving side's
                         // decision — never auto-start from the sender.
                         autoStart = false,

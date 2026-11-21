@@ -37,12 +37,19 @@ import app.codeg.android.core.model.ModelProviderInfo
  * the surface does (plain remember, like DispatchForm's) — process death
  * loses them with the rest of the un-saveable form state.
  */
-class AgentOptionsRowsState(initialConfigValues: Map<String, String> = emptyMap()) {
+class AgentOptionsRowsState(
+    initialConfigValues: Map<String, String> = emptyMap(),
+    /** 批v194: caller-pinned mode (edit sheet seeds the task's current mode). The
+     *  first probe keeps a non-null seed — the probe's own "adopt server current"
+     *  only fills an UNSET id — and a retarget resets to the seed, mirroring the
+     *  configPicks prefill rules. */
+    val initialModeId: String? = null,
+) {
     val configPicks: SnapshotStateMap<String, String> =
         mutableStateMapOf<String, String>().apply { putAll(initialConfigValues) }
 
     /** Picked permission mode id (only meaningful with showPermissionMode). */
-    var modeId: String? by mutableStateOf(null)
+    var modeId: String? by mutableStateOf(initialModeId)
 
     /** Read-only copy for submit-time wiring. */
     fun picksSnapshot(): Map<String, String> = configPicks.toMap()
@@ -93,7 +100,9 @@ fun AgentOptionsRows(
         state.failed = false
         if (wasArmed) {
             state.configPicks.clear()
-            state.modeId = null
+            // 批v194: a retarget resets to the caller's seed (edit sheet keeps the
+            // task's pinned mode), not to a blank — mirrors the configPicks rule.
+            state.modeId = state.initialModeId
         }
         val d = serverId
         val a = agent
@@ -119,8 +128,12 @@ fun AgentOptionsRows(
         } else {
             state.snapshot = fresh
             val modes = fresh.modes?.availableModes.orEmpty()
+            // 批v194: adopt the server's current mode only when nothing is set —
+            // a caller seed (edit sheet) or a user pick must survive probes; the
+            // old unconditional overwrite silently reset a pick on every re-probe.
             fresh.modes?.currentModeId
                 ?.takeIf { current -> modes.any { it.id == current } }
+                ?.takeIf { state.modeId == null }
                 ?.let { state.modeId = it }
         }
     }

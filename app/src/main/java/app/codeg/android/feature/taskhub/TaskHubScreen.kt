@@ -3993,7 +3993,11 @@ private fun EditTaskSheet(
     // untouched save re-sends it byte-identical; a pick overrides the base key
     // at merge time. The probe uses the EFFECTIVE agent (explicit pick, else
     // the project default), the same rule the dispatch form applies.
-    val optionsState = remember(task.id) { AgentOptionsRowsState(task.configValues) }
+    // 批v194: the permission mode joins the editable set — the sheet seeds the
+    // task's current mode so an untouched save passes it through unchanged.
+    val optionsState = remember(task.id) {
+        AgentOptionsRowsState(task.configValues, initialModeId = task.configModeId)
+    }
     val editFolder = targets.folders.firstOrNull { it.id == task.folderId }
     val probeAgent = AgentType.fromWire(agentWire).takeIf { it != AgentType.UNKNOWN }
         ?: editFolder?.defaultAgentType?.takeIf { it != AgentType.UNKNOWN }
@@ -4088,8 +4092,9 @@ private fun EditTaskSheet(
             )
             // 批v166: the model/reasoning rows the create form has — an edit can
             // finally re-pin the model instead of silently keeping (or, after a
-            // redispatch, losing) the old one. Permission mode stays untouched
-            // (mode_id passes through; it is not editable here).
+            // redispatch, losing) the old one. 批v194: the mode row joins — the
+            // Plan/Build/Yolo switch is editable here at last; the seed keeps an
+            // untouched save on the task's current mode.
             AgentOptionsRows(
                 state = optionsState,
                 serverId = entry.serverId,
@@ -4097,6 +4102,7 @@ private fun EditTaskSheet(
                 workingDir = editFolder?.path,
                 probe = viewModel::probeAgentOptions,
                 providerModels = viewModel::modelProviderEntries,
+                showPermissionMode = true,
             )
             Text(
                 stringResource(R.string.task_edit_note),
@@ -4139,7 +4145,9 @@ private fun EditTaskSheet(
                         val config = app.codeg.android.core.data.DispatchPipeline.taskConfig(
                             description = description.trim(),
                             agentTypeWire = agent,
-                            modeId = task.configModeId,
+                            // 批v194: the sheet's mode pick wins; an untouched sheet
+                            // (pick still null) passes the task's current mode through.
+                            modeId = optionsState.modeId ?: task.configModeId,
                             baseBranch = task.configBaseBranch,
                             // 批v166: picks win over the pinned config per key; an
                             // untouched sheet re-sends the base values unchanged.

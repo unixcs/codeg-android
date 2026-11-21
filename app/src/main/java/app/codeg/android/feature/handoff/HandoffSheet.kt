@@ -283,6 +283,8 @@ fun HandoffSheet(
                 )
                 // 批v166: probe the EFFECTIVE agent (explicit pick, else the
                 // project default) — same rule as the dispatch form.
+                // 批v194 (D3): the mode row joins so a handoff can land straight
+                // in Plan/Build/Yolo without a post-visit edit.
                 app.codeg.android.feature.dispatch.AgentOptionsRows(
                     state = optionsState,
                     serverId = device,
@@ -291,6 +293,7 @@ fun HandoffSheet(
                     workingDir = targets.folders.firstOrNull { it.id == folderId }?.path,
                     probe = viewModel::probeAgentOptions,
                     providerModels = viewModel::modelProviderEntries,
+                    showPermissionMode = true,
                 )
                 ui.error?.let {
                     Text(it, color = CodegTheme.colors.danger, style = MaterialTheme.typography.bodySmall)
@@ -304,6 +307,7 @@ fun HandoffSheet(
                             targets.folders.firstOrNull { it.id == fid }?.name.orEmpty(),
                             agent,
                             configValues = optionsState.picksSnapshot(),
+                            modeId = optionsState.modeId,
                         )
                     },
                     enabled = device != null && folderId != null && !ui.dispatching && ui.unknownRef == null &&
