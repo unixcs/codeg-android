@@ -202,6 +202,16 @@ class SessionDetailViewModel @Inject constructor(
         .map { it.shareAssistantMessages }
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+    /** 批v195: the doc preview's remembered share format ("text"/"file"; null =
+     *  first use → the dialog's smart default applies). */
+    val docShareMode: StateFlow<String?> = appSettingsStore.settings
+        .map { it.docShareMode }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setDocShareMode(mode: String) {
+        viewModelScope.launch { appSettingsStore.setDocShareMode(mode) }
+    }
+
     private var profile: ServerProfile? = null
     private var client: CodegClient? = null
     private var conversationId: Int? = conversationIdArg

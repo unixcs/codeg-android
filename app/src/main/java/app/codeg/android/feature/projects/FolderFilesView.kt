@@ -48,6 +48,7 @@ import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Toc
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -100,7 +101,9 @@ import app.codeg.android.core.designsystem.component.InlineError
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.component.PrimaryButton
 import app.codeg.android.core.designsystem.component.sheetContentScrollLock
-import app.codeg.android.core.designsystem.markdown.MarkdownContent
+import app.codeg.android.core.designsystem.markdown.OutlineAwareMarkdownBody
+import app.codeg.android.core.designsystem.markdown.outlineEntries
+import app.codeg.android.core.designsystem.markdown.parseMarkdownBlocks
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.datastore.FILE_SORT_MODE_NAME
 import app.codeg.android.core.datastore.FILE_SORT_MODE_SIZE
@@ -1057,6 +1060,13 @@ private fun FilePreview(
     // Rendered vs raw: Markdown files default to rendered; everything else is raw-only.
     val kind = remember(absPath) { previewKindOf(absPath) }
     var rendered by remember(absPath, kind) { mutableStateOf(kind == PreviewKind.MARKDOWN) }
+    // 批v195 拍板 3A: the file browser's rendered-markdown outline — same shared
+    // body/card as the doc preview. Gated on actual headings so a heading-less
+    // file shows no dead button.
+    var outlineOpen by remember(absPath) { mutableStateOf(false) }
+    val mdEntries = remember(result) {
+        result?.getOrNull()?.let { outlineEntries(parseMarkdownBlocks(it)) }.orEmpty()
+    }
 
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
@@ -1092,6 +1102,11 @@ private fun FilePreview(
                         Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.files_action_edit), tint = colors.textSecondary, modifier = Modifier.size(18.dp))
                     }
                 }
+                if (kind == PreviewKind.MARKDOWN && rendered && mdEntries.isNotEmpty()) {
+                    IconButton(onClick = { outlineOpen = !outlineOpen }) {
+                        Icon(Icons.Rounded.Toc, contentDescription = stringResource(R.string.doc_preview_outline), tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                    }
+                }
                 if (kind == PreviewKind.MARKDOWN) {
                     FilePreviewModeToggle(rendered = rendered, onToggle = { rendered = it })
                 }
@@ -1121,7 +1136,11 @@ private fun FilePreview(
                         val content = r.getOrDefault("")
                         when {
                             content.isEmpty() -> EmptyFileState(absPath, onRetry = reload, onEdit = onEdit)
-                            rendered && kind == PreviewKind.MARKDOWN -> MarkdownScrollContent(content)
+                            rendered && kind == PreviewKind.MARKDOWN -> MarkdownScrollContent(
+                                content = content,
+                                outlineOpen = outlineOpen,
+                                onDismissOutline = { outlineOpen = false },
+                            )
                             // rootedPair is non-null on this branch (a null pair always
                             // produced the failure above); the guard satisfies the compiler.
                             kind == PreviewKind.IMAGE && rootedPair != null -> ImagePreview(client, rootedPair.first, rootedPair.second)
@@ -1196,20 +1215,20 @@ private fun FilePreviewModeToggle(rendered: Boolean, onToggle: (Boolean) -> Unit
 }
 
 /**
- * Rendered Markdown in a scrollable container. The file preview is a plain Column
- * (not the session timeline's LazyColumn), so the block list scrolls as one unit;
- * `MarkdownContent` already re-parses only when the content changes.
+ * Rendered Markdown via the shared outline-aware body (批v195 拍板 3A): the
+ * same block-anchored scroll + MindFS-dims TOC card as the doc preview. The
+ * file preview is a plain Column (not the session timeline's LazyColumn), so
+ * the block list scrolls as one unit.
  */
 @Composable
-private fun MarkdownScrollContent(content: String) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp),
-    ) {
-        MarkdownContent(content, modifier = Modifier.padding(vertical = 8.dp))
-    }
+private fun MarkdownScrollContent(content: String, outlineOpen: Boolean, onDismissOutline: () -> Unit) {
+    OutlineAwareMarkdownBody(
+        content = content,
+        outlineOpen = outlineOpen,
+        onDismissOutline = onDismissOutline,
+        horizontalPadding = 12.dp,
+        headerOffset = 8.dp,
+    )
 }
 
 /** Image preview via `read_workspace_file_base64`, decoded on IO. Tap opens the

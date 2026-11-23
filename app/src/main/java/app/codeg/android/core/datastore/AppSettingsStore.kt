@@ -91,6 +91,9 @@ data class AppSettings(
     /** 批v177: show a native-share button in each AI reply's footer (session
      *  detail timeline). Default ON. */
     val shareAssistantMessages: Boolean = true,
+    /** 批v195: the doc preview's last-used share format — "text"/"file"; null
+     *  = first use, the smart default applies (long doc → file). */
+    val docShareMode: String? = null,
     /** 批v160 W5: the Tasks tab's horizontal-swipe semantics — "segments" =
      *  step between the board's four kanban columns (default), "devices" =
      *  the cross-device sequence (the pre-v160 behavior). */
@@ -307,6 +310,7 @@ class AppSettingsStore @Inject constructor(
             notifyDeviceEventsEnabled = prefs[NOTIFY_DEVICE_EVENTS_ENABLED] ?: true,
             keepAliveEnabled = prefs[KEEP_ALIVE_ENABLED] ?: true,
             shareAssistantMessages = prefs[SHARE_ASSISTANT_MESSAGES] ?: true,
+            docShareMode = prefs[DOC_SHARE_MODE]?.takeIf { it in DOC_SHARE_MODES },
             taskSwipeMode = prefs[TASK_SWIPE_MODE]?.takeIf { it in TASK_SWIPE_MODES }
                 ?: AppSettings.DEFAULT_TASK_SWIPE_MODE,
             taskBoardLayout = prefs[TASK_BOARD_LAYOUT]?.takeIf { it in TASK_BOARD_LAYOUTS }
@@ -713,6 +717,17 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[FILE_SORT_DESC] = desc }
     }
 
+    /** 批v195: persist the doc preview's share format ("text"/"file"). */
+    suspend fun setDocShareMode(mode: String) {
+        dataStore.edit {
+            if (mode in DOC_SHARE_MODES) {
+                it[DOC_SHARE_MODE] = mode
+            } else {
+                it.remove(DOC_SHARE_MODE)
+            }
+        }
+    }
+
     /** 批v179: persist the 动态 RECENT window (whitelist-guarded, 0 = all). */
     suspend fun setActivityWindowHours(hours: Int) {
         dataStore.edit {
@@ -849,6 +864,7 @@ class AppSettingsStore @Inject constructor(
         val NOTIFY_DEVICE_EVENTS_ENABLED = booleanPreferencesKey("notify_device_events")
         val KEEP_ALIVE_ENABLED = booleanPreferencesKey("keep_alive_enabled")
         val SHARE_ASSISTANT_MESSAGES = booleanPreferencesKey("share_assistant_messages")
+        val DOC_SHARE_MODE = stringPreferencesKey("doc_share_mode")
         val TASK_SWIPE_MODE = stringPreferencesKey("task_swipe_mode")
         val TASK_BOARD_LAYOUT = stringPreferencesKey("task_board_layout")
         val TASK_BOARD_KANBAN_COLUMNS = intPreferencesKey("task_board_kanban_columns")
@@ -909,6 +925,11 @@ const val FILE_SORT_MODE_SIZE = "size"
 const val FILE_SORT_MODE_TIME = "time"
 const val FILE_SORT_MODE_TYPE = "type"
 val FILE_SORT_MODES = setOf(FILE_SORT_MODE_NAME, FILE_SORT_MODE_SIZE, FILE_SORT_MODE_TIME, FILE_SORT_MODE_TYPE)
+
+/** 批v195: legal doc-preview share formats — the store branches on these. */
+const val DOC_SHARE_MODE_TEXT = "text"
+const val DOC_SHARE_MODE_FILE = "file"
+val DOC_SHARE_MODES = setOf(DOC_SHARE_MODE_TEXT, DOC_SHARE_MODE_FILE)
 
 /** 批v194: default direction when the flag pref is absent — size/time descend
  *  (the legacy "size" was biggest-first; "time" exists to surface the newest

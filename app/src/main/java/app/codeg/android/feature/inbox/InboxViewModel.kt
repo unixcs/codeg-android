@@ -2,7 +2,6 @@ package app.codeg.android.feature.inbox
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.codeg.android.core.data.AGG_DEVICE_TIMEOUT_MS
 import app.codeg.android.core.data.AttachmentStager
 import app.codeg.android.core.data.DispatchOutcome
 import app.codeg.android.core.data.DispatchPipeline
@@ -1028,19 +1027,37 @@ class InboxViewModel @Inject constructor(
     /**
      * 选择器的状态（与派发账本的 dispatching 互不干扰——追加不是创建，
      * 不走 hasUnresolvedDuplicate 闸门）。error 只属于追加执行，加载失败走 failed。
+     * 批v195 拍板 4A: 刷新是 stale-while-reveal——旧行留守，各台切片落地即
+     * 逐台替换，单台状态走 [deviceStates] 小条；60s 内重开直接复用快照。
      */
     data class PickerUi(
+        /** 首次加载（无旧行可留守）——整屏 Loading；有旧行的刷新走 refreshing。 */
         val loading: Boolean = false,
+        /** 有旧行时的后台刷新（旧行保持可见，逐台替换）。 */
+        val refreshing: Boolean = false,
         /** 每台设备都失败且零行——给一次点击重试。 */
         val failed: Boolean = false,
         val rows: List<SessionPickerRow> = emptyList(),
         /** 看板成员 key（serverId:conversationId，未归档）——「仅看板」筛选用。 */
         val trackedKeys: Set<String> = emptySet(),
+        /** 每台可见设备的加载状态（超时/失败小条的数据源）。 */
+        val deviceStates: List<PickerDeviceChip> = emptyList(),
+        /** 本轮数据完成时刻（epoch millis）——60s 内重开不重拉。 */
+        val fetchedAt: Long? = null,
         /** 追加发送在途（上传附件/武装指令）。 */
         val sending: Boolean = false,
         /** 上一次追加执行的失败原因（成功后清空）。 */
         val error: String? = null,
     )
+
+    /** 选择器小条里的一台设备：loading 时逐台点亮，超时/失败常驻。 */
+    data class PickerDeviceChip(
+        val profileId: String,
+        val name: String,
+        val status: PickerDeviceStatus,
+    )
+
+    enum class PickerDeviceStatus { LOADING, OK, TIMEOUT, FAILED }
 
     private val _picker = MutableStateFlow(PickerUi())
     val picker: StateFlow<PickerUi> = _picker.asStateFlow()
@@ -1051,11 +1068,20 @@ class InboxViewModel @Inject constructor(
     /**
      * 选择器数据：每台可见设备一轮 listConversations(sortBy="updated")（聚合
      * 超时族、单设备失败隔离），合并按 updatedAt 倒序取前 [PICKER_LIMIT]。
-     * 一次性拉取——选择器是挑目标，不是浏览器，不做轮询；每次打开重拉一轮。
+     * 一次性拉取——选择器是挑目标，不是浏览器，不做轮询。
+     * 批v195 拍板 4A: [force]=false 时 60s 内的快照直接复用（秒开）；真正
+     * 重拉时旧行留守、每台切片落地即上屏，单台 6s 预算超时不再拖满全场。
      */
-    fun loadPickerSessions() {
+    fun loadPickerSessions(force: Boolean = false) {
+        val cached = _picker.value
+        if (!force && cached.fetchedAt != null &&
+            System.currentTimeMillis() - cached.fetchedAt < PICKER_TTL_MS
+        ) {
+            return
+        }
         val seq = ++pickerSeq
-        _picker.value = _picker.value.copy(loading = true, failed = false)
+        val hadRows = cached.rows.isNotEmpty()
+        _picker.value = cached.copy(loading = !hadRows, refreshing = hadRows, failed = false)
         viewModelScope.launch {
             val profiles = runCatching { repository.visibleProfiles.first() }.getOrDefault(emptyList())
             // 看板成员账本一次读：读坏了「仅看板」退化为空集（筛不出东西），不拖死选择器。
@@ -1063,13 +1089,48 @@ class InboxViewModel @Inject constructor(
                 boardTrackStore.trackedNow().orEmpty().filter { it.archivedAt == null }.map { it.key }.toSet()
             }.getOrDefault(emptySet())
             if (seq != pickerSeq) return@launch
-            val merged = mutableListOf<SessionPickerRow>()
+            _picker.value = _picker.value.copy(
+                trackedKeys = trackedKeys,
+                deviceStates = profiles.map { PickerDeviceChip(it.id, it.name, PickerDeviceStatus.LOADING) },
+            )
+            fun setChip(id: String, status: PickerDeviceStatus) {
+                _picker.value = _picker.value.copy(
+                    deviceStates = _picker.value.deviceStates.map {
+                        if (it.profileId == id) it.copy(status = status) else it
+                    },
+                )
+            }
+            // 旧行留守：完成台的旧行退场，在途/失败台的旧行继续显示（带着
+            // 该台的小条，说明这行不是最新）。
+            val staleByKey = cached.rows.associateBy { it.serverId to it.conversationId }
+            val doneDevices = mutableSetOf<String>()
+            val freshRows = mutableListOf<SessionPickerRow>()
             var anySuccess = false
             try {
                 coroutineScope {
-                    val slices = profiles.map { profile -> async { fetchPickerSlice(profile) } }
-                    slices.forEach { slice ->
-                        slice.await()?.let { rows -> anySuccess = true; merged += rows }
+                    profiles.forEach { profile ->
+                        async {
+                            val slice = fetchPickerSlice(profile)
+                            if (seq != pickerSeq) return@async
+                            when (slice) {
+                                is PickerSlice.Ok -> {
+                                    anySuccess = true
+                                    doneDevices += profile.id
+                                    freshRows += slice.rows
+                                    setChip(profile.id, PickerDeviceStatus.OK)
+                                }
+                                PickerSlice.Timeout -> setChip(profile.id, PickerDeviceStatus.TIMEOUT)
+                                PickerSlice.Failed -> setChip(profile.id, PickerDeviceStatus.FAILED)
+                            }
+                            // 逐台上屏（拍板 4A）：这台一完成就合并进列表，
+                            // 未完成台的旧行继续顶着。
+                            _picker.value = _picker.value.copy(
+                                rows = (freshRows + staleByKey.values
+                                    .filter { it.serverId !in doneDevices })
+                                    .sortedByDescending { it.updatedAt }
+                                    .take(PICKER_LIMIT),
+                            )
+                        }
                     }
                 }
             } catch (e: CancellationException) {
@@ -1078,23 +1139,31 @@ class InboxViewModel @Inject constructor(
                 // Scope 级失败：本轮按无数据处理（failed 已由结果兜底）。
             }
             if (seq != pickerSeq) return@launch
-            _picker.value = PickerUi(
+            _picker.value = _picker.value.copy(
                 loading = false,
-                failed = !anySuccess && merged.isEmpty(),
-                rows = merged.sortedByDescending { it.updatedAt }.take(PICKER_LIMIT),
-                trackedKeys = trackedKeys,
+                refreshing = false,
+                failed = !anySuccess && _picker.value.rows.isEmpty(),
+                fetchedAt = System.currentTimeMillis(),
             )
         }
     }
 
-    /** 一台设备的会话切片；null = 拉取失败/超时（区别于"成功但零行"）。 */
-    private suspend fun fetchPickerSlice(profile: ServerProfile): List<SessionPickerRow>? = runCatching {
-        val client = repository.client(profile) ?: error("token missing")
-        withTimeoutOrNull(AGG_DEVICE_TIMEOUT_MS) {
-            val convs = client.listConversations(sortBy = "updated").take(PICKER_PER_DEVICE)
-            // 项目名尽力而为：listFolders 挂了只掉项目标签，不掉整台设备的行。
-            val folders = runCatching { client.listFolders() }.getOrDefault(emptyList())
-                .associate { it.id to it.name }
+    /** 一台设备的切片结果：成功行 / 超时（单台 6s 预算）/ 其他失败。 */
+    private sealed interface PickerSlice {
+        data class Ok(val rows: List<SessionPickerRow>) : PickerSlice
+        data object Timeout : PickerSlice
+        data object Failed : PickerSlice
+    }
+
+    private suspend fun fetchPickerSlice(profile: ServerProfile): PickerSlice = runCatching {
+        val client = repository.client(profile) ?: return PickerSlice.Failed
+        val convs = withTimeoutOrNull(PICKER_DEVICE_TIMEOUT_MS) {
+            client.listConversations(sortBy = "updated").take(PICKER_PER_DEVICE)
+        } ?: return PickerSlice.Timeout
+        // 项目名尽力而为：listFolders 挂了只掉项目标签，不掉整台设备的行。
+        val folders = runCatching { client.listFolders() }.getOrDefault(emptyList())
+            .associate { it.id to it.name }
+        PickerSlice.Ok(
             convs.map { c ->
                 SessionPickerRow(
                     serverId = profile.id,
@@ -1109,9 +1178,11 @@ class InboxViewModel @Inject constructor(
                     // Activity 轮询的事，一次拉取多打一轮 RPC 不值）。
                     live = c.status.isLive,
                 )
-            }
-        } ?: error("device timeout")
-    }.getOrNull()
+            },
+        )
+    }.getOrElse { e ->
+        if (e is CancellationException) throw e else PickerSlice.Failed
+    }
 
     /**
      * 反向执行链（选中目标会话后）：上传非图片附件 → 图片降采样内联 →
@@ -1223,6 +1294,12 @@ class InboxViewModel @Inject constructor(
     private companion object {
         const val PICKER_LIMIT = 60
         const val PICKER_PER_DEVICE = 50
+
+        /** 批v195 拍板 4A: 单台设备切片预算（共享聚合族的 10s 对选择器太拖）。 */
+        const val PICKER_DEVICE_TIMEOUT_MS = 6_000L
+
+        /** 批v195 拍板 4A: 快照新鲜度——60s 内重开选择器不重拉（秒开）。 */
+        const val PICKER_TTL_MS = 60_000L
 
         /** 批v164: the 新想法 dialog's draft key — one slot, new ideas only. */
         const val IDEA_DRAFT_KEY = "inbox"

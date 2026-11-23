@@ -173,6 +173,8 @@ fun SessionDetailScreen(
     viewModel: SessionDetailViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
+    // 批v195: the doc preview's remembered share format ("text"/"file"/first-use null).
+    val docShareMode by viewModel.docShareMode.collectAsStateWithLifecycle()
     val colors = CodegTheme.colors
     var draft by remember { mutableStateOf("") }
     // v141 cross-device handoff composer, opened from the top-bar overflow menu.
@@ -832,7 +834,12 @@ fun SessionDetailScreen(
         onDismiss = { showToc = false },
     )
     ui.docPreview?.let { preview ->
-        DocPreviewDialog(state = preview, onDismiss = viewModel::dismissDocPreview)
+        DocPreviewDialog(
+            state = preview,
+            onDismiss = viewModel::dismissDocPreview,
+            shareMode = docShareMode,
+            onShareModePicked = viewModel::setDocShareMode,
+        )
     }
     if (showFullscreenEditor) FullscreenTextEditorDialog(
         text = draft,

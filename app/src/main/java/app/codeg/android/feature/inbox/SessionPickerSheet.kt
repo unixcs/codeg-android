@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -53,6 +54,7 @@ import app.codeg.android.core.designsystem.component.PrimaryButton
 import app.codeg.android.core.designsystem.component.rememberSheetDragLock
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.AgentType
+import app.codeg.android.feature.inbox.InboxViewModel.PickerDeviceStatus
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -175,6 +177,39 @@ fun SessionPickerSheet(
                     }
                 }
             }
+            // 批v195 拍板 4A: 每台设备一枚小条——刷新中逐台点亮，超时/失败
+            // 常驻（提醒「这行可能不是最新」）。全部完成且不再刷新时整行退场。
+            val showDeviceChips = picker.refreshing ||
+                picker.deviceStates.any { it.status != PickerDeviceStatus.OK }
+            if (showDeviceChips) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    picker.deviceStates.forEach { chip ->
+                        if (chip.status == PickerDeviceStatus.OK && !picker.refreshing) return@forEach
+                        val (label, tint) = when (chip.status) {
+                            PickerDeviceStatus.LOADING ->
+                                stringResource(R.string.picker_device_loading, chip.name) to colors.textTertiary
+                            PickerDeviceStatus.OK ->
+                                stringResource(R.string.picker_device_ok, chip.name) to colors.textTertiary
+                            PickerDeviceStatus.TIMEOUT ->
+                                stringResource(R.string.picker_device_timeout, chip.name) to colors.warning
+                            PickerDeviceStatus.FAILED ->
+                                stringResource(R.string.picker_device_failed, chip.name) to colors.danger
+                        }
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tint,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(colors.bgElevated)
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
             when {
                 picker.loading -> Column(Modifier.heightIn(min = 160.dp)) {
                     LoadingView(stringResource(R.string.common_loading))
@@ -185,7 +220,7 @@ fun SessionPickerSheet(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { viewModel.loadPickerSessions() }
+                        .clickable { viewModel.loadPickerSessions(force = true) }
                         .padding(horizontal = 16.dp, vertical = 24.dp),
                 )
                 filtered.isEmpty() -> Text(
