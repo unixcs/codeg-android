@@ -134,10 +134,13 @@ class SessionArtifactsTest {
             turn(listOf(result("1"))),
         )
         val arts = SessionArtifacts.derive(turns, workingDir = null)
-        assertEquals(listOf("/w/a.kt", "/w/b.md"), arts.map { it.path })
+        // newest-first: derive sorts by lastSeen descending, and changes[] order
+        // makes b.md the later write.
+        assertEquals(listOf("/w/b.md", "/w/a.kt"), arts.map { it.path })
         assertEquals("Edit", arts[0].toolLabel)
         assertEquals(ArtifactOp.MODIFIED, arts[0].op)
-        assertTrue(arts[1].isDocLike)
+        assertTrue(arts[0].isDocLike) // b.md
+        assertFalse(arts[1].isDocLike) // a.kt
     }
 
     @Test
@@ -165,7 +168,8 @@ class SessionArtifactsTest {
             turn(listOf(result("1"))),
         )
         val arts = SessionArtifacts.derive(turns, workingDir = null)
-        assertEquals(listOf("/w/x.kt", "/w/y.md"), arts.map { it.path })
+        // newest-first (lastSeen descending): y.md is the later write.
+        assertEquals(listOf("/w/y.md", "/w/x.kt"), arts.map { it.path })
         assertEquals(listOf(ArtifactOp.MODIFIED, ArtifactOp.MODIFIED), arts.map { it.op })
     }
 
