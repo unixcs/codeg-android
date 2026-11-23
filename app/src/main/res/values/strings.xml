@@ -955,6 +955,7 @@
 <string name="session_artifacts_deleted">deleted</string>
 <string name="session_artifacts_copy_path">Copy path</string>
 <string name="session_artifacts_more">+%1$d more</string>
+    <string name="session_artifacts_no_docs">No documents in this session</string>
         <string name="files_tree_search">Search</string>
         <string name="files_tree_select">Select multiple</string>
         <string name="files_tree_search_hint">Filter the expanded tree</string>

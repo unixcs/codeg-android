@@ -252,7 +252,7 @@ fun FolderFilesView(
     // R1-B: probe only feeds TIME sort — skip the RPCs entirely in other modes.
     // Manual refresh (refreshTick) clears the cache so a same-size in-place edit
     // gets re-probed instead of showing a stale mtime forever.
-    LaunchedEffect(r, refreshTick) {
+    LaunchedEffect(r, refreshTick, fileSortMode) {
         val list = r?.getOrNull() ?: return@LaunchedEffect
         if (fileSortMode != FILE_SORT_MODE_TIME) return@LaunchedEffect
         if (refreshTick > 0) probeCache.clear()
@@ -1014,7 +1014,7 @@ private fun FileRow(item: DirectoryItem, mtimeMs: Long?, onLongClick: () -> Unit
 private fun formatMtime(ms: Long): String {
     val zoned = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
     val pattern = if (zoned.year == java.time.LocalDate.now().year) "MM-dd HH:mm" else "yyyy-MM-dd"
-    return java.time.format.DateTimeFormatter.ofPattern(pattern).format(zoned)
+    return java.time.format.DateTimeFormatter.ofPattern(pattern, java.util.Locale.US).format(zoned)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

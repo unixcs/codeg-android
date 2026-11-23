@@ -151,6 +151,25 @@ class SessionArtifactsTest {
     }
 
     @Test
+    fun `edits array with per-entry paths yields one artifact each`() {
+        val turns = listOf(
+            turn(
+                listOf(
+                    use(
+                        "1",
+                        "multiedit",
+                        """{"edits":[{"file_path":"/w/x.kt","old_string":"a","new_string":"b"},{"file_path":"/w/y.md","old_string":"c","new_string":"d"}]}""",
+                    ),
+                ),
+            ),
+            turn(listOf(result("1"))),
+        )
+        val arts = SessionArtifacts.derive(turns, workingDir = null)
+        assertEquals(listOf("/w/x.kt", "/w/y.md"), arts.map { it.path })
+        assertEquals(listOf(ArtifactOp.MODIFIED, ArtifactOp.MODIFIED), arts.map { it.op })
+    }
+
+    @Test
     fun `garbage input does not throw`() {
         val turns = listOf(
             turn(listOf(use("1", "write_file", "not-json{"))),

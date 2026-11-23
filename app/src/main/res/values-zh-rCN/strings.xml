@@ -947,6 +947,7 @@
 <string name="session_artifacts_deleted">删除</string>
 <string name="session_artifacts_copy_path">复制路径</string>
 <string name="session_artifacts_more">还有 %1$d 个</string>
+    <string name="session_artifacts_no_docs">本会话没有文档产物</string>
         <string name="files_tree_search">搜索</string>
         <string name="files_tree_select">多选</string>
         <string name="files_tree_search_hint">过滤已展开的文件</string>

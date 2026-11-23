@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,7 +64,9 @@ fun SessionArtifactsCard(
     // collapses always — the small count gets a little extra discoverability).
     var manualExpanded by rememberSaveable(sessionKey) { mutableStateOf<Boolean?>(null) }
     val shown = if (docsOnly) artifacts.filter { it.isDocLike } else artifacts
-    if (shown.isEmpty()) return
+    // R2-A: no early return — with docsOnly on and zero docs, vanishing the
+    // header would strand the filter (unreachable until the session changes).
+    // The screen only composes this card when artifacts itself is non-empty.
     val expanded = manualExpanded ?: (shown.size <= 3)
 
     Surface(
@@ -109,82 +112,105 @@ fun SessionArtifactsCard(
                     Icons.Rounded.ExpandMore,
                     contentDescription = null,
                     tint = colors.textTertiary,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier
+                        .size(18.dp)
+                        .rotate(if (expanded) 180f else 0f),
                 )
             }
             AnimatedVisibility(visible = expanded) {
-                // R1-B: the bottomBar Column is not scrollable — an uncapped 12-row
-                // body (~530dp) can push the composer off-screen with the strip +
-                // IME open. Cap the body at ~5 rows and scroll the rest.
-                Column(
-                    Modifier
-                        .heightIn(max = 220.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    shown.take(12).forEachIndexed { idx, artifact ->
-                        if (idx > 0) HorizontalDivider(color = colors.hairline)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpen(artifact) }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                Column {
+                    if (shown.isEmpty()) {
+                        // docsOnly filtered everything out — keep the card (and the
+                        // chip) alive with a one-line note instead of vanishing.
+                        Text(
+                            stringResource(R.string.session_artifacts_no_docs),
+                            fontSize = 11.sp,
+                            color = colors.textTertiary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        )
+                    } else {
+                        // R1-B: the bottomBar Column is not scrollable — an uncapped
+                        // 12-row body (~530dp) can push the composer off-screen with
+                        // the strip + IME open. Cap the body at ~5 rows and scroll
+                        // the rest; the "还有 N 个" count stays OUTSIDE the scroll
+                        // (R2-A) so it's visible without scrolling to the fold.
+                        Column(
+                            Modifier
+                                .heightIn(max = 220.dp)
+                                .verticalScroll(rememberScrollState()),
                         ) {
-                            Icon(
-                                if (artifact.isDocLike) Icons.Rounded.Description else Icons.AutoMirrored.Rounded.InsertDriveFile,
-                                contentDescription = null,
-                                tint = when (artifact.op) {
-                                    ArtifactOp.ADDED -> colors.success
-                                    ArtifactOp.DELETED -> colors.danger
-                                    ArtifactOp.MODIFIED -> colors.warning
-                                },
-                                modifier = Modifier.size(15.dp),
-                            )
-                            Column(Modifier.weight(1f)) {
-                                MiddleEllipsisText(
-                                    artifact.name,
-                                    color = colors.textPrimary,
-                                    style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                                )
-                                Text(
-                                    buildString {
-                                        append("…/")
-                                        append(artifact.dirTail.ifEmpty { "?" })
-                                        append(" · ")
-                                        append(
-                                            stringResource(
-                                                when (artifact.op) {
-                                                    ArtifactOp.ADDED -> R.string.session_artifacts_added
-                                                    ArtifactOp.MODIFIED -> R.string.session_artifacts_modified
-                                                    ArtifactOp.DELETED -> R.string.session_artifacts_deleted
-                                                },
-                                            ),
+                            shown.take(12).forEachIndexed { idx, artifact ->
+                                if (idx > 0) HorizontalDivider(color = colors.hairline)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpen(artifact) }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                                ) {
+                                    Icon(
+                                        if (artifact.isDocLike) Icons.Rounded.Description else Icons.AutoMirrored.Rounded.InsertDriveFile,
+                                        contentDescription = null,
+                                        tint = when (artifact.op) {
+                                            ArtifactOp.ADDED -> colors.success
+                                            ArtifactOp.DELETED -> colors.danger
+                                            ArtifactOp.MODIFIED -> colors.warning
+                                        },
+                                        modifier = Modifier.size(15.dp),
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        MiddleEllipsisText(
+                                            artifact.name,
+                                            color = colors.textPrimary,
+                                            style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
                                         )
-                                    },
-                                    fontSize = 10.sp,
-                                    color = colors.textTertiary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            IconButton(onClick = { onCopyPath(artifact) }, modifier = Modifier.size(26.dp)) {
-                                Icon(
-                                    Icons.Rounded.ContentCopy,
-                                    contentDescription = stringResource(R.string.session_artifacts_copy_path),
-                                    tint = colors.textTertiary,
-                                    modifier = Modifier.size(14.dp),
-                                )
+                                        Text(
+                                            // R2-A: a root-level file has no dirTail —
+                                            // drop the "…/" prefix instead of a cryptic "?"
+                                            buildString {
+                                                if (artifact.dirTail.isNotEmpty()) {
+                                                    append("…/")
+                                                    append(artifact.dirTail)
+                                                    append(" · ")
+                                                }
+                                                append(
+                                                    stringResource(
+                                                        when (artifact.op) {
+                                                            ArtifactOp.ADDED -> R.string.session_artifacts_added
+                                                            ArtifactOp.MODIFIED -> R.string.session_artifacts_modified
+                                                            ArtifactOp.DELETED -> R.string.session_artifacts_deleted
+                                                        },
+                                                    ),
+                                                )
+                                            },
+                                            fontSize = 10.sp,
+                                            color = colors.textTertiary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    // R2-A: 26dp was well under the touch-target
+                                    // guideline next to the row's own open-on-tap.
+                                    IconButton(onClick = { onCopyPath(artifact) }, modifier = Modifier.size(36.dp)) {
+                                        Icon(
+                                            Icons.Rounded.ContentCopy,
+                                            contentDescription = stringResource(R.string.session_artifacts_copy_path),
+                                            tint = colors.textTertiary,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
-                    }
-                    if (shown.size > 12) {
-                        Text(
-                            stringResource(R.string.session_artifacts_more, shown.size - 12),
-                            fontSize = 10.sp,
-                            color = colors.textTertiary,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
+                        if (shown.size > 12) {
+                            Text(
+                                stringResource(R.string.session_artifacts_more, shown.size - 12),
+                                fontSize = 10.sp,
+                                color = colors.textTertiary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
                     }
                 }
             }

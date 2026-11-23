@@ -70,9 +70,9 @@ import app.codeg.android.R
 import app.codeg.android.core.datastore.AppSettings
 import app.codeg.android.core.datastore.AppSettingsStore
 import app.codeg.android.core.datastore.CommonDirsStore
+import app.codeg.android.core.datastore.defaultFileSortDesc
 import app.codeg.android.core.datastore.FILE_SORT_MODE_NAME
 import app.codeg.android.core.datastore.FILE_SORT_MODE_SIZE
-import app.codeg.android.core.datastore.FILE_SORT_MODE_TIME
 import app.codeg.android.core.datastore.FILE_SORT_MODE_TYPE
 import app.codeg.android.core.datastore.LastBrowseStore
 import app.codeg.android.core.datastore.ServerCommonDir
@@ -204,6 +204,10 @@ class FilesTreeViewModel @Inject constructor(
     fun setSortMode(mode: String) {
         if (mode == sortMode.value) return
         sortMode.value = mode
+        // R2: the store re-defaults the direction per mode (setFileSortMode
+        // removes the persisted flag) — mirror that here, or the tree's
+        // checkmark and order diverge from the flat Files tab until restart.
+        sortDesc.value = defaultFileSortDesc(mode)
         rebuild()
         viewModelScope.launch { appSettingsStore.setFileSortMode(mode) }
     }
@@ -732,7 +736,7 @@ fun FilesTreeView(
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.files_sort_name)) },
                             trailingIcon = if (state.sortMode == FILE_SORT_MODE_NAME) {
-                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
                             } else null,
                             onClick = {
                                 menuOpen = false
@@ -742,28 +746,21 @@ fun FilesTreeView(
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.files_sort_size)) },
                             trailingIcon = if (state.sortMode == FILE_SORT_MODE_SIZE) {
-                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
                             } else null,
                             onClick = {
                                 menuOpen = false
                                 viewModel.setSortMode(FILE_SORT_MODE_SIZE)
                             },
                         )
-                        // 批v194: time/type keys + the direction toggle join the radio.
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.files_sort_time)) },
-                            trailingIcon = if (state.sortMode == FILE_SORT_MODE_TIME) {
-                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
-                            } else null,
-                            onClick = {
-                                menuOpen = false
-                                viewModel.setSortMode(FILE_SORT_MODE_TIME)
-                            },
-                        )
+                        // 批v194: type key + direction toggle join the radio. TIME is
+                        // deliberately NOT offered here (R2-A): the tree has no mtime
+                        // probe, so "sort by time" would be a silent no-op — it stays
+                        // a flat-browser (FolderFilesView) mode only.
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.files_sort_type)) },
                             trailingIcon = if (state.sortMode == FILE_SORT_MODE_TYPE) {
-                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
                             } else null,
                             onClick = {
                                 menuOpen = false
@@ -773,7 +770,7 @@ fun FilesTreeView(
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.files_sort_desc)) },
                             trailingIcon = if (state.sortDesc) {
-                                { Icon(Icons.Rounded.Check, null, tint = colors.accent) }
+                                { Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
                             } else null,
                             onClick = {
                                 menuOpen = false
