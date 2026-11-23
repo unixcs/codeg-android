@@ -18,10 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.LocalSelectionRegistrar
-import androidx.compose.foundation.text.selection.Selection
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.text.selection.SelectionRegistrar
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
@@ -45,10 +43,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalTextToolbar
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalTextToolbarimport androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,7 +66,6 @@ import app.codeg.android.core.designsystem.markdown.parseMarkdownBlocks
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.feature.sessiondetail.DocPreviewKind
 import app.codeg.android.feature.sessiondetail.DocPreviewState
-import kotlin.math.roundToInt
 
 /** Persisted share formats (AppSettingsStore.docShareMode). */
 internal const val DOC_SHARE_MODE_TEXT = "text"
@@ -121,8 +118,7 @@ fun DocPreviewDialog(
     var shareMenuOpen by remember { mutableStateOf(false) }
     val toolbarState = remember { DocSelectionToolbarState() }
     val toolbar = remember { DocTextToolbar(toolbarState) }
-    val registrar = LocalSelectionRegistrar.current
-    var selection by remember { mutableStateOf<Selection?>(null) }
+    val clipboard = LocalClipboardManager.current
     val scrollState = rememberScrollState()
     // A menu pinned to a stale rect is worse than no menu — hide on scroll.
     LaunchedEffect(scrollState.isScrollInProgress) {
@@ -189,11 +185,7 @@ fun DocPreviewDialog(
         ) { padding ->
             Box(Modifier.padding(padding)) {
                 CompositionLocalProvider(LocalTextToolbar provides toolbar) {
-                    SelectionContainer(
-                        modifier = Modifier.fillMaxSize(),
-                        selection = selection,
-                        onSelectionChange = { selection = it },
-                    ) {
+                    SelectionContainer(Modifier.fillMaxSize()) {
                         when (state.kind) {
                             DocPreviewKind.MARKDOWN -> OutlineAwareMarkdownBody(
                                 content = state.content,
@@ -227,10 +219,16 @@ fun DocPreviewDialog(
                 DocSelectionToolbarHost(
                     state = toolbarState,
                     onShareSelection = {
+                        // 拍板 2B: the selection types are Kotlin-internal in
+                        // foundation 1.7, so the public door is the toolbar's
+                        // copy callback — invoke it, read the clipboard back,
+                        // and degrade to the whole doc when it didn't change.
+                        val copy = toolbarState.menu?.onCopy
                         scope.launch {
-                            // 拍板 2B auto-degrade: anything unreadable shares
-                            // the whole document instead.
-                            val picked = extractSelectionText(registrar, selection)
+                            val before = clipboard.getText()?.text
+                            copy?.invoke()
+                            val after = clipboard.getText()?.text
+                            val picked = after?.takeIf { it.isNotBlank() && after != before }
                             shareDocument(context, state.title, picked ?: state.content, asFile = false)
                         }
                     },
@@ -242,7 +240,7 @@ fun DocPreviewDialog(
                     val density = LocalDensity.current
                     Popup(
                         alignment = Alignment.TopEnd,
-                        offset = IntOffset(0, with(density) { 56.dp.roundToPx().roundToInt() }),
+                        offset = IntOffset(0, with(density) { 56.dp.roundToPx() }),
                         onDismissRequest = { shareMenuOpen = false },
                         properties = PopupProperties(focusable = true),
                     ) {
@@ -284,6 +282,7 @@ fun DocPreviewDialog(
  * choice via [onModePicked]. First use falls back to a smart default: a long
  * doc reads as a document → file, a short note → inline text.
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ShareIconButton(
     fileName: String,
@@ -336,6 +335,42 @@ private fun ShareModeRow(label: String, onClick: () -> Unit) {
     )
 }
 
+/**
+ * HTML in the same locked-down WebView FolderFilesView uses (defaults copied, see
+ * class kdoc), with one deliberate addition: http(s) navigations open in the
+ * browser instead of being swallowed — a report that links out still works.
+ */
+@Composable
+private fun DocHtmlPreview(html: String) {
+    val context = LocalContext.current
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { ctx ->
+            android.webkit.WebView(ctx).apply {
+                settings.javaScriptEnabled = false
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.blockNetworkLoads = true
+                settings.mediaPlaybackRequiresUserGesture = true
+                webViewClient = object : android.webkit.WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: android.webkit.WebView,
+                        request: android.webkit.WebResourceRequest,
+                    ): Boolean {
+                        val url = request.url.toString()
+                        if (url.startsWith("http://") || url.startsWith("https://")) {
+                            runCatching { openUrlExternally(context, url) }
+                        }
+                        return true
+                    }
+                }
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    )
+}
+
 private const val SHARE_TEXT_LIMIT = 100_000
 
 /**
@@ -348,7 +383,7 @@ private const val SHARE_TEXT_LIMIT = 100_000
  * be `${applicationId}.fileprovider` — the fork's per-variant applicationId
  * suffixes make a literal authority collide on dual installs.
  */
-internal suspend fun shareDocument(context: Context, fileName: String, content: String, asFile: Boolean) {
+internal suspend fun shareDocument(context: Context, fileName: String, content: String, asFile: Boolean = false) {
     val send: Intent = if (!asFile && content.length <= SHARE_TEXT_LIMIT) {
         Intent(Intent.ACTION_SEND)
             .setType("text/plain")

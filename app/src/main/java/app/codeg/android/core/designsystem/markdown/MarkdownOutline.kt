@@ -174,7 +174,7 @@ fun OutlineAwareMarkdownBody(
     if (outlineOpen && entries.isNotEmpty()) {
         Popup(
             alignment = Alignment.TopEnd,
-            offset = IntOffset(0, with(density) { headerOffset.roundToPx().roundToInt() }),
+            offset = IntOffset(0, with(density) { headerOffset.roundToPx() }),
             onDismissRequest = onDismissOutline,
             properties = PopupProperties(focusable = true),
         ) {

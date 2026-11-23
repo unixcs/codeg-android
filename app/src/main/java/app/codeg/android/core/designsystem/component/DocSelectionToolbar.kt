@@ -9,9 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.Selectable
-import androidx.compose.foundation.text.selection.Selection
-import androidx.compose.foundation.text.selection.SelectionRegistrar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.res.stringResource
@@ -43,7 +39,16 @@ import kotlin.math.roundToInt
  * supplies its own [TextToolbar] that mirrors showMenu/hide into a state
  * object, and a host composable renders the real menu. 复制/全选 stay
  * platform-delegated (the captured callbacks still do the work); 分享所选 /
- * 分享全文 are ours. Menu rect arrives in WINDOW coordinates (boundsInWindow).
+ * 分享全文 are ours.
+ *
+ * The selected text itself is NOT read from the selection model — every type
+ * involved ([androidx.compose.foundation.text.selection.Selection],
+ * SelectionRegistrar, Selectable) is Kotlin-internal in foundation 1.7, so the
+ * only public door is the toolbar callback: 分享所选 invokes the platform
+ * onCopy (which writes the selection to the clipboard) and the caller reads it
+ * back from [androidx.compose.ui.platform.LocalClipboardManager], falling back
+ * to the whole document when the clipboard didn't change (拍板 2B auto-degrade).
+ * Menu rect arrives in WINDOW coordinates (boundsInWindow).
  */
 class DocSelectionToolbarState {
     internal var menu by mutableStateOf<DocMenu?>(null)
@@ -61,8 +66,8 @@ internal data class DocMenu(
 )
 
 internal class DocTextToolbar(private val state: DocSelectionToolbarState) : TextToolbar {
-    override fun getStatus(): TextToolbarStatus =
-        if (state.menu != null) TextToolbarStatus.Shown else TextToolbarStatus.Hidden
+    override val status: TextToolbarStatus
+        get() = if (state.menu != null) TextToolbarStatus.Shown else TextToolbarStatus.Hidden
 
     override fun showMenu(
         rect: Rect,
@@ -154,55 +159,4 @@ private fun SelectionToolbarRow(label: String, onClick: () -> Unit) {
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 10.dp),
     )
-}
-
-/**
- * The selected text of a [Selection], reading the id→selectable registry
- * inside SelectionRegistrarImpl (internal — fetched reflectively, degraded to
- * null on any mismatch; the field is a LongObjectMap, not a java.util.Map, so
- * the list accessor is the only viable door). Everything after the fetch is
- * PUBLIC API: block order comes from each selectable's layout coordinates, so
- * cross-block selections concatenate in reading order. null = "unreadable" —
- * the caller shares the whole document instead (the 拍板 2B auto-degrade).
- */
-fun extractSelectionText(registrar: SelectionRegistrar?, selection: Selection?): String? {
-    if (registrar == null || selection == null) return null
-    return runCatching {
-        val raw: List<*> = registrar.javaClass.methods
-            .firstOrNull { it.name == "getSelectables\$foundation_release" && it.parameterTypes.isEmpty() }
-            ?.invoke(registrar) as? List<*>
-            ?: return@runCatching null
-        val entries = raw.filterIsInstance<Selectable>()
-            .map { s ->
-                Triple(
-                    s.selectableId,
-                    s.getText().text,
-                    s.layoutCoordinates?.positionInRoot()?.y ?: Float.MAX_VALUE,
-                )
-            }
-        if (entries.isEmpty()) return@runCatching null
-        val start = selection.start
-        val end = selection.end
-        val posA = entries.indexOfFirst { it.first == start.selectableId }
-        val posB = entries.indexOfFirst { it.first == end.selectableId }
-        if (posA < 0 || posB < 0) return@runCatching null
-        // Reading order: the anchor in the higher-on-screen block leads.
-        val (leadPos, lead) = if (posA <= posB) posA to start else posB to end
-        val (tailPos, tail) = if (posA <= posB) posB to end else posA to start
-        val leadText = entries[leadPos].second
-        val tailText = entries[tailPos].second
-        val joined = if (leadPos == tailPos) {
-            val o1 = minOf(lead.offset, tail.offset)
-            val o2 = maxOf(lead.offset, tail.offset)
-            if (o1 > leadText.length || o2 > leadText.length) return@runCatching null
-            leadText.substring(o1, o2)
-        } else {
-            buildList {
-                add(leadText.substring(minOf(lead.offset, leadText.length)))
-                for (i in leadPos + 1 until tailPos) add(entries[i].second)
-                add(tailText.substring(0, minOf(tail.offset, tailText.length)))
-            }.joinToString("\n")
-        }
-        joined.trim().takeIf { it.isNotEmpty() }
-    }.getOrNull()
 }
