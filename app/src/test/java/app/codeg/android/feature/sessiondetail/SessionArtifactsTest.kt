@@ -6,7 +6,6 @@ import app.codeg.android.core.model.TurnRole
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -118,6 +117,37 @@ class SessionArtifactsTest {
             turn(listOf(result("2"))),
         )
         assertTrue(SessionArtifacts.derive(turns, workingDir = null).isEmpty())
+    }
+
+    @Test
+    fun `multiedit changes array yields one artifact per entry`() {
+        val turns = listOf(
+            turn(
+                listOf(
+                    use(
+                        "1",
+                        "multiedit",
+                        """{"changes":[{"file_path":"/w/a.kt","old":"x","new":"y"},{"file_path":"/w/b.md","old":"p","new":"q"},{"note":"no path"}]}""",
+                    ),
+                ),
+            ),
+            turn(listOf(result("1"))),
+        )
+        val arts = SessionArtifacts.derive(turns, workingDir = null)
+        assertEquals(listOf("/w/a.kt", "/w/b.md"), arts.map { it.path })
+        assertEquals("Edit", arts[0].toolLabel)
+        assertEquals(ArtifactOp.MODIFIED, arts[0].op)
+        assertTrue(arts[1].isDocLike)
+    }
+
+    @Test
+    fun `edits array without per-entry paths falls back to top-level path`() {
+        val turns = listOf(
+            turn(listOf(use("1", "edit", """{"file_path":"/w/a.kt","edits":[{"old":"x","new":"y"}]}"""))),
+            turn(listOf(result("1"))),
+        )
+        val arts = SessionArtifacts.derive(turns, workingDir = null)
+        assertEquals(listOf("/w/a.kt"), arts.map { it.path })
     }
 
     @Test

@@ -128,6 +128,14 @@ fun AgentOptionsRows(
         } else {
             state.snapshot = fresh
             val modes = fresh.modes?.availableModes.orEmpty()
+            // R1-B: a caller seed (edit sheet's task.configModeId) may be stale —
+            // the task may have been created under a different agent or the mode
+            // renamed. A seed the probed agent doesn't offer would show an empty
+            // row and submit an unsupported mode_id; drop it so the server's
+            // current mode gets adopted below.
+            if (state.modeId != null && modes.isNotEmpty() && modes.none { it.id == state.modeId }) {
+                state.modeId = null
+            }
             // 批v194: adopt the server's current mode only when nothing is set —
             // a caller seed (edit sheet) or a user pick must survive probes; the
             // old unconditional overwrite silently reset a pick on every re-probe.

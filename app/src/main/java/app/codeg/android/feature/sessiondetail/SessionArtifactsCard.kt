@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -110,7 +113,14 @@ fun SessionArtifactsCard(
                 )
             }
             AnimatedVisibility(visible = expanded) {
-                Column {
+                // R1-B: the bottomBar Column is not scrollable — an uncapped 12-row
+                // body (~530dp) can push the composer off-screen with the strip +
+                // IME open. Cap the body at ~5 rows and scroll the rest.
+                Column(
+                    Modifier
+                        .heightIn(max = 220.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
                     shown.take(12).forEachIndexed { idx, artifact ->
                         if (idx > 0) HorizontalDivider(color = colors.hairline)
                         Row(

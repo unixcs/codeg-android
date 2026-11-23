@@ -4147,7 +4147,12 @@ private fun EditTaskSheet(
                             agentTypeWire = agent,
                             // 批v194: the sheet's mode pick wins; an untouched sheet
                             // (pick still null) passes the task's current mode through.
-                            modeId = optionsState.modeId ?: task.configModeId,
+                            // R1-B: a pick validated against the probed agent's modes
+                            // (the probe drops a stale seed); the raw task fallback
+                            // stays as-is — the server owns final validation there.
+                            modeId = optionsState.modeId
+                                ?.takeIf { id -> optionsState.snapshot?.modes?.availableModes.orEmpty().any { it.id == id } }
+                                ?: task.configModeId,
                             baseBranch = task.configBaseBranch,
                             // 批v166: picks win over the pinned config per key; an
                             // untouched sheet re-sends the base values unchanged.

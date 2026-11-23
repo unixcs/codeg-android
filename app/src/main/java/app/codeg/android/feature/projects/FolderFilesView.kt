@@ -249,10 +249,18 @@ fun FolderFilesView(
     // files (big/binary/outside-root failures) simply sink to the oldest end.
     val probeCache = remember { java.util.concurrent.ConcurrentHashMap<String, Long>() }
     var mtimeMap by remember(dir) { mutableStateOf<Map<String, Long>>(emptyMap()) }
-    LaunchedEffect(r) {
+    // R1-B: probe only feeds TIME sort — skip the RPCs entirely in other modes.
+    // Manual refresh (refreshTick) clears the cache so a same-size in-place edit
+    // gets re-probed instead of showing a stale mtime forever.
+    LaunchedEffect(r, refreshTick) {
         val list = r?.getOrNull() ?: return@LaunchedEffect
+        if (fileSortMode != FILE_SORT_MODE_TIME) return@LaunchedEffect
+        if (refreshTick > 0) probeCache.clear()
         val probeable = list.filter {
-            !it.isDir && (it.size ?: 0L) <= PROBE_MAX_BYTES && it.name.substringAfterLast('.', "").lowercase() !in BINARY_EXTS
+            // Unknown size must NOT be treated as tiny (R1-B): readFileForEdit
+            // downloads the whole file just for its mtime.
+            !it.isDir && it.size != null && it.size <= PROBE_MAX_BYTES &&
+                it.name.substringAfterLast('.', "").lowercase() !in BINARY_EXTS
         }
         if (probeable.size > PROBE_MAX_FILES) {
             mtimeMap = emptyMap()
@@ -294,8 +302,14 @@ fun FolderFilesView(
             InlineError(Icons.AutoMirrored.Rounded.InsertDriveFile, stringResource(R.string.files_load_failed), r.exceptionOrNull()?.message ?: stringResource(R.string.files_error), onRetry = refresh)
         }
         else -> {
-            val items = sortItems(r.getOrDefault(emptyList()), fileSortMode, fileSortDesc)
-                .filter { filter.isBlank() || it.name.contains(filter, ignoreCase = true) }
+            // R1-B P1: the raw listing's mtimeMs is null (server carries none) —
+            // TIME sort must consume the PROBED times, or every file ties on the
+            // sentinel and "sort by time" silently degrades to server order.
+            val items = sortItems(
+                r.getOrDefault(emptyList()).map { it.copy(mtimeMs = mtimeMap[it.path] ?: it.mtimeMs) },
+                fileSortMode,
+                fileSortDesc,
+            ).filter { filter.isBlank() || it.name.contains(filter, ignoreCase = true) }
             val dirName = dir.substringAfterLast('/')
             // Parent of the current dir ("/" has none) — lets the stack climb ABOVE
             // the workspace root toward /mnt, mirroring DirectoryBrowserSheet's "..".

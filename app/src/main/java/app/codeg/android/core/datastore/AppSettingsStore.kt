@@ -701,6 +701,10 @@ class AppSettingsStore @Inject constructor(
             } else {
                 AppSettings.DEFAULT_FILE_SORT_MODE
             }
+            // R1-B: direction re-defaults per mode (time → desc). Keeping a stale
+            // persisted direction would leave TIME on ascending (oldest first),
+            // defeating the mode's purpose.
+            it.remove(FILE_SORT_DESC)
         }
     }
 

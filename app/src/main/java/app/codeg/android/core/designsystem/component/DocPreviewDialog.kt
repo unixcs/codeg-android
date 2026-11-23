@@ -174,8 +174,8 @@ fun DocPreviewDialog(state: DocPreviewState, onDismiss: () -> Unit) {
 }
 
 /**
- * The Markdown body: one block per [SingleBlockView] (the exact render
- * [MarkdownContent] loops) with a position anchor on every heading, plus the
+ * The Markdown body: one block per [SingleBlockView] (the exact body
+ * renderer) with a position anchor on every heading, plus the
  * outline popup. Anchors are root-relative and converted with the scroll
  * container's own root position, so nested padding can't skew the jump.
  */
@@ -193,6 +193,10 @@ private fun MarkdownPreviewBody(
     val containerY = remember { mutableStateOf<Float?>(null) }
     val viewportPx = remember { mutableStateOf(0) }
     val anchorY = remember { mutableStateMapOf<Int, Float>() }
+    // R1-B: a focusable Popup does not consume the system back key — back would
+    // fall through to the dialog's onDismissRequest and kill the whole preview
+    // (and the reading position) just for closing the TOC. Intercept it first.
+    androidx.activity.compose.BackHandler(enabled = outlineOpen) { onDismissOutline() }
 
     Column(
         Modifier

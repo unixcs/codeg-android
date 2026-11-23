@@ -114,9 +114,21 @@ object SessionArtifacts {
         val isWrite = n in writeNames
         val isEdit = n in editNames
         if (!isWrite && !isEdit) return null
+        val op = if (isWrite) ArtifactOp.ADDED else ArtifactOp.MODIFIED
+        // Multi-file edit tools (multiedit-style) carry one path PER entry in a
+        // changes[]/edits[] array (mirror ToolDerive.editFileCount). Entries
+        // without a path fall through to the top-level key, never drop the call.
+        for (arrKey in listOf("changes", "edits")) {
+            val arr = args?.get(arrKey) as? kotlinx.serialization.json.JsonArray ?: continue
+            val writes = arr.mapNotNull { el ->
+                val obj = el as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+                PATH_KEYS.split(',').firstNotNullOfOrNull { k -> obj.string(k)?.trim()?.takeUnless { it.isEmpty() } }
+                    ?.let { resolve(it, workingDir) to op }
+            }.distinctBy { it.first }
+            if (writes.isNotEmpty()) return Call(writes, labelOf(n))
+        }
         for (key in PATH_KEYS.split(',')) {
             val raw = args.string(key)?.trim().takeUnless { it.isNullOrEmpty() } ?: continue
-            val op = if (isWrite) ArtifactOp.ADDED else ArtifactOp.MODIFIED
             return Call(listOf(resolve(raw, workingDir) to op), labelOf(n))
         }
         return null
