@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.UnfoldMore
@@ -38,6 +40,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -53,8 +57,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -64,6 +71,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.AgentAvatar
 import app.codeg.android.core.designsystem.component.AgentVisuals
+import app.codeg.android.core.designsystem.component.CodegFilterChip
+import app.codeg.android.core.designsystem.component.CodegSegmented
 import app.codeg.android.core.designsystem.component.OptionListSheet
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.CodegTextField
@@ -79,6 +88,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class SheetPage { Main, Branch }
+
+/** A flattened config-option value rendered as a compact chip or segment. */
+private data class ConfigOptionChoice(
+    val value: String,
+    val label: String,
+    val description: String?,
+    val selected: Boolean,
+)
+
+/** Keep the active value first when wrapped chips need a second row. */
+internal fun orderChoicesFirstSelected(choices: List<ConfigOptionChoice>): List<ConfigOptionChoice> =
+    choices.filter { it.selected } + choices.filterNot { it.selected }
 
 /** The `applying` key for the mode selector (config options key by their own id). Keying by
  *  the logical selector — not the specific value — lets us lock every row of that selector
@@ -133,6 +154,44 @@ fun AgentOptionsSheet(
     val applySeqByKey = remember { mutableMapOf<String, Long>() }
     val applyFailedNote = stringResource(R.string.agentopts_apply_failed)
     val applyBusyNote = stringResource(R.string.agentopts_apply_busy)
+    fun applyConfig(option: SessionConfigOption, valueId: String) {
+        val key = option.id
+        val previous = currentValues[key]
+        currentValues = currentValues + (key to valueId)
+        applying = applying + key
+        noteText = null
+        noteKey = null
+        val epoch = applyEpoch
+        val seq = ++applySeq
+        applySeqByKey[key] = seq
+        scope.launch {
+            val outcome = viewModel.applyConfig(key, valueId)
+            if (epoch != applyEpoch) return@launch
+            val latest = applySeqByKey[key] == seq
+            if (latest) applying = applying - key
+            when (outcome) {
+                is OptionApplyOutcome.Applied -> if (latest) {
+                    currentValues = currentValues + (key to outcome.value)
+                    if (noteKey == key) {
+                        noteText = null
+                        noteKey = null
+                    }
+                }
+                OptionApplyOutcome.Busy -> if (latest) {
+                    currentValues = if (previous != null) currentValues + (key to previous) else currentValues - key
+                    noteText = applyBusyNote
+                    noteKey = key
+                    noteStamp += 1
+                }
+                OptionApplyOutcome.Failed -> if (latest) {
+                    currentValues = if (previous != null) currentValues + (key to previous) else currentValues - key
+                    noteText = applyFailedNote
+                    noteKey = key
+                    noteStamp += 1
+                }
+            }
+        }
+    }
     // Every notice self-clears: a failure two taps ago must not linger over a pick that
     // has since applied (the reported "switched fine but still warned" symptom).
     LaunchedEffect(noteStamp) {
@@ -201,6 +260,7 @@ fun AgentOptionsSheet(
             SheetPage.Main -> {
                 val hasConfig = data.configOptions.isNotEmpty()
                 val showModes = data.modes?.availableModes?.isNotEmpty() == true && !hasConfig
+                var modelQuery by rememberSaveable { mutableStateOf("") }
                 // The notice is pinned to the bottom of the sheet, OUTSIDE the scroll
                 // container: with a long selector list it used to sit above the fold, so
                 // a failed pick on a row further down produced a warning the user never
@@ -238,6 +298,31 @@ fun AgentOptionsSheet(
 
                         if (ui.isInFlight) {
                             Text(stringResource(R.string.agentopts_busy), fontSize = 12.sp, color = colors.textTertiary)
+                        }
+
+                        val modelOption = data.configOptions.firstOrNull {
+                            it.id == "model" || it.category == "model" || it.name.equals("Model", ignoreCase = true)
+                        }
+                        if (!loading && modelOption != null) {
+                            val query = modelQuery.trim()
+                            val choices = orderChoicesFirstSelected(modelOption.toChoices(currentValues[modelOption.id]))
+                            val visibleChoices = choices.filter { choice ->
+                                query.isEmpty() || choice.label.contains(query, ignoreCase = true) ||
+                                    choice.value.contains(query, ignoreCase = true)
+                            }
+                            CompactOptionSection(
+                                title = stringResource(R.string.agentopts_model),
+                                choices = visibleChoices,
+                                busy = modelOption.id in applying,
+                                locked = ui.isInFlight,
+                                query = modelQuery,
+                                onQueryChange = { modelQuery = it },
+                                onClearQuery = { modelQuery = "" },
+                                noMatchText = stringResource(R.string.agentopts_no_matching_model, query),
+                                showSearch = true,
+                            ) { valueId ->
+                                applyConfig(modelOption, valueId)
+                            }
                         }
 
                         when {
@@ -302,44 +387,9 @@ fun AgentOptionsSheet(
                                 }
                             }
                             hasConfig -> data.configOptions.forEach { option ->
+                                if (option == modelOption) return@forEach
                                 ConfigOptionSection(option, currentValues[option.id], optionApplying = option.id in applying, locked = ui.isInFlight) { valueId ->
-                                    // Optimistic: move the checkmark now, revert only if the apply fails.
-                                    val key = option.id
-                                    val previous = currentValues[option.id]
-                                    currentValues = currentValues + (key to valueId)
-                                    applying = applying + key
-                                    noteText = null
-                                    noteKey = null
-                                    val epoch = applyEpoch
-                                    val seq = ++applySeq
-                                    applySeqByKey[key] = seq
-                                    scope.launch {
-                                        val outcome = viewModel.applyConfig(key, valueId)
-                                        if (epoch != applyEpoch) return@launch
-                                        val latest = applySeqByKey[key] == seq
-                                        if (latest) applying = applying - key
-                                        when (outcome) {
-                                            is OptionApplyOutcome.Applied -> if (latest) {
-                                                currentValues = currentValues + (key to outcome.value)
-                                                if (noteKey == key) {
-                                                    noteText = null
-                                                    noteKey = null
-                                                }
-                                            }
-                                            OptionApplyOutcome.Busy -> if (latest) {
-                                                currentValues = if (previous != null) currentValues + (key to previous) else currentValues - key
-                                                noteText = applyBusyNote
-                                                noteKey = key
-                                                noteStamp += 1
-                                            }
-                                            OptionApplyOutcome.Failed -> if (latest) {
-                                                currentValues = if (previous != null) currentValues + (key to previous) else currentValues - key
-                                                noteText = applyFailedNote
-                                                noteKey = key
-                                                noteStamp += 1
-                                            }
-                                        }
-                                    }
+                                    applyConfig(option, valueId)
                                 }
                             }
                             else -> Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
@@ -707,6 +757,95 @@ private fun BranchSectionLabel(text: String) {
 // endregion
 
 // region Mode / config selectors (shared)
+
+private fun SessionConfigOption.toChoices(currentValue: String?): List<ConfigOptionChoice> {
+    val options = if (kind.groups.isNotEmpty()) kind.groups.flatMap { it.options } else kind.options
+    return options.map { option ->
+        ConfigOptionChoice(
+            value = option.value,
+            label = option.name.ifEmpty { option.value },
+            description = option.description,
+            selected = option.value == currentValue,
+        )
+    }
+}
+
+@Composable
+private fun CompactOptionSection(
+    title: String,
+    choices: List<ConfigOptionChoice>,
+    busy: Boolean,
+    locked: Boolean,
+    query: String = "",
+    onQueryChange: (String) -> Unit = {},
+    onClearQuery: () -> Unit = {},
+    noMatchText: String? = null,
+    showSearch: Boolean = false,
+    onSelect: (String) -> Unit,
+) {
+    val colors = CodegTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textTertiary)
+        if (showSearch) {
+            TextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text(stringResource(R.string.agentopts_search_model), color = colors.textTertiary) },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textSecondary) },
+                trailingIcon = if (query.isNotEmpty()) {
+                    {
+                        IconButton(onClick = onClearQuery) {
+                            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.search_clear), tint = colors.textSecondary)
+                        }
+                    }
+                } else {
+                    null
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                singleLine = true,
+                shape = RoundedCornerShape(24.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = colors.codeSurface,
+                    unfocusedContainerColor = colors.codeSurface,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = colors.accent,
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (choices.isEmpty()) {
+            if (!noMatchText.isNullOrEmpty()) Text(noMatchText, fontSize = 12.sp, color = colors.textSecondary)
+            return@Column
+        }
+        if (choices.size <= 3) {
+            CodegSegmented(
+                options = choices.map { it.label },
+                selectedIndex = choices.indexOfFirst { it.selected },
+                onSelect = { index -> choices.getOrNull(index)?.let { choice -> if (!busy && !locked) onSelect(choice.value) } },
+            )
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                choices.forEach { choice ->
+                    val enabled = !busy && !locked
+                    CodegFilterChip(
+                        label = choice.label,
+                        selected = choice.selected,
+                        enabled = enabled,
+                        onClick = { onSelect(choice.value) },
+                        icon = if (choice.selected) Icons.Rounded.Check else null,
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 private fun ConfigOptionSection(option: SessionConfigOption, currentValue: String?, optionApplying: Boolean, locked: Boolean, onSelect: (String) -> Unit) {

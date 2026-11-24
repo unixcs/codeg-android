@@ -842,6 +842,9 @@
     <string name="agentopts_folder_readonly">Folder is fixed for this session</string>
     <string name="agentopts_branch">Branch</string>
     <string name="agentopts_select_branch">Select a branch</string>
+    <string name="agentopts_search_model">Search models…</string>
+    <string name="agentopts_no_matching_model">No models match “%1$s”</string>
+    <string name="agentopts_model">MODEL</string>
 
     <!-- ===== Session Detail · Composer ===== -->
     <string name="compose_insert">Insert</string>
