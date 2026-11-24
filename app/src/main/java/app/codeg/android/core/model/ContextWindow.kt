@@ -20,6 +20,7 @@ fun resolveContextWindowUsage(stats: SessionStats?, model: String?): ContextWind
     val used = stats?.contextWindowUsedTokens?.takeIf { it >= 0 }
     val max: Int? = (stats?.contextWindowMaxTokens ?: inferContextWindowMaxTokens(model))?.takeIf { it > 0 }
     val percent = stats?.contextWindowUsagePercent
+        ?.takeIf { it.isFinite() && it >= 0.0 }
         ?: used?.let { value -> max?.let { value.toDouble() / it * 100.0 } }?.coerceIn(0.0, 100.0)
     return ContextWindowUsage(usedTokens = used, maxTokens = max, percent = percent)
 }
