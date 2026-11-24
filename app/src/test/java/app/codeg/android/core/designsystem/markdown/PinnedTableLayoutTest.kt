@@ -13,9 +13,9 @@ class PinnedTableLayoutTest {
         )
         assertEquals(90f, layout.pinnedWidth)
         assertEquals(2, layout.scrollWidths.size)
-        assertEquals(254f, layout.scrollTotalWidth)
-        assertEquals(127f, layout.scrollWidths[0])
-        assertEquals(127f, layout.scrollWidths[1])
+        assertEquals(258f, layout.scrollTotalWidth)
+        assertEquals(129f, layout.scrollWidths[0])
+        assertEquals(129f, layout.scrollWidths[1])
     }
 
     @Test

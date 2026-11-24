@@ -17,7 +17,7 @@ class ContextWindowUsageTest {
             model = "DeepSeek-V4.1-Flash",
         )
         assertEquals(20_000, usage.usedTokens)
-        assertEquals(100_000, usage.maxTokens)
+        assertEquals(100_000, usage.maxTokens as Int?)
         assertEquals(19.0, usage.percent!!, 0.001)
     }
 
@@ -62,7 +62,7 @@ class ContextWindowUsageTest {
     fun `no stats resolves nothing`() {
         val usage = resolveContextWindowUsage(stats = null, model = "DeepSeek-V4.1-Flash")
         assertNull(usage.usedTokens)
-        assertEquals(128_000, usage.maxTokens)
+        assertEquals(128_000, usage.maxTokens as Int?)
         assertNull(usage.percent)
     }
 }
