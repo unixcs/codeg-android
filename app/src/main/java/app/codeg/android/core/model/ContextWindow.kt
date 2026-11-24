@@ -17,8 +17,9 @@ data class ContextWindowUsage(
  * CodeBuddy session showed 29.2% in one place and "—" in another.
  */
 fun resolveContextWindowUsage(stats: SessionStats?, model: String?): ContextWindowUsage {
-    val used = stats?.contextWindowUsedTokens
-    val max = stats?.contextWindowMaxTokens ?: inferContextWindowMaxTokens(model)
+    val used = stats?.contextWindowUsedTokens?.takeIf { it >= 0 }
+    val max = (stats?.contextWindowMaxTokens ?: inferContextWindowMaxTokens(model))
+        ?.takeIf { it > 0 }
     val percent = stats?.contextWindowUsagePercent
         ?: used?.takeIf { max != null && max > 0 }?.toDouble()?.div(max)?.times(100.0)?.coerceIn(0.0, 100.0)
     return ContextWindowUsage(usedTokens = used, maxTokens = max, percent = percent)

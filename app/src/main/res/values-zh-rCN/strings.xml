@@ -836,6 +836,7 @@
     <string name="agentopts_select_branch">选择分支</string>
     <string name="agentopts_search_model">搜索模型…</string>
     <string name="agentopts_no_matching_model">没有匹配「%1$s」的模型</string>
+    <string name="agentopts_active_model">当前：%1$s</string>
     <string name="agentopts_model">模型</string>
 
     <!-- ===== Session Detail · Composer ===== -->

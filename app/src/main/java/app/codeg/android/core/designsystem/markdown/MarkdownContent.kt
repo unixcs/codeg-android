@@ -6,14 +6,18 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
@@ -22,11 +26,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,11 +51,8 @@ import androidx.compose.material.icons.rounded.CloseFullscreen
 import androidx.compose.material3.Surface
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.platform.LocalLayoutDirection
 import android.content.pm.ActivityInfo
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.sp
 import app.codeg.android.core.designsystem.component.CodeBlock
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.R
@@ -168,7 +169,7 @@ private fun ListRow(marker: String, content: String) {
 
 @Composable
 private fun MarkdownTable(table: MarkdownBlock.Table, modifier: Modifier = Modifier) {
-    var fullscreen by remember(table) { mutableStateOf(false) }
+    var fullscreen by rememberSaveable(table) { mutableStateOf(false) }
     BoxWithConstraints(modifier.fillMaxWidth()) {
         // The parent's constraint is the usable width (LazyColumn content padding is
         // already subtracted). Fall back to a phone-sized width if a future caller
@@ -185,7 +186,7 @@ private fun MarkdownTable(table: MarkdownBlock.Table, modifier: Modifier = Modif
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = CodegTheme.colors.codeSurface,
-                border = androidx.compose.foundation.BorderStroke(0.5.dp, CodegTheme.colors.hairline),
+                border = BorderStroke(0.5.dp, CodegTheme.colors.hairline),
             ) {
                 Column {
                     TableToolbar(table.rawMarkdown(), fullscreen = true) { fullscreen = true }
@@ -196,7 +197,7 @@ private fun MarkdownTable(table: MarkdownBlock.Table, modifier: Modifier = Modif
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = CodegTheme.colors.codeSurface,
-                border = androidx.compose.foundation.BorderStroke(0.5.dp, CodegTheme.colors.hairline),
+                border = BorderStroke(0.5.dp, CodegTheme.colors.hairline),
             ) {
                 TableGrid(table, layout.widths, total)
             }
@@ -236,10 +237,10 @@ private fun TableToolbar(
 }
 
 private fun MarkdownBlock.Table.rawMarkdown(): String {
-    val separator = header.joinToString(" | ", prefix = "| ", postfix = " |")
-    val aligns = header.joinToString(" | ", prefix = "| ", postfix = " |") { "---" }
+    val headerLine = header.joinToString(" | ", prefix = "| ", postfix = " |")
+    val separator = header.joinToString(" | ", prefix = "| ", postfix = " |") { "---" }
     val body = rows.joinToString("\n") { row -> row.joinToString(" | ", prefix = "| ", postfix = " |") }
-    return listOf(separator, aligns, body).filter { it.isNotBlank() }.joinToString("\n")
+    return listOf(headerLine, separator, body).filter { it.isNotBlank() }.joinToString("\n")
 }
 
 @Composable
@@ -266,9 +267,14 @@ private fun TableGrid(table: MarkdownBlock.Table, widths: List<Float>, total: Dp
 }
 
 @Composable
-private fun TableRow(cells: List<String>, widths: List<Float>, isHeader: Boolean) {
+private fun TableRow(
+    cells: List<String>,
+    widths: List<Float>,
+    isHeader: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val colors = CodegTheme.colors
-    Row {
+    Row(modifier) {
         cells.forEachIndexed { index, cell ->
             Text(
                 text = rememberInlineMarkdown(cell),
@@ -286,49 +292,57 @@ private fun TableRow(cells: List<String>, widths: List<Float>, isHeader: Boolean
 @Composable
 private fun PinnedTableGrid(table: MarkdownBlock.Table, layout: PinnedTableLayout) {
     val colors = CodegTheme.colors
-    Row(Modifier.fillMaxWidth()) {
-        Column(Modifier.width(layout.pinnedWidth.dp)) {
-            PinnedCell(table.header.firstOrNull().orEmpty(), isHeader = true)
-            Box(Modifier.fillMaxWidth().height(0.5.dp).background(colors.hairline))
-            table.rows.forEachIndexed { index, row ->
-                PinnedCell(row.firstOrNull().orEmpty())
-                if (index < table.rows.lastIndex) Box(Modifier.fillMaxWidth().height(0.5.dp).background(colors.hairline.copy(alpha = 0.5f)))
-            }
+    val horizontalScroll = rememberScrollState()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = 280.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            PinnedCell(table.header.firstOrNull().orEmpty(), isHeader = true, width = layout.pinnedWidth.dp)
+            VerticalDivider(thickness = 0.5.dp, color = colors.hairline)
+            TableRow(
+                table.header.drop(1),
+                layout.scrollWidths,
+                isHeader = true,
+                modifier = Modifier.weight(1f).horizontalScroll(horizontalScroll),
+            )
         }
-        VerticalDivider(thickness = 0.5.dp, color = colors.hairline)
-        Box(Modifier.weight(1f)) {
-            if (layout.scrollWidths.isNotEmpty()) {
-                Row(Modifier.horizontalScroll(rememberScrollState())) {
-                    Column(Modifier.width(layout.scrollTotalWidth.dp)) {
-                        TableRow(table.header.drop(1), layout.scrollWidths, isHeader = true)
-                        Box(Modifier.width(layout.scrollTotalWidth.dp).height(0.5.dp).background(colors.hairline))
-                        table.rows.forEachIndexed { index, row ->
-                            TableRow(row.drop(1), layout.scrollWidths, isHeader = false)
-                            if (index < table.rows.lastIndex) Box(Modifier.width(layout.scrollTotalWidth.dp).height(0.5.dp).background(colors.hairline.copy(alpha = 0.5f)))
-                        }
-                    }
-                }
+        Box(Modifier.fillMaxWidth().height(0.5.dp).background(colors.hairline))
+        table.rows.forEachIndexed { index, row ->
+            Row(Modifier.fillMaxWidth()) {
+                PinnedCell(row.firstOrNull().orEmpty(), width = layout.pinnedWidth.dp)
+                VerticalDivider(thickness = 0.5.dp, color = colors.hairline)
+                TableRow(
+                    row.drop(1),
+                    layout.scrollWidths,
+                    isHeader = false,
+                    modifier = Modifier.weight(1f).horizontalScroll(horizontalScroll),
+                )
+            }
+            if (index < table.rows.lastIndex) {
+                Box(Modifier.fillMaxWidth().height(0.5.dp).background(colors.hairline.copy(alpha = 0.5f)))
             }
         }
     }
 }
 
 @Composable
-private fun PinnedCell(text: String, isHeader: Boolean = false) {
+private fun PinnedCell(text: String, isHeader: Boolean = false, width: Dp) {
     val colors = CodegTheme.colors
     Text(
         text = rememberInlineMarkdown(text),
         fontSize = 12.sp,
         fontWeight = if (isHeader) FontWeight.SemiBold else FontWeight.Normal,
         color = if (isHeader) colors.textPrimary else colors.textSecondary,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier = Modifier.width(width).padding(horizontal = 8.dp, vertical = 6.dp),
     )
 }
 
 @Composable
 private fun TableFullscreen(table: MarkdownBlock.Table, onDismiss: () -> Unit) {
     val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
     val activity = LocalContext.current.findActivity()
     var orientationLocked by remember { mutableStateOf(false) }
     DisposableEffect(activity) {
@@ -338,13 +352,7 @@ private fun TableFullscreen(table: MarkdownBlock.Table, onDismiss: () -> Unit) {
             else activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
-    val available = with(density) {
-        if (configuration.screenWidthDp > configuration.screenHeightDp) {
-            (configuration.screenWidthDp - 24).toFloat()
-        } else {
-            (configuration.screenWidthDp - 24).toFloat()
-        }
-    }
+    val available = (configuration.screenWidthDp - 16).toFloat()
     val layout = remember(table, available) {
         tableColumnWidths(estimateNaturalWidths(table.header, table.rows), available, minColumn = 92f)
     }
@@ -383,7 +391,12 @@ private fun TableFullscreen(table: MarkdownBlock.Table, onDismiss: () -> Unit) {
                         Icon(Icons.Rounded.CloseFullscreen, contentDescription = stringResource(R.string.common_close), tint = CodegTheme.colors.textTertiary, modifier = Modifier.size(18.dp))
                     }
                 }
-                Row(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState())) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .horizontalScroll(rememberScrollState()),
+                ) {
                     TableGrid(table, layout.widths, layout.widths.sum().dp)
                 }
             }

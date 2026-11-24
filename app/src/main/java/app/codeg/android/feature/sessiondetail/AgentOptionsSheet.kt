@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.UnfoldMore
@@ -72,7 +74,6 @@ import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.AgentAvatar
 import app.codeg.android.core.designsystem.component.AgentVisuals
 import app.codeg.android.core.designsystem.component.CodegFilterChip
-import app.codeg.android.core.designsystem.component.CodegSegmented
 import app.codeg.android.core.designsystem.component.OptionListSheet
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.CodegTextField
@@ -97,9 +98,9 @@ private data class ConfigOptionChoice(
     val selected: Boolean,
 )
 
-/** Keep the active value first when wrapped chips need a second row. */
-internal fun orderChoicesFirstSelected(choices: List<ConfigOptionChoice>): List<ConfigOptionChoice> =
-    choices.filter { it.selected } + choices.filterNot { it.selected }
+/** Flatten server config groups into the values the compact selector can apply. */
+internal fun flattenChoiceValues(option: SessionConfigOption): List<SessionConfigSelectOption> =
+    if (option.kind.groups.isNotEmpty()) option.kind.groups.flatMap { it.options } else option.kind.options
 
 /** The `applying` key for the mode selector (config options key by their own id). Keying by
  *  the logical selector — not the specific value — lets us lock every row of that selector
@@ -302,14 +303,19 @@ fun AgentOptionsSheet(
 
                         val modelOption = data.configOptions.firstOrNull {
                             it.id == "model" || it.category == "model" || it.name.equals("Model", ignoreCase = true)
-                        }
+                        }?.takeIf { flattenChoiceValues(it).isNotEmpty() }
                         if (!loading && modelOption != null) {
                             val query = modelQuery.trim()
-                            val choices = orderChoicesFirstSelected(modelOption.toChoices(currentValues[modelOption.id]))
-                            val visibleChoices = choices.filter { choice ->
+                            val allChoices = modelOption.toChoices(currentValues[modelOption.id])
+                            val filteredChoices = allChoices.filter { choice ->
                                 query.isEmpty() || choice.label.contains(query, ignoreCase = true) ||
                                     choice.value.contains(query, ignoreCase = true)
                             }
+                            val visibleChoices = if (query.isEmpty()) {
+                                filteredChoices.filter { it.selected } + filteredChoices.filterNot { it.selected }
+                            } else {
+                                filteredChoices
+                            }.take(12)
                             CompactOptionSection(
                                 title = stringResource(R.string.agentopts_model),
                                 choices = visibleChoices,
@@ -319,6 +325,8 @@ fun AgentOptionsSheet(
                                 onQueryChange = { modelQuery = it },
                                 onClearQuery = { modelQuery = "" },
                                 noMatchText = stringResource(R.string.agentopts_no_matching_model, query),
+                                activeLabel = filteredChoices.none { it.selected } &&
+                                    allChoices.firstOrNull { it.selected }?.label,
                                 showSearch = true,
                             ) { valueId ->
                                 applyConfig(modelOption, valueId)
@@ -758,9 +766,8 @@ private fun BranchSectionLabel(text: String) {
 
 // region Mode / config selectors (shared)
 
-private fun SessionConfigOption.toChoices(currentValue: String?): List<ConfigOptionChoice> {
-    val options = if (kind.groups.isNotEmpty()) kind.groups.flatMap { it.options } else kind.options
-    return options.map { option ->
+internal fun SessionConfigOption.toChoices(currentValue: String?): List<ConfigOptionChoice> =
+    flattenChoiceValues(this).map { option ->
         ConfigOptionChoice(
             value = option.value,
             label = option.name.ifEmpty { option.value },
@@ -768,9 +775,9 @@ private fun SessionConfigOption.toChoices(currentValue: String?): List<ConfigOpt
             selected = option.value == currentValue,
         )
     }
-}
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun CompactOptionSection(
     title: String,
     choices: List<ConfigOptionChoice>,
@@ -780,6 +787,7 @@ private fun CompactOptionSection(
     onQueryChange: (String) -> Unit = {},
     onClearQuery: () -> Unit = {},
     noMatchText: String? = null,
+    activeLabel: String? = null,
     showSearch: Boolean = false,
     onSelect: (String) -> Unit,
 ) {
@@ -816,31 +824,26 @@ private fun CompactOptionSection(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        activeLabel?.let {
+            Text(stringResource(R.string.agentopts_active_model, it), fontSize = 12.sp, color = colors.textPrimary)
+        }
         if (choices.isEmpty()) {
             if (!noMatchText.isNullOrEmpty()) Text(noMatchText, fontSize = 12.sp, color = colors.textSecondary)
             return@Column
         }
-        if (choices.size <= 3) {
-            CodegSegmented(
-                options = choices.map { it.label },
-                selectedIndex = choices.indexOfFirst { it.selected },
-                onSelect = { index -> choices.getOrNull(index)?.let { choice -> if (!busy && !locked) onSelect(choice.value) } },
-            )
-        } else {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                choices.forEach { choice ->
-                    val enabled = !busy && !locked
-                    CodegFilterChip(
-                        label = choice.label,
-                        selected = choice.selected,
-                        enabled = enabled,
-                        onClick = { onSelect(choice.value) },
-                        icon = if (choice.selected) Icons.Rounded.Check else null,
-                    )
-                }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            choices.forEach { choice ->
+                val enabled = !busy && !locked
+                CodegFilterChip(
+                    label = choice.label,
+                    selected = choice.selected,
+                    enabled = enabled,
+                    onClick = { onSelect(choice.value) },
+                    icon = if (choice.selected) Icons.Rounded.Check else null,
+                )
             }
         }
     }

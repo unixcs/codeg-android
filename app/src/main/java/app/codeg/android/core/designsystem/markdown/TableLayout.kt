@@ -25,10 +25,13 @@ internal fun pinnedTableLayout(
     minColumn: Float = 88f,
 ): PinnedTableLayout {
     if (naturalWidths.isEmpty()) return PinnedTableLayout(0f, emptyList(), 0f)
-    val pinned = naturalWidths.first().coerceIn(72f, pinnedColumn)
+    val usableWidth = availableWidth.coerceAtLeast(48f)
+    val pinned = naturalWidths.first()
+        .coerceIn(56f, pinnedColumn)
+        .coerceAtMost((usableWidth * 0.35f).coerceAtLeast(48f))
     val scrollNaturals = naturalWidths.drop(1)
     if (scrollNaturals.isEmpty()) return PinnedTableLayout(pinned, emptyList(), 0f)
-    val scrollAvailable = (availableWidth - pinned - 12f).coerceAtLeast(minColumn)
+    val scrollAvailable = (usableWidth - pinned - 12f).coerceAtLeast(48f)
     val scroll = tableColumnWidths(scrollNaturals, scrollAvailable, minColumn)
     return PinnedTableLayout(
         pinnedWidth = pinned,

@@ -44,6 +44,21 @@ class ContextWindowUsageTest {
     }
 
     @Test
+    fun `negative server values do not fabricate occupancy`() {
+        val usage = resolveContextWindowUsage(
+            stats = SessionStats(
+                contextWindowUsedTokens = -1,
+                contextWindowMaxTokens = 100_000,
+                contextWindowUsagePercent = -10.0,
+            ),
+            model = "DeepSeek-V4.1-Flash",
+        )
+        assertNull(usage.usedTokens)
+        assertEquals(100_000, usage.maxTokens)
+        assertNull(usage.percent)
+    }
+
+    @Test
     fun `no stats resolves nothing`() {
         val usage = resolveContextWindowUsage(stats = null, model = "DeepSeek-V4.1-Flash")
         assertNull(usage.usedTokens)
