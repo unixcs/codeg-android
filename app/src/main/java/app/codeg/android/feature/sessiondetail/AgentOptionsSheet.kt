@@ -63,7 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -91,7 +91,7 @@ import kotlinx.coroutines.launch
 private enum class SheetPage { Main, Branch }
 
 /** A flattened config-option value rendered as a compact chip or segment. */
-private data class ConfigOptionChoice(
+internal data class ConfigOptionChoice(
     val value: String,
     val label: String,
     val description: String?,
@@ -325,8 +325,11 @@ fun AgentOptionsSheet(
                                 onQueryChange = { modelQuery = it },
                                 onClearQuery = { modelQuery = "" },
                                 noMatchText = stringResource(R.string.agentopts_no_matching_model, query),
-                                activeLabel = filteredChoices.none { it.selected } &&
-                                    allChoices.firstOrNull { it.selected }?.label,
+                                activeLabel = if (filteredChoices.none { it.selected }) {
+                                    allChoices.firstOrNull { it.selected }?.label
+                                } else {
+                                    null
+                                },
                                 showSearch = true,
                             ) { valueId ->
                                 applyConfig(modelOption, valueId)

@@ -18,10 +18,9 @@ data class ContextWindowUsage(
  */
 fun resolveContextWindowUsage(stats: SessionStats?, model: String?): ContextWindowUsage {
     val used = stats?.contextWindowUsedTokens?.takeIf { it >= 0 }
-    val max = (stats?.contextWindowMaxTokens ?: inferContextWindowMaxTokens(model))
-        ?.takeIf { it > 0 }
+    val max: Int? = (stats?.contextWindowMaxTokens ?: inferContextWindowMaxTokens(model))?.takeIf { it > 0 }
     val percent = stats?.contextWindowUsagePercent
-        ?: used?.takeIf { max != null && max > 0 }?.toDouble()?.div(max)?.times(100.0)?.coerceIn(0.0, 100.0)
+        ?: used?.let { value -> max?.let { value.toDouble() / it * 100.0 } }?.coerceIn(0.0, 100.0)
     return ContextWindowUsage(usedTokens = used, maxTokens = max, percent = percent)
 }
 

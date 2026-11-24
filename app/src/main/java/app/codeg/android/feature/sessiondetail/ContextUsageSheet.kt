@@ -37,6 +37,7 @@ fun ContextUsageSheet(ui: SessionDetailUiState, onDismiss: () -> Unit) {
         sheetState = sheetState,
         containerColor = colors.bgElevated,
     ) {
+        val stats = ui.sessionStats
         val usage = stats?.totalUsage
         val resolved = resolveContextWindowUsage(stats, ui.summary?.model)
         val used = resolved.usedTokens
