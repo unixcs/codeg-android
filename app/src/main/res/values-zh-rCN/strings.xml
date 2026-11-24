@@ -990,6 +990,9 @@
     <string name="code_show_less">收起</string>
     <string name="code_show_more_lines">再显示 %1$d 行</string>
     <string name="code_copy">复制</string>
+    <string name="markdown_table">表格</string>
+    <string name="markdown_table_expand">展开</string>
+    <string name="markdown_table_rotate">旋转</string>
     <string name="code_fullscreen">全屏</string>
     <string name="code_line_count">%1$d 行</string>
 

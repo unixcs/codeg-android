@@ -6,6 +6,37 @@ package app.codeg.android.core.designsystem.markdown
  */
 internal data class TableLayout(val widths: List<Float>, val overflow: Boolean)
 
+/** A layout that keeps one column pinned while the remaining columns scroll. */
+internal data class PinnedTableLayout(
+    val pinnedWidth: Float,
+    val scrollWidths: List<Float>,
+    val scrollTotalWidth: Float,
+)
+
+/**
+ * Split a table into a pinned first column and a scrollable body. This is the
+ * compact in-chat fallback for wide tables: row identity stays visible while
+ * overflow columns get real width instead of being water-filled to a floor.
+ */
+internal fun pinnedTableLayout(
+    naturalWidths: List<Float>,
+    availableWidth: Float,
+    pinnedColumn: Float = 104f,
+    minColumn: Float = 88f,
+): PinnedTableLayout {
+    if (naturalWidths.isEmpty()) return PinnedTableLayout(0f, emptyList(), 0f)
+    val pinned = naturalWidths.first().coerceIn(72f, pinnedColumn)
+    val scrollNaturals = naturalWidths.drop(1)
+    if (scrollNaturals.isEmpty()) return PinnedTableLayout(pinned, emptyList(), 0f)
+    val scrollAvailable = (availableWidth - pinned - 12f).coerceAtLeast(minColumn)
+    val scroll = tableColumnWidths(scrollNaturals, scrollAvailable, minColumn)
+    return PinnedTableLayout(
+        pinnedWidth = pinned,
+        scrollWidths = scroll.widths,
+        scrollTotalWidth = scroll.widths.sum(),
+    )
+}
+
 /**
  * Distribute [availableWidth] across columns so a table always uses the width it is
  * given, instead of falling back to a fixed per-cell width (the old 130dp columns

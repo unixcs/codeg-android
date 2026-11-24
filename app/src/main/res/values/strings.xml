@@ -998,6 +998,9 @@
     <string name="code_show_less">Show less</string>
     <string name="code_show_more_lines">Show %1$d more lines</string>
     <string name="code_copy">Copy</string>
+    <string name="markdown_table">Table</string>
+    <string name="markdown_table_expand">Expand</string>
+    <string name="markdown_table_rotate">Rotate</string>
     <string name="code_fullscreen">Fullscreen</string>
     <string name="code_line_count">%1$d lines</string>
 
