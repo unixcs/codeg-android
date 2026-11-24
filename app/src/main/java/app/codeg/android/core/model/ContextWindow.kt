@@ -1,6 +1,30 @@
 package app.codeg.android.core.model
 
 /**
+ * The three session-context figures every surface must agree on. `maxTokens`
+ * is only meaningful for the percentage when [usedTokens] is also present.
+ */
+data class ContextWindowUsage(
+    val usedTokens: Int? = null,
+    val maxTokens: Int? = null,
+    val percent: Double? = null,
+)
+
+/**
+ * Resolve server-reported context occupancy with the client-side model-family
+ * fallback. The usage sheet already used this fallback, but the composer chip
+ * and reply footers previously read only the raw server fields, so the same
+ * CodeBuddy session showed 29.2% in one place and "—" in another.
+ */
+fun resolveContextWindowUsage(stats: SessionStats?, model: String?): ContextWindowUsage {
+    val used = stats?.contextWindowUsedTokens
+    val max = stats?.contextWindowMaxTokens ?: inferContextWindowMaxTokens(model)
+    val percent = stats?.contextWindowUsagePercent
+        ?: used?.takeIf { max != null && max > 0 }?.toDouble()?.div(max)?.times(100.0)?.coerceIn(0.0, 100.0)
+    return ContextWindowUsage(usedTokens = used, maxTokens = max, percent = percent)
+}
+
+/**
  * 批v161.1 R1: client-side context-window inference. The server's history
  * parser only fills `context_window_max_tokens` for model families it knows
  * (`parsers/mod.rs infer_context_window_max_tokens`); every CodeBuddy model

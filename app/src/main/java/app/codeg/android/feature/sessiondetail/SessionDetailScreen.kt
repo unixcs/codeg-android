@@ -121,6 +121,7 @@ import app.codeg.android.core.designsystem.component.LivePulse
 import app.codeg.android.core.designsystem.component.LoadingView
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.ContentBlock
+import app.codeg.android.core.model.resolveContextWindowUsage
 import app.codeg.android.core.model.PlanEntry
 import app.codeg.android.feature.handoff.HandoffSheet
 import app.codeg.android.feature.handoff.HandoffViewModel
@@ -721,14 +722,14 @@ fun SessionDetailScreen(
                     // The footer's context line: the session's live context-window
                     // occupancy (server `usage_update` → sessionStats), kept out of the
                     // timeline so it stays a pure renderer.
-                    val sessionContext = remember(ui.sessionStats) {
-                        ui.sessionStats?.let {
+                    val sessionContext = remember(ui.sessionStats, ui.summary?.model) {
+                        resolveContextWindowUsage(ui.sessionStats, ui.summary?.model).let {
                             SessionContextUsage(
-                                usedTokens = it.contextWindowUsedTokens?.toLong(),
-                                maxTokens = it.contextWindowMaxTokens?.toLong(),
-                                percent = it.contextWindowUsagePercent,
+                                usedTokens = it.usedTokens?.toLong(),
+                                maxTokens = it.maxTokens?.toLong(),
+                                percent = it.percent,
                             )
-                        } ?: SessionContextUsage()
+                        }
                     }
                     CompositionLocalProvider(
                         LocalTimelineScroll provides scrollToId,
@@ -1229,7 +1230,8 @@ private fun SessionContextChips(
                     icon = Icons.Rounded.DataUsage,
                     label = stringResource(
                         R.string.context_usage_chip,
-                        ui.sessionStats?.contextWindowUsagePercent?.let(::formatPercent) ?: "—",
+                        resolveContextWindowUsage(ui.sessionStats, ui.summary?.model)
+                            .percent?.let(::formatPercent) ?: "—",
                     ),
                     contentDescription = stringResource(R.string.context_usage_title),
                     enabled = true,

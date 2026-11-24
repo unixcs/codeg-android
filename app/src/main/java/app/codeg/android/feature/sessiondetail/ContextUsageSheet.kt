@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.theme.CodegTheme
-import app.codeg.android.core.model.inferContextWindowMaxTokens
+import app.codeg.android.core.model.resolveContextWindowUsage
 
 /**
  * The context-window popup: usage gauge, cache hit rate, and the session's cumulative
@@ -37,18 +37,11 @@ fun ContextUsageSheet(ui: SessionDetailUiState, onDismiss: () -> Unit) {
         sheetState = sheetState,
         containerColor = colors.bgElevated,
     ) {
-        val stats = ui.sessionStats
         val usage = stats?.totalUsage
-        val used = stats?.contextWindowUsedTokens
-        // 批v161.1 R1: the server omits the window for model families its
-        // parser doesn't know (every CodeBuddy/DeepSeek session) — infer it
-        // client-side from the summary's model name before calling it missing.
-        val max = stats?.contextWindowMaxTokens
-            ?: inferContextWindowMaxTokens(ui.summary?.model)
-        // Fall back to deriving the percent from the raw used/max when the server
-        // didn't report it (the web client does the same).
-        val percent = stats?.contextWindowUsagePercent
-            ?: (if (used != null && max != null && max > 0) used.toDouble() / max * 100.0 else null)
+        val resolved = resolveContextWindowUsage(stats, ui.summary?.model)
+        val used = resolved.usedTokens
+        val max = resolved.maxTokens
+        val percent = resolved.percent
         val cacheHit = usage?.let {
             // Web `cacheHitRatio` parity: cache-creation tokens are part of the
             // input denominator, not just cache reads.
