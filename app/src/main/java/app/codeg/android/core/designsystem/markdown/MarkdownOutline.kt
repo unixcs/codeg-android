@@ -29,9 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -136,11 +134,26 @@ fun OutlineAwareMarkdownBody(
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
-    val containerY = remember { mutableStateOf<Float?>(null) }
     val viewportPx = remember { mutableStateOf(0) }
-    val anchorY = remember { mutableStateMapOf<Int, Float>() }
+    val blockHeights = remember(content) { mutableStateMapOf<Int, Int>() }
     val blocks = remember(content) { parseMarkdownBlocks(content) }
     val entries = remember(blocks) { outlineEntries(blocks) }
+    val topPaddingPx = with(density) { 10.dp.toPx().roundToInt() }
+    val spacingPx = with(density) { 8.dp.toPx().roundToInt() }
+    val jumpPaddingPx = with(density) { 24.dp.toPx().roundToInt() }
+    val headingTop: (Int) -> Int? = { index ->
+        var top = topPaddingPx
+        var complete = true
+        for (blockIndex in 0 until index) {
+            val height = blockHeights[blockIndex]
+            if (height == null) {
+                complete = false
+                break
+            }
+            top += height + spacingPx
+        }
+        top.takeIf { complete }
+    }
     // v194 R1-B: a focusable Popup does not consume the system back key — back
     // would fall through to the dialog's onDismissRequest and kill the whole
     // preview (and the reading position) just for closing the TOC. Intercept it.
@@ -151,7 +164,6 @@ fun OutlineAwareMarkdownBody(
             .fillMaxSize()
             .verticalScroll(scrollState)
             .onSizeChanged { viewportPx.value = it.height }
-            .onGloballyPositioned { containerY.value = it.positionInRoot().y }
             .padding(horizontal = horizontalPadding),
     ) {
         Column(
@@ -161,12 +173,10 @@ fun OutlineAwareMarkdownBody(
                 .padding(vertical = 10.dp),
         ) {
             for ((i, block) in blocks.withIndex()) {
-                val anchor = if (block is MarkdownBlock.Heading) {
-                    Modifier.onGloballyPositioned { anchorY[i] = it.positionInRoot().y }
-                } else {
-                    Modifier
-                }
-                SingleBlockView(block, Modifier.fillMaxWidth().then(anchor))
+                SingleBlockView(
+                    block,
+                    Modifier.fillMaxWidth().onSizeChanged { blockHeights[i] = it.height },
+                )
             }
         }
     }
@@ -181,9 +191,7 @@ fun OutlineAwareMarkdownBody(
             // Active heading: the last one whose anchor sits above the reading
             // line (scroll top + 40% viewport) — MindFS's highlight, cheap port.
             val activeIdx = entries.lastOrNull { e ->
-                val cy = containerY.value
-                val y = anchorY[e.index]
-                cy != null && y != null && (y - cy) <= viewportPx.value * 0.4f
+                headingTop(e.index)?.let { it <= scrollState.value + viewportPx.value * 0.4f } == true
             }?.index
 
             OutlineCard(
@@ -191,13 +199,8 @@ fun OutlineAwareMarkdownBody(
                 activeIdx = activeIdx,
                 onJump = { e ->
                     onDismissOutline()
-                    val cy = containerY.value
-                    val y = anchorY[e.index]
-                    if (cy != null && y != null) {
-                        // y-cy is viewport-relative at tap time; the absolute
-                        // content offset adds the scroll back.
-                        val target = ((y - cy) + scrollState.value - with(density) { 24.dp.toPx() })
-                            .roundToInt().coerceAtLeast(0)
+                    headingTop(e.index)?.let { top ->
+                        val target = (top - jumpPaddingPx).coerceIn(0, scrollState.maxValue)
                         scope.launch { scrollState.animateScrollTo(target) }
                     }
                 },
