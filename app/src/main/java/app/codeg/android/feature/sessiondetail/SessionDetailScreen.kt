@@ -638,7 +638,7 @@ fun SessionDetailScreen(
                 ) {
                     NoticeBanner(lastNotice, onDismiss = viewModel::dismissNotice)
                 }
-                val attachmentsExpanded = attachmentsExpandedState
+                val attachmentsExpandedValue = attachmentsExpandedState
                 AnimatedVisibility(visible = attachmentsExpanded && ui.attachments.isNotEmpty()) {
                     AttachmentStrip(ui.attachments, onRemove = viewModel::removeAttachment)
                 }
@@ -680,9 +680,9 @@ fun SessionDetailScreen(
                         Column {
                             SessionStatusRow(ui = ui)
                             AttachmentToggleRow(
-                                expanded = attachmentsExpanded,
+                                expanded = attachmentsExpandedValue,
                                 hasAttachments = ui.attachments.isNotEmpty() || ui.fileAttachments.isNotEmpty(),
-                                onToggle = { attachmentsExpanded = !attachmentsExpanded },
+                                onToggle = { attachmentsExpandedState = !attachmentsExpandedValue },
                             )
                         }
                     },
