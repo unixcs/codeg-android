@@ -639,10 +639,10 @@ fun SessionDetailScreen(
                     NoticeBanner(lastNotice, onDismiss = viewModel::dismissNotice)
                 }
                 val attachmentsExpandedValue = attachmentsExpandedState
-                AnimatedVisibility(visible = attachmentsExpanded && ui.attachments.isNotEmpty()) {
+                AnimatedVisibility(visible = attachmentsExpandedValue && ui.attachments.isNotEmpty()) {
                     AttachmentStrip(ui.attachments, onRemove = viewModel::removeAttachment)
                 }
-                AnimatedVisibility(visible = attachmentsExpanded && ui.fileAttachments.isNotEmpty()) {
+                AnimatedVisibility(visible = attachmentsExpandedValue && ui.fileAttachments.isNotEmpty()) {
                     FileAttachmentStrip(ui.fileAttachments, onRemove = viewModel::removeFileAttachment)
                 }
                 QueuedDraftsBar(
