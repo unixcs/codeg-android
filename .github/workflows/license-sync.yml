@@ -1,0 +1,56 @@
+name: License Sync
+
+# feat/tv M1 slice 1: adding androidx.tv:tv-material brought new third-party
+# artifacts and verifyThirdPartyLicenseReport (part of :app:check) went stale
+# ("Run ./gradlew :app:syncThirdPartyLicenseReport and commit the result").
+# 本地零编译纪律 forbids a local Gradle run just for this, so the cloud does it:
+# whenever the dependency surface changes, this workflow regenerates the
+# checked-in bundle and commits it back to the triggering branch.
+#
+# NOTE: commits pushed with the default GITHUB_TOKEN do not trigger other
+# workflows — after this runs, dispatch Verify once (gh workflow run verify.yml
+# --ref <branch>) or let the next real push pick it up.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "feat/**"]
+    paths:
+      - "gradle/libs.versions.toml"
+      - "app/build.gradle.kts"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+
+      - name: Regenerate the third-party license bundle
+        run: ./gradlew :app:syncThirdPartyLicenseReport --no-daemon
+
+      - name: Commit and push the refreshed bundle
+        run: |
+          if git diff --quiet -- third-party-licenses; then
+            echo "Bundle already up to date — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add third-party-licenses
+          git commit -m "chore(licenses): regenerate third-party bundle after dependency change"
+          git push origin HEAD:${{ github.ref_name }}
