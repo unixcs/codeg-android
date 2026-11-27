@@ -1,6 +1,5 @@
 package app.codeg.android.feature.projects
 
-import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -72,6 +71,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
+import app.codeg.android.core.designsystem.component.openWithBytes
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -702,31 +702,13 @@ internal fun FileActionSheet(
                                 // Larger files go through Download, which streams.
                                 val b64 = client.readWorkspaceFileBase64(rootPath, relForRead, maxBytes = 10 * 1024 * 1024)
                                 val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-                                val dir = java.io.File(context.cacheDir, "open_with").apply { mkdirs() }
-                                val file = java.io.File(dir, target.name)
-                                file.writeBytes(bytes)
-                                androidx.core.content.FileProvider.getUriForFile(
-                                    context,
-                                    context.packageName + ".fileprovider",
-                                    file,
-                                )
+                                openWithBytes(context, target.name, bytes)
                             }
                         }
                         shareBusy = false
                         result.fold(
-                            onSuccess = { uri ->
-                                val intent = Intent(Intent.ACTION_VIEW)
-                                    .setDataAndType(uri, mimeForOpenWith(target.name))
-                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                                runCatching { context.startActivity(Intent.createChooser(intent, null)) }
-                                    .onFailure {
-                                        // No handler for this type — fall back to the generic chooser.
-                                        runCatching {
-                                            context.startActivity(
-                                                Intent.createChooser(Intent(Intent.ACTION_VIEW).setData(uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK), null),
-                                            )
-                                        }.onFailure { failure -> error = failure.message ?: failure.javaClass.simpleName }
-                                    }
+                            onSuccess = {
+                                error = null
                             },
                             onFailure = { failure -> error = failure.message ?: failure.javaClass.simpleName },
                         )
@@ -1043,11 +1025,14 @@ private fun FilePreview(
     // browsing outside the workspace previews instead of dead-ending.
     val rel = relPathOrNull(rootPath, absPath)
     val rootedPair = rel?.let { rootPath to it } ?: outsideRootRead(rootPath, absPath)
+    val isMediaFile = remember(absPath) { isOpenWithMediaType(absPath.substringAfterLast('/')) }
+    val previewContext = androidx.compose.ui.platform.LocalContext.current
     val outsideMsg = stringResource(R.string.files_outside_workspace)
     var result by remember(absPath) { mutableStateOf<Result<String>?>(null) }
     var loadTick by remember(absPath) { mutableStateOf(0) }
     val reload: () -> Unit = { loadTick++ }
     LaunchedEffect(absPath, loadTick) {
+        if (isMediaFile) return@LaunchedEffect
         result = try {
             if (rootedPair == null) Result.failure(IllegalStateException(outsideMsg))
             else Result.success(client.readFilePreview(rootedPair.first, rootedPair.second).content)
@@ -1059,6 +1044,25 @@ private fun FilePreview(
     }
     // Rendered vs raw: Markdown files default to rendered; everything else is raw-only.
     val kind = remember(absPath) { previewKindOf(absPath) }
+    val scope = rememberCoroutineScope()
+    var openWithError by remember(absPath) { mutableStateOf<String?>(null) }
+    LaunchedEffect(absPath, isMediaFile) {
+        if (!isMediaFile) return@LaunchedEffect
+        openWithError = null
+        val pair = rootedPair
+        if (pair == null) {
+            openWithError = outsideMsg
+            return@LaunchedEffect
+        }
+        scope.launch {
+            openWithError = runCatching {
+                val base64 = client.readWorkspaceFileBase64(pair.first, pair.second, maxBytes = 10 * 1024 * 1024)
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                openWithBytes(previewContext, absPath.substringAfterLast('/'), bytes)
+                null
+            }.getOrElse { it.message ?: previewContext.getString(app.codeg.android.R.string.files_read_failed) }
+        }
+    }
     var rendered by remember(absPath, kind) { mutableStateOf(kind == PreviewKind.MARKDOWN) }
     // 批v195 拍板 3A: the file browser's rendered-markdown outline — same shared
     // body/card as the doc preview. Gated on actual headings so a heading-less
@@ -1147,6 +1151,11 @@ private fun FilePreview(
                             kind == PreviewKind.HTML -> HtmlPreview(absPath.substringAfterLast('/'), content)
                             else -> FileContent(content)
                         }
+                    }
+                }
+                if (isMediaFile) {
+                    openWithError?.let {
+                        InlineError(Icons.AutoMirrored.Rounded.OpenInNew, stringResource(app.codeg.android.R.string.files_read_failed), it, onRetry = reload)
                     }
                 }
             }
@@ -1666,25 +1675,8 @@ internal fun DirectoryItem.extOrNull(): String =
  * MIMEs; anything unknown falls back to a wildcard MIME so the chooser still
  * appears instead of "no app can open this".
  */
-internal fun mimeForOpenWith(name: String): String {
-    val ext = name.substringAfterLast('.', "").lowercase()
-    return when (ext) {
-        "md", "markdown", "txt", "log", "json", "xml", "yml", "yaml", "toml", "csv",
-        "ini", "conf", "properties", "js", "ts", "kt", "kts", "java", "py", "rb", "go",
-        "rs", "c", "h", "cpp", "sh", "bat", "sql", "gradle", "proto",
-        -> "text/plain"
-        "html", "htm" -> "text/html"
-        "css" -> "text/css"
-        "png" -> "image/png"
-        "jpg", "jpeg" -> "image/jpeg"
-        "gif" -> "image/gif"
-        "webp" -> "image/webp"
-        "svg" -> "image/svg+xml"
-        "pdf" -> "application/pdf"
-        "zip" -> "application/zip"
-        else -> "*/*"
-    }
-}
+internal fun mimeForOpenWith(name: String): String =
+    app.codeg.android.core.designsystem.component.resolveOpenWithMime(name)
 
 /** Shared with the 批v180 tree's row labels (批v184). */
 internal fun formatBytes(bytes: Long): String {

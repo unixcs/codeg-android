@@ -22,6 +22,8 @@ import app.codeg.android.core.datastore.IdeaEntry
 import app.codeg.android.core.datastore.IdeaStore
 import app.codeg.android.core.datastore.SessionProject
 import app.codeg.android.core.datastore.SessionRef
+import app.codeg.android.core.designsystem.component.isOpenWithMediaType
+import app.codeg.android.core.designsystem.component.openWithBytes
 import app.codeg.android.core.datastore.SelectorPrefs
 import app.codeg.android.core.datastore.SelectorPrefsStore
 import app.codeg.android.core.datastore.resolveSelectorPrefs
@@ -3673,6 +3675,51 @@ class SessionDetailViewModel @Inject constructor(
     }
 
     fun dismissDocPreview() = _ui.update { it.copy(docPreview = null) }
+
+    /**
+     * Session-produced binary media cannot render in the text/image preview.
+     * Fetch it through the workspace base64 RPC and hand it to Android's
+     * open-with card so installed players and readers own playback.
+     */
+    fun openPathExternally(path: String) {
+        val activeClient = client ?: return
+        val root = folder?.path ?: _ui.value.folderPath
+        if (root.isNullOrBlank()) {
+            showNotice(appContext.getString(R.string.session_info_unavailable))
+            return
+        }
+        val name = path.substringAfterLast('/')
+        if (!isOpenWithMediaType(name)) {
+            openPathPreview(path)
+            return
+        }
+        val externalRoot = if (path.startsWith("/")) path.substringBeforeLast('/') else null
+        val relativePath = if (path.startsWith("$root/")) {
+            path.removePrefix("$root/")
+        } else if (externalRoot != null && externalRoot.startsWith("/") && name != "." && name != "..") {
+            name
+        } else {
+            null
+        }
+        if (relativePath.isNullOrBlank()) {
+            showNotice(appContext.getString(R.string.doc_preview_outside_workspace, path))
+            return
+        }
+        viewModelScope.launch {
+            val result = runCatching {
+                val base64 = activeClient.readWorkspaceFileBase64(
+                    externalRoot ?: root,
+                    relativePath,
+                    maxBytes = 10 * 1024 * 1024,
+                )
+                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                openWithBytes(appContext, name, bytes)
+            }
+            result.exceptionOrNull()?.let { failure ->
+                showNotice(failure.message ?: appContext.getString(R.string.files_read_failed))
+            }
+        }
+    }
 
     // endregion
 

@@ -49,6 +49,8 @@ import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DataUsage
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.FolderSpecial
@@ -119,6 +121,7 @@ import app.codeg.android.core.designsystem.component.sheetContentScrollLock
 import app.codeg.android.core.designsystem.component.PickerOption
 import app.codeg.android.core.designsystem.component.LivePulse
 import app.codeg.android.core.designsystem.component.LoadingView
+import app.codeg.android.core.designsystem.component.isOpenWithMediaType
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.core.model.ContentBlock
 import app.codeg.android.core.model.resolveContextWindowUsage
@@ -407,6 +410,7 @@ fun SessionDetailScreen(
     val hasContent = nodes.isNotEmpty()
 
     var showToc by remember { mutableStateOf(false) }
+    var attachmentsExpandedState by rememberSaveable { mutableStateOf(true) }
     // Fullscreen editor survives rotation; the text itself stays in the shared [draft].
     var showFullscreenEditor by rememberSaveable { mutableStateOf(false) }
     // Set when the user jumps from the TOC; drives a 1s highlight flash on the target row.
@@ -554,7 +558,13 @@ fun SessionDetailScreen(
                     SessionArtifactsCard(
                         artifacts = artifacts,
                         sessionKey = ui.externalId,
-                        onOpen = { viewModel.openPathPreview(it.path) },
+                        onOpen = { artifact ->
+                            if (isOpenWithMediaType(artifact.name)) {
+                                viewModel.openPathExternally(artifact.path)
+                            } else {
+                                viewModel.openPathPreview(artifact.path)
+                            }
+                        },
                         onCopyPath = { viewModel.copyArtifactPath(it.path) },
                     )
                 }
@@ -628,8 +638,13 @@ fun SessionDetailScreen(
                 ) {
                     NoticeBanner(lastNotice, onDismiss = viewModel::dismissNotice)
                 }
-                if (ui.attachments.isNotEmpty()) AttachmentStrip(ui.attachments, onRemove = viewModel::removeAttachment)
-                if (ui.fileAttachments.isNotEmpty()) FileAttachmentStrip(ui.fileAttachments, onRemove = viewModel::removeFileAttachment)
+                val attachmentsExpanded = attachmentsExpandedState
+                AnimatedVisibility(visible = attachmentsExpanded && ui.attachments.isNotEmpty()) {
+                    AttachmentStrip(ui.attachments, onRemove = viewModel::removeAttachment)
+                }
+                AnimatedVisibility(visible = attachmentsExpanded && ui.fileAttachments.isNotEmpty()) {
+                    FileAttachmentStrip(ui.fileAttachments, onRemove = viewModel::removeFileAttachment)
+                }
                 QueuedDraftsBar(
                     queue = ui.queue,
                     onInsert = viewModel::insertQueuedNow,
@@ -661,7 +676,16 @@ fun SessionDetailScreen(
                     onExpandClick = { showFullscreenEditor = true },
                     canSendOverride = ui.attachments.isNotEmpty() || ui.fileAttachments.isNotEmpty(),
                     sendBlocked = ui.forking,
-                    statusBar = { SessionStatusRow(ui = ui) },
+                    statusBar = {
+                        Column {
+                            SessionStatusRow(ui = ui)
+                            AttachmentToggleRow(
+                                expanded = attachmentsExpanded,
+                                hasAttachments = ui.attachments.isNotEmpty() || ui.fileAttachments.isNotEmpty(),
+                                onToggle = { attachmentsExpanded = !attachmentsExpanded },
+                            )
+                        }
+                    },
                     contextBar = {
                         SessionContextChips(
                             ui = ui,
@@ -1026,6 +1050,40 @@ private fun NoticeBanner(message: String, onDismiss: () -> Unit) {
         )
         IconButton(onClick = onDismiss) {
             Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.common_dismiss), tint = colors.textSecondary)
+        }
+    }
+}
+
+/** One-tap collapse for the staged image and file strips above the composer. */
+@Composable
+private fun AttachmentToggleRow(
+    expanded: Boolean,
+    hasAttachments: Boolean,
+    onToggle: () -> Unit,
+) {
+    val colors = CodegTheme.colors
+    AnimatedVisibility(visible = hasAttachments) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 10.dp, vertical = 2.dp),
+        ) {
+            Icon(
+                if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = null,
+                tint = colors.textTertiary,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                stringResource(
+                    if (expanded) R.string.attachments_collapse else R.string.attachments_expand,
+                ),
+                fontSize = 11.sp,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(start = 6.dp),
+            )
         }
     }
 }

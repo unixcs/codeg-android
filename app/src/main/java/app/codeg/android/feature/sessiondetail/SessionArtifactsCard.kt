@@ -83,7 +83,7 @@ fun SessionArtifactsCard(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .clickable { manualExpanded = !expanded }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
             ) {
                 Icon(
                     Icons.Rounded.Description,
@@ -136,7 +136,7 @@ fun SessionArtifactsCard(
                         // (R2-A) so it's visible without scrolling to the fold.
                         Column(
                             Modifier
-                                .heightIn(max = 220.dp)
+                                .heightIn(max = 110.dp)
                                 .verticalScroll(rememberScrollState()),
                         ) {
                             shown.take(12).forEachIndexed { idx, artifact ->
@@ -147,7 +147,7 @@ fun SessionArtifactsCard(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { onOpen(artifact) }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                                        .padding(horizontal = 10.dp, vertical = 3.dp),
                                 ) {
                                     Icon(
                                         if (artifact.isDocLike) Icons.Rounded.Description else Icons.AutoMirrored.Rounded.InsertDriveFile,
@@ -157,7 +157,7 @@ fun SessionArtifactsCard(
                                             ArtifactOp.DELETED -> colors.danger
                                             ArtifactOp.MODIFIED -> colors.warning
                                         },
-                                        modifier = Modifier.size(15.dp),
+                                        modifier = Modifier.size(13.dp),
                                     )
                                     Column(Modifier.weight(1f)) {
                                         MiddleEllipsisText(
@@ -192,7 +192,7 @@ fun SessionArtifactsCard(
                                     }
                                     // R2-A: 26dp was well under the touch-target
                                     // guideline next to the row's own open-on-tap.
-                                    IconButton(onClick = { onCopyPath(artifact) }, modifier = Modifier.size(36.dp)) {
+                                    IconButton(onClick = { onCopyPath(artifact) }, modifier = Modifier.size(28.dp)) {
                                         Icon(
                                             Icons.Rounded.ContentCopy,
                                             contentDescription = stringResource(R.string.session_artifacts_copy_path),

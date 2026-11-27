@@ -30,4 +30,11 @@ class MimeForOpenWithTest {
         assertEquals("*/*", mimeForOpenWith("weird.xyzzy"))
         assertEquals("*/*", mimeForOpenWith(".hidden"))
     }
+
+    @Test fun mediaFilesGetSpecificMimesForSystemPlayers() {
+        assertEquals("video/mp4", mimeForOpenWith("demo.MP4"))
+        assertEquals("video/webm", mimeForOpenWith("clip.webm"))
+        assertEquals("audio/m4a", mimeForOpenWith("voice.m4a"))
+        assertEquals("audio/flac", mimeForOpenWith("track.flac"))
+    }
 }
