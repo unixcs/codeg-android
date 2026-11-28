@@ -14,9 +14,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.CloseFullscreen
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,7 +46,9 @@ import app.codeg.android.R
 internal enum class SessionArtifactsTier {
     COLLAPSED, COMPACT, FULL;
 
-    fun next(): SessionArtifactsTier = entries[(ordinal + 1) % entries.size]
+    fun toggleExpanded(): SessionArtifactsTier = if (this == COLLAPSED) COMPACT else COLLAPSED
+
+    fun toggleFullExpand(): SessionArtifactsTier = if (this == FULL) COMPACT else FULL
 }
 
 /**
@@ -68,8 +72,6 @@ fun SessionArtifactsCard(
 ) {
     val colors = CodegTheme.colors
     var docsOnly by rememberSaveable(sessionKey) { mutableStateOf(false) }
-    // 批v196: three tiers replace the old Boolean. Existing users' saved state
-    // simply re-enters on the new compact tier; the next tap can collapse it.
     var displayTier by rememberSaveable(sessionKey) { mutableStateOf(SessionArtifactsTier.COMPACT) }
     val shown = if (docsOnly) artifacts.filter { it.isDocLike } else artifacts
     // R2-A: no early return — with docsOnly on and zero docs, vanishing the
@@ -80,7 +82,7 @@ fun SessionArtifactsCard(
     val bodyMaxHeight = if (displayTier == SessionArtifactsTier.COMPACT) {
         110.dp
     } else {
-        minOf(360.dp, screenMaxHeight * 0.45f)
+        minOf(420.dp, screenMaxHeight * 0.60f)
     }
 
     Surface(
@@ -97,7 +99,7 @@ fun SessionArtifactsCard(
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .clickable { displayTier = displayTier.next() }
+                    .clickable { displayTier = displayTier.toggleExpanded() }
                     .padding(horizontal = 10.dp, vertical = 2.dp),
             ) {
                 Icon(
@@ -123,6 +125,20 @@ fun SessionArtifactsCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
                 androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                Icon(
+                    if (displayTier == SessionArtifactsTier.FULL) {
+                        Icons.Rounded.CloseFullscreen
+                    } else {
+                        Icons.Rounded.OpenInFull
+                    },
+                    contentDescription = stringResource(R.string.session_artifacts_full_expand),
+                    tint = colors.textTertiary,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { displayTier = displayTier.toggleFullExpand() }
+                        .padding(7.dp),
+                )
                 Icon(
                     Icons.Rounded.ExpandMore,
                     contentDescription = null,
@@ -154,7 +170,7 @@ fun SessionArtifactsCard(
                                 .heightIn(max = bodyMaxHeight)
                                 .verticalScroll(rememberScrollState()),
                         ) {
-                            shown.take(12).forEachIndexed { idx, artifact ->
+                            shown.forEachIndexed { idx, artifact ->
                                 if (idx > 0) HorizontalDivider(color = colors.hairline)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -217,14 +233,6 @@ fun SessionArtifactsCard(
                                     }
                                 }
                             }
-                        }
-                        if (shown.size > 12) {
-                            Text(
-                                stringResource(R.string.session_artifacts_more, shown.size - 12),
-                                fontSize = 10.sp,
-                                color = colors.textTertiary,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            )
                         }
                     }
                 }
