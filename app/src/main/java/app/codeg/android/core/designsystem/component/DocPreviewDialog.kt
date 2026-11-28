@@ -444,7 +444,7 @@ private suspend fun buildShareIntent(
         )
         SharePlan(
             Intent(Intent.ACTION_SEND)
-                .setType(resolveOpenWithMime(fileName))
+                .setType(resolveShareFileMime(fileName))
                 .putExtra(Intent.EXTRA_SUBJECT, fileName)
                 .putExtra(Intent.EXTRA_TITLE, fileName)
                 .putExtra(Intent.EXTRA_STREAM, uri)
@@ -460,6 +460,18 @@ private fun pruneOldShareDirs(sharedRoot: java.io.File) {
         ?.filter { it.isDirectory && it.lastModified() < cutoff }
         ?.forEach { it.deleteRecursively() }
 }
+
+/**
+ * "Share as file" must be received as an attachment, not rendered inline.
+ * Text-ish types therefore use the generic binary MIME; receivers that accept
+ * documents show a file (with the original extension preserved) instead of a
+ * plain-text bubble. Real media/PDF keep their specific MIME so the receiving
+ * app can still recognize and preview them.
+ */
+internal fun resolveShareFileMime(name: String): String =
+    resolveOpenWithMime(name).let { mime ->
+        if (mime.startsWith("text/")) "application/octet-stream" else mime
+    }
 
 /** Keep the cache path inside `shared/`; never let a display name become `..`. */
 internal fun safeShareFileName(fileName: String): String {

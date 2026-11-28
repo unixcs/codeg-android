@@ -99,6 +99,44 @@ fun resolveOpenWithMime(name: String): String {
     }
 }
 
+/**
+ * Resolve the (root, relative path) pair the download RPC expects for a file
+ * the agent produced. Artifacts are absolute paths; one nested under the
+ * session workspace must keep the WORKSPACE root and the nested relative path
+ * (the old code re-rooted at the file's immediate parent but still sent the
+ * nested path, producing a 404). Files outside the workspace re-root at their
+ * immediate parent and send only the basename. Relative artifact paths resolve
+ * against the workspace root; traversal is rejected.
+ */
+internal data class WorkspaceOpenTarget(
+    val rootPath: String,
+    val relativePath: String,
+)
+
+internal fun resolveWorkspaceOpenTarget(rootPath: String, path: String): WorkspaceOpenTarget? {
+    val root = rootPath.trim().let { if (it.length > 1) it.trimEnd('/') else it }
+    val candidate = path.trim()
+    if (root.isEmpty() || candidate.isEmpty()) return null
+
+    val name = candidate.substringAfterLast('/')
+    if (name.isBlank() || name == "." || name == "..") return null
+
+    if (root.length > 1 && candidate.startsWith("$root/")) {
+        val relative = candidate.removePrefix("$root/")
+        return if (isSafeRelativePath(relative)) WorkspaceOpenTarget(root, relative) else null
+    }
+    if (candidate.startsWith("/")) {
+        val parent = candidate.substringBeforeLast('/').ifEmpty { "/" }
+        return WorkspaceOpenTarget(parent, name)
+    }
+
+    val relative = candidate.removePrefix("./")
+    return if (isSafeRelativePath(relative)) WorkspaceOpenTarget(root, relative) else null
+}
+
+private fun isSafeRelativePath(path: String): Boolean =
+    path.isNotBlank() && !path.startsWith("/") && path.split('/').none { it == ".." }
+
 fun isOpenWithMediaType(name: String): Boolean {
     val extension = name.substringAfterLast('.', "").lowercase()
     return extension in setOf("mp4", "m4v", "mov", "avi", "mkv", "webm", "3gp", "wmv") ||

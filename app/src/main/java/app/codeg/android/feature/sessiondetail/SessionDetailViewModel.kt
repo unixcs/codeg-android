@@ -24,6 +24,7 @@ import app.codeg.android.core.datastore.SessionProject
 import app.codeg.android.core.datastore.SessionRef
 import app.codeg.android.core.designsystem.component.isOpenWithMediaType
 import app.codeg.android.core.designsystem.component.openWithWorkspaceFile
+import app.codeg.android.core.designsystem.component.resolveWorkspaceOpenTarget
 import app.codeg.android.core.datastore.SelectorPrefs
 import app.codeg.android.core.datastore.SelectorPrefsStore
 import app.codeg.android.core.datastore.resolveSelectorPrefs
@@ -3712,15 +3713,8 @@ class SessionDetailViewModel @Inject constructor(
             openPathPreview(path)
             return
         }
-        val externalRoot = if (path.startsWith("/")) path.substringBeforeLast('/') else null
-        val relativePath = if (path.startsWith("$root/")) {
-            path.removePrefix("$root/")
-        } else if (externalRoot != null && externalRoot.startsWith("/") && name != "." && name != "..") {
-            name
-        } else {
-            null
-        }
-        if (relativePath.isNullOrBlank()) {
+        val target = resolveWorkspaceOpenTarget(root, path)
+        if (target == null) {
             showNotice(appContext.getString(R.string.doc_preview_outside_workspace, path))
             return
         }
@@ -3729,8 +3723,8 @@ class SessionDetailViewModel @Inject constructor(
                 openWithWorkspaceFile(
                     context = appContext,
                     client = activeClient,
-                    rootPath = externalRoot ?: root,
-                    path = relativePath,
+                    rootPath = target.rootPath,
+                    path = target.relativePath,
                     fileName = name,
                 )
             }
