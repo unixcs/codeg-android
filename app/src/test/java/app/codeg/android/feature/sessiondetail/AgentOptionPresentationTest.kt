@@ -125,7 +125,7 @@ class AgentOptionPresentationTest {
         val long = listOf(ConfigOptionChoice("a", "x".repeat(19), null, false))
         assertEquals(2, requestedConfigColumns(short, 2))
         assertEquals(1, requestedConfigColumns(long, 2))
-        assertEquals(listOf(listOf("a"), listOf("b")), gridRows(listOf("a", "b"), 2))
+        assertEquals(listOf(listOf("a", "b")), gridRows(listOf("a", "b"), 2))
     }
 
     @Test

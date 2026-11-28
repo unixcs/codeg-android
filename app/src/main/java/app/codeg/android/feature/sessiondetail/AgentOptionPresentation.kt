@@ -58,7 +58,7 @@ private fun sharedNamePrefix(items: List<SessionConfigSelectOption>): String? {
 
 private fun strippablePrefix(valuePrefix: String, items: List<SessionConfigSelectOption>): String? {
     val shared = sharedNamePrefix(items) ?: return null
-    if (items.size < 2 && shared != valuePrefix) return null
+    if (items.size < 2 && !shared.equals(valuePrefix, ignoreCase = true)) return null
     return shared
 }
 
