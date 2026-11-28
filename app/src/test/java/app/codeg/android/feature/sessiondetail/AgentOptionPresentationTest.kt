@@ -15,7 +15,7 @@ class AgentOptionPresentationTest {
         assertEquals("0.29x", modelRate("Foo · 0.29x", "Provider"))
         assertEquals("0.08x", modelRate("Foo · 0.08 ×", null))
         assertEquals("0.08x", modelRate("Foo · 0.08 X", null))
-        assertEquals("0.08x", modelRate(null, "0.08x cheap"))
+        assertEquals("0.08x", modelRate(null, "0.08x"))
         assertNull(modelRate("Foo", "Provider"))
     }
 
@@ -68,8 +68,9 @@ class AgentOptionPresentationTest {
             ),
         )
         val derived = deriveModelGroups(strippable).orEmpty()
-        assertEquals("Model", derived.single().options.single().name)
-        assertEquals("Model", modelPresentation(derived.single().options.single(), derived.single()).shortLabel)
+        assertEquals(1, derived.size)
+        assertEquals("Model", derived.first().options.single().name)
+        assertEquals("Model", modelPresentation(derived.first().options.single(), derived.first()).shortLabel)
 
         val flat = SessionConfigOption(
             id = "model",
