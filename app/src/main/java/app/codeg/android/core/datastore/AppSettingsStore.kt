@@ -117,6 +117,12 @@ data class AppSettings(
     /** 批v181: the devices-overview folder-chip grid — 1 (full-width rows)
      *  or 2 (default, two equal-width columns per row). */
     val deviceChipColumns: Int = DEFAULT_DEVICE_CHIP_COLUMNS,
+    /** 批v196: agent-options model picker layout — 1 = the official-style,
+     *  easy-to-hit single rows; 2 = an optional denser two-column grid. */
+    val agentOptionsModelColumns: Int = DEFAULT_AGENT_OPTIONS_MODEL_COLUMNS,
+    /** 批v196: agent-options mode/effort/config layout — 1..3 columns, with
+     *  long labels falling back to a single column at render time. */
+    val agentOptionsConfigColumns: Int = DEFAULT_AGENT_OPTIONS_CONFIG_COLUMNS,
     /** 批v179: the sheet's project order — "count" (most sessions first, the
      *  拍板 default), "manual" (sortOrder), "name", "created" (newest first). */
     val addToProjectSort: String = DEFAULT_ADD_TO_PROJECT_SORT,
@@ -226,6 +232,10 @@ data class AppSettings(
         // 批v181: overview chips default to two columns — the rc.18 single
         // stack was the "界面乱" complaint.
         const val DEFAULT_DEVICE_CHIP_COLUMNS = 2
+        // 批v196: default to the precise single-row model picker; density is
+        // opt-in so the first experience keeps generous touch targets.
+        const val DEFAULT_AGENT_OPTIONS_MODEL_COLUMNS = 1
+        const val DEFAULT_AGENT_OPTIONS_CONFIG_COLUMNS = 1
         const val DEFAULT_ADD_TO_PROJECT_SORT = ADD_TO_PROJECT_SORT_COUNT
         const val DEFAULT_FILE_SORT_MODE = FILE_SORT_MODE_NAME
         const val DEFAULT_ACTIVITY_WINDOW_HOURS = 24
@@ -234,7 +244,8 @@ data class AppSettings(
         const val DEFAULT_SESSION_SWIPE_RIGHT = "board"
         /** The initial value [AppSettingsStore.settings] exposes before DataStore's
          *  first emission; used to detect "settings not loaded yet". */
-        val INITIAL = AppSettings()
+        val INITIAL = default()
+        fun default() = AppSettings()
     }
 }
 
@@ -325,6 +336,10 @@ class AppSettingsStore @Inject constructor(
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_COLUMNS).coerceIn(1, 3),
             deviceChipColumns = (prefs[DEVICE_CHIP_COLUMNS]
                 ?: AppSettings.DEFAULT_DEVICE_CHIP_COLUMNS).coerceIn(1, 2),
+            agentOptionsModelColumns = (prefs[AGENT_OPTIONS_MODEL_COLUMNS]
+                ?: AppSettings.DEFAULT_AGENT_OPTIONS_MODEL_COLUMNS).coerceIn(1, 2),
+            agentOptionsConfigColumns = (prefs[AGENT_OPTIONS_CONFIG_COLUMNS]
+                ?: AppSettings.DEFAULT_AGENT_OPTIONS_CONFIG_COLUMNS).coerceIn(1, 3),
             addToProjectSort = prefs[ADD_TO_PROJECT_SORT]?.takeIf { it in ADD_TO_PROJECT_SORTS }
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_SORT,
             fileSortMode = prefs[FILE_SORT_MODE]?.takeIf { it in FILE_SORT_MODES }
@@ -686,6 +701,16 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[DEVICE_CHIP_COLUMNS] = columns.coerceIn(1, 2) }
     }
 
+    /** 批v196: persist the agent-options model picker column count (1..2). */
+    suspend fun setAgentOptionsModelColumns(columns: Int) {
+        dataStore.edit { it[AGENT_OPTIONS_MODEL_COLUMNS] = columns.coerceIn(1, 2) }
+    }
+
+    /** 批v196: persist the mode/effort/config column count (1..3). */
+    suspend fun setAgentOptionsConfigColumns(columns: Int) {
+        dataStore.edit { it[AGENT_OPTIONS_CONFIG_COLUMNS] = columns.coerceIn(1, 3) }
+    }
+
     /** 批v179: persist the sheet's project order mode (whitelist-guarded). */
     suspend fun setAddToProjectSort(sort: String) {
         dataStore.edit {
@@ -872,6 +897,8 @@ class AppSettingsStore @Inject constructor(
         val PROJECT_LIST_COLUMNS = intPreferencesKey("project_list_columns")
         val ADD_TO_PROJECT_COLUMNS = intPreferencesKey("add_to_project_columns")
         val DEVICE_CHIP_COLUMNS = intPreferencesKey("device_chip_columns")
+        val AGENT_OPTIONS_MODEL_COLUMNS = intPreferencesKey("agent_options_model_columns")
+        val AGENT_OPTIONS_CONFIG_COLUMNS = intPreferencesKey("agent_options_config_columns")
         val ADD_TO_PROJECT_SORT = stringPreferencesKey("add_to_project_sort")
         val FILE_SORT_MODE = stringPreferencesKey("file_sort_mode")
         val FILE_SORT_DESC = booleanPreferencesKey("file_sort_desc")

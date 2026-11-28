@@ -31,13 +31,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.core.designsystem.component.MiddleEllipsisText
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.R
+
+/** 批v196: collapse / compact expand / full expand, cycled by the title row. */
+internal enum class SessionArtifactsTier {
+    COLLAPSED, COMPACT, FULL;
+
+    fun next(): SessionArtifactsTier = entries[(ordinal + 1) % entries.size]
+}
 
 /**
  * 批v194 M3: the MindFS "related files" card, ported to the transcript's data
@@ -60,14 +67,20 @@ fun SessionArtifactsCard(
 ) {
     val colors = CodegTheme.colors
     var docsOnly by rememberSaveable(sessionKey) { mutableStateOf(false) }
-    // null = untouched; the auto default is expand-when-short (MindFS mobile
-    // collapses always — the small count gets a little extra discoverability).
-    var manualExpanded by rememberSaveable(sessionKey) { mutableStateOf<Boolean?>(null) }
+    // 批v196: three tiers replace the old Boolean. Existing users' saved state
+    // simply re-enters on the new compact tier; the next tap can collapse it.
+    var displayTier by rememberSaveable(sessionKey) { mutableStateOf(SessionArtifactsTier.COMPACT) }
     val shown = if (docsOnly) artifacts.filter { it.isDocLike } else artifacts
     // R2-A: no early return — with docsOnly on and zero docs, vanishing the
     // header would strand the filter (unreachable until the session changes).
     // The screen only composes this card when artifacts itself is non-empty.
-    val expanded = manualExpanded ?: (shown.size <= 3)
+    val expanded = displayTier != SessionArtifactsTier.COLLAPSED
+    val screenMaxHeight = LocalConfiguration.current.screenHeightDp.dp
+    val bodyMaxHeight = if (displayTier == SessionArtifactsTier.COMPACT) {
+        110.dp
+    } else {
+        minOf(360.dp, screenMaxHeight * 0.45f)
+    }
 
     Surface(
         color = colors.bgElevated,
@@ -81,9 +94,10 @@ fun SessionArtifactsCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .clickable { manualExpanded = !expanded }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .clickable { displayTier = displayTier.next() }
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
             ) {
                 Icon(
                     Icons.Rounded.Description,
@@ -136,7 +150,7 @@ fun SessionArtifactsCard(
                         // (R2-A) so it's visible without scrolling to the fold.
                         Column(
                             Modifier
-                                .heightIn(max = 110.dp)
+                                .heightIn(max = bodyMaxHeight)
                                 .verticalScroll(rememberScrollState()),
                         ) {
                             shown.take(12).forEachIndexed { idx, artifact ->
@@ -192,7 +206,7 @@ fun SessionArtifactsCard(
                                     }
                                     // R2-A: 26dp was well under the touch-target
                                     // guideline next to the row's own open-on-tap.
-                                    IconButton(onClick = { onCopyPath(artifact) }, modifier = Modifier.size(28.dp)) {
+                                    IconButton(onClick = { onCopyPath(artifact) }, modifier = Modifier.size(48.dp)) {
                                         Icon(
                                             Icons.Rounded.ContentCopy,
                                             contentDescription = stringResource(R.string.session_artifacts_copy_path),

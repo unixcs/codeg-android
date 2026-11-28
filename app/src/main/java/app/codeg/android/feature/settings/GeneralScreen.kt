@@ -150,6 +150,27 @@ fun GeneralContent(
                     onSelect = viewModel::setTaskBoardKanbanColumns,
                 )
             }
+            // 批v196: the agent-options sheet follows the user's density choice.
+            // Defaults stay official-style single rows; grids are opt-in and the
+            // UI still falls back when labels are too long.
+            ChipRow(
+                title = stringResource(R.string.general_agent_options_model_columns_title),
+                subtitle = stringResource(R.string.general_agent_options_model_columns_subtitle),
+                options = listOf(1 to R.string.general_columns_one, 2 to R.string.general_columns_two),
+                selectedId = appSettings.agentOptionsModelColumns,
+                onSelect = viewModel::setAgentOptionsModelColumns,
+            )
+            ChipRow(
+                title = stringResource(R.string.general_agent_options_config_columns_title),
+                subtitle = stringResource(R.string.general_agent_options_config_columns_subtitle),
+                options = listOf(
+                    1 to R.string.general_columns_one,
+                    2 to R.string.general_columns_two,
+                    3 to R.string.general_columns_three,
+                ),
+                selectedId = appSettings.agentOptionsConfigColumns,
+                onSelect = viewModel::setAgentOptionsConfigColumns,
+            )
             // 批v151: inbox "new idea" button placement (corner FAB vs bottom-center
             // half-width pill) — same chip idiom as the ball-size row above.
             ListItem(

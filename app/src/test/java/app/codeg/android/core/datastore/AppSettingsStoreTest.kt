@@ -24,13 +24,13 @@ class AppSettingsStoreTest {
 
     @Test
     fun `defaults are off`() {
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertFalse(s.activityDeviceSwipe)
     }
 
     @Test
     fun `floating ball defaults are on medium and system font`() {
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertTrue("the ball is a primary nav surface — ships on", s.floatBallEnabled)
         assertEquals("medium", s.floatBallSize)
         assertEquals(1f, s.fontScale)
@@ -47,7 +47,7 @@ class AppSettingsStoreTest {
         // 批v160 循环切最近会话: the depth is the ring size of recent sessions the
         // ball walks. Loader clamps corrupt prefs into the band, so the store can
         // never hand the hub a 0 / negative / huge ring.
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertEquals(5, s.floatBallCycleDepth)
         assertEquals(1, FLOAT_BALL_CYCLE_MIN)
         assertEquals(10, FLOAT_BALL_CYCLE_MAX)
@@ -60,7 +60,7 @@ class AppSettingsStoreTest {
         // a killed process is blind to every event stream, and notifications are
         // the feature's whole point (the persistent LOW-priority row can be
         // dismissed); users who explicitly opt out keep their stored value.
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertTrue(s.notifyInteractiveEnabled)
         assertTrue(s.keepAliveEnabled)
         assertTrue(s.notifyTaskHeadsUp)
@@ -71,7 +71,7 @@ class AppSettingsStoreTest {
         // 系统级通知体系: the second/third tiers ship ON like the interactive
         // tier — they are the point of the feature; each channel switch is
         // independent so users mute outcomes without losing alerts (or voice).
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertTrue(s.notifyTaskResultsEnabled)
         assertTrue(s.notifyDeviceEventsEnabled)
     }
@@ -116,6 +116,9 @@ class AppSettingsStoreTest {
         // 批v172 D4/D5: light paper variant + body font ids.
         assertEquals(1, keys.count { it == "light_surface_id" })
         assertEquals(1, keys.count { it == "app_font_id" })
+        // 批v196: agent-options sheet density keys.
+        assertEquals(1, keys.count { it == "agent_options_model_columns" })
+        assertEquals(1, keys.count { it == "agent_options_config_columns" })
         // 批v172 D7/补充1: quick-save memory + the workbench quick-card list.
         assertEquals(1, keys.count { it == "workbench_quick_cards" })
         assertEquals(1, keys.count { it == "quick_save_last_server" })
@@ -164,7 +167,7 @@ class AppSettingsStoreTest {
         // columns by default; switching devices is the explicit opt-in. The
         // loader coerces unknown stored values back to the default, so a corrupt
         // pref can never strand the board.
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertEquals(TASK_SWIPE_SEGMENTS, s.taskSwipeMode)
         assertEquals(setOf("segments", "devices"), TASK_SWIPE_MODES)
         assertTrue(TASK_SWIPE_MODES.contains(TASK_SWIPE_SEGMENTS))
@@ -176,7 +179,7 @@ class AppSettingsStoreTest {
         // 批v161: phones open on the double-column kanban (the whole board in two
         // pages); list mode keeps the classic single column. Both counts are legal
         // only in 1..2 — the store coerces corrupt prefs into that band.
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertEquals(TASK_BOARD_KANBAN, s.taskBoardLayout)
         assertEquals(setOf("kanban", "list"), TASK_BOARD_LAYOUTS)
         assertEquals(2, s.taskBoardKanbanColumns)
@@ -187,7 +190,7 @@ class AppSettingsStoreTest {
     fun `interface font scales default to follow global`() {
         // 批v172 D3: 0 = follow the global font scale — existing users keep
         // today's look until they set a per-interface value.
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertEquals(0f, s.sessionFontScale)
         assertEquals(0f, s.inboxFontScale)
         assertEquals(0f, s.taskhubFontScale)
@@ -230,7 +233,7 @@ class AppSettingsStoreTest {
     fun `session chip row defaults to devices, manual order empty, count sort off`() {
         // 批v160 W9: the chip row keeps its pre-W9 shape for existing users —
         // device chips, creation-ordered projects, no count sort.
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertEquals(SESSION_CHIP_DEVICES, s.sessionChipMode)
         assertEquals(setOf("devices", "projects"), SESSION_CHIP_MODES)
         assertTrue(SESSION_CHIP_MODES.contains(SESSION_CHIP_PROJECTS))
@@ -396,7 +399,7 @@ class AppSettingsStoreTest {
     @Test
     fun `v172 light surface and app font default to stock ids`() {
         // 批v172 D4/D5: existing users keep today's look until they pick one.
-        val s = AppSettings()
+        val s = AppSettingsStore.default()
         assertEquals("default", s.lightSurfaceId)
         assertEquals("system", s.appFontId)
     }
@@ -424,6 +427,36 @@ class AppSettingsStoreTest {
             val raw = store.settings.first()
             assertEquals("nonsense", raw.lightSurfaceId)
             assertEquals("nonsense", raw.appFontId)
+        } finally {
+            scope.cancel()
+            tmp.delete()
+        }
+    }
+
+    @Test
+    fun `v196 agent option column prefs default and roundtrip`() = runBlocking {
+        // Density is opt-in: model rows start at 1, lower options also at 1.
+        // Corrupt numeric prefs clamp at read time so a bad write can't break UI.
+        val tmp = TemporaryFolder()
+        tmp.create()
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) {
+                File(tmp.root, "settings.preferences_pb")
+            }
+            val store = AppSettingsStore(dataStore)
+            assertEquals(1, store.settings.first().agentOptionsModelColumns)
+            assertEquals(1, store.settings.first().agentOptionsConfigColumns)
+            store.setAgentOptionsModelColumns(2)
+            store.setAgentOptionsConfigColumns(3)
+            val expanded = store.settings.first()
+            assertEquals(2, expanded.agentOptionsModelColumns)
+            assertEquals(3, expanded.agentOptionsConfigColumns)
+            store.setAgentOptionsModelColumns(9)
+            store.setAgentOptionsConfigColumns(0)
+            val coerced = store.settings.first()
+            assertEquals(2, coerced.agentOptionsModelColumns)
+            assertEquals(1, coerced.agentOptionsConfigColumns)
         } finally {
             scope.cancel()
             tmp.delete()

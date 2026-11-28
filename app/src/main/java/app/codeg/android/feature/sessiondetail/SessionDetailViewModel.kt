@@ -210,8 +210,27 @@ class SessionDetailViewModel @Inject constructor(
         .map { it.docShareMode }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /** 批v196: the agent-options model list can be the official-style rows
+     *  (1, default) or the denser opt-in two-column grid. */
+    val agentOptionsModelColumns: StateFlow<Int> = appSettingsStore.settings
+        .map { it.agentOptionsModelColumns }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1)
+
+    /** 批v196: mode/effort/config density is independently 1..3 columns. */
+    val agentOptionsConfigColumns: StateFlow<Int> = appSettingsStore.settings
+        .map { it.agentOptionsConfigColumns }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 1)
+
     fun setDocShareMode(mode: String) {
         viewModelScope.launch { appSettingsStore.setDocShareMode(mode) }
+    }
+
+    fun setAgentOptionsModelColumns(columns: Int) {
+        viewModelScope.launch { appSettingsStore.setAgentOptionsModelColumns(columns) }
+    }
+
+    fun setAgentOptionsConfigColumns(columns: Int) {
+        viewModelScope.launch { appSettingsStore.setAgentOptionsConfigColumns(columns) }
     }
 
     private var profile: ServerProfile? = null

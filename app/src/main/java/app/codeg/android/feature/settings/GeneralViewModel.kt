@@ -296,6 +296,16 @@ class GeneralViewModel @Inject constructor(
         appSettingsStore.setTaskBoardListColumns(columns)
     }
 
+    /** 批v196: agent-options model rows/grid density (1 or 2). */
+    fun setAgentOptionsModelColumns(columns: Int) = launchPersist {
+        appSettingsStore.setAgentOptionsModelColumns(columns)
+    }
+
+    /** 批v196: mode/effort/config density (1..3). */
+    fun setAgentOptionsConfigColumns(columns: Int) = launchPersist {
+        appSettingsStore.setAgentOptionsConfigColumns(columns)
+    }
+
     // ---- 批v160 W9: session chip row — project order + count sort ----
 
     /** Sort the chip row by per-project session count (descending). When on, the
