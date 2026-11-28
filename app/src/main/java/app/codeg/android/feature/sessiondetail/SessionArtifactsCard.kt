@@ -36,10 +36,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.codeg.android.core.designsystem.component.MiddleEllipsisText
@@ -71,6 +71,7 @@ internal enum class SessionArtifactsTier {
 fun SessionArtifactsCard(
     artifacts: List<SessionArtifact>,
     sessionKey: String?,
+    availableBodyHeight: Dp,
     onOpen: (SessionArtifact) -> Unit,
     onCopyPath: (SessionArtifact) -> Unit,
 ) {
@@ -82,11 +83,10 @@ fun SessionArtifactsCard(
     // header would strand the filter (unreachable until the session changes).
     // The screen only composes this card when artifacts itself is non-empty.
     val expanded = displayTier != SessionArtifactsTier.COLLAPSED
-    val screenMaxHeight = LocalConfiguration.current.screenHeightDp.dp
     val bodyMaxHeight = if (displayTier == SessionArtifactsTier.COMPACT) {
         110.dp
     } else {
-        minOf(240.dp, screenMaxHeight * 0.30f)
+        minOf(240.dp, availableBodyHeight)
     }
     val listState = key(sessionKey) { rememberLazyListState() }
 
@@ -189,8 +189,6 @@ fun SessionArtifactsCard(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         )
                     } else {
-                        // R1-B: the bottomBar Column is not scrollable — an uncapped
-                        // 12-row body (~530dp) can push the composer off-screen with
                         // Keep every row available while preventing a large session
                         // from pushing the composer off-screen under the IME.
                         LazyColumn(
@@ -198,7 +196,7 @@ fun SessionArtifactsCard(
                             userScrollEnabled = true,
                             modifier = Modifier.heightIn(max = bodyMaxHeight),
                         ) {
-                            itemsIndexed(shown) { idx, artifact ->
+                            itemsIndexed(shown, key = { _, artifact -> artifact.path to artifact.name }) { idx, artifact ->
                                 if (idx > 0) HorizontalDivider(color = colors.hairline)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,

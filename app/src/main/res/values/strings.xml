@@ -963,7 +963,6 @@
 <string name="session_artifacts_modified">modified</string>
 <string name="session_artifacts_deleted">deleted</string>
 <string name="session_artifacts_copy_path">Copy path</string>
-<string name="session_artifacts_more">+%1$d more</string>
     <string name="session_artifacts_no_docs">No documents in this session</string>
 <string name="attachments_collapse">Collapse attachments</string>
 <string name="attachments_expand">Expand attachments</string>

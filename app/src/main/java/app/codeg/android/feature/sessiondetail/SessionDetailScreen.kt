@@ -93,6 +93,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -547,6 +548,7 @@ fun SessionDetailScreen(
         },
         bottomBar = {
             Column(Modifier.imePadding()) {
+                val screenHeight = LocalConfiguration.current.screenHeightDp.dp
                 // 批v194 M3: the MindFS artifacts strip — a pure function over the
                 // persisted turns (zero storage, zero server), so a doc the agent
                 // just wrote sits one tap above the composer. D2: every file type
@@ -558,6 +560,7 @@ fun SessionDetailScreen(
                     SessionArtifactsCard(
                         artifacts = artifacts,
                         sessionKey = ui.externalId,
+                        availableBodyHeight = screenHeight * 0.25f,
                         onOpen = { artifact ->
                             if (isOpenWithMediaType(artifact.name)) {
                                 viewModel.openPathExternally(artifact.path)
@@ -575,7 +578,11 @@ fun SessionDetailScreen(
                 // the strip scrolls instead of clipping.
                 if (ui.pendingPermission != null || ui.pendingQuestion != null || ui.pendingPlanApproval != null) {
                     val stripMax = with(androidx.compose.ui.platform.LocalConfiguration.current) {
-                        (screenHeightDp * 0.6f).dp
+                        if (artifacts.isNotEmpty()) {
+                            (screenHeight * 0.35f).dp
+                        } else {
+                            (screenHeight * 0.6f).dp
+                        }
                     }
                     // Fullscreen plan reading (M7): the strip's 300/320dp cap is
                     // fine for options but crushes a long plan — the cards' header
