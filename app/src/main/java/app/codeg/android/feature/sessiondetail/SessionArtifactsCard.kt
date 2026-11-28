@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -26,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -35,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,7 +46,7 @@ import app.codeg.android.core.designsystem.component.MiddleEllipsisText
 import app.codeg.android.core.designsystem.theme.CodegTheme
 import app.codeg.android.R
 
-/** 批v196: collapse / compact expand / full expand, cycled by the title row. */
+/** 批v196: collapse / compact expand / full expand with separate full-expand control. */
 internal enum class SessionArtifactsTier {
     COLLAPSED, COMPACT, FULL;
 
@@ -58,7 +62,7 @@ internal enum class SessionArtifactsTier {
  * so a doc the agent just produced is one tap away instead of a folder climb.
  *
  * D2 拍板: every file type is collected (code included), the card defaults to
- * expanded at ≤3 rows / collapsed above, and the 「仅文档」 chip filters the
+ * compact expand, and the 「仅文档」 chip filters the
  * rows down to documents (md/txt/html) when a long session buries the report.
  * A manual toggle is remembered while the screen lives; per session key so a
  * switched session re-applies the auto default.
@@ -82,8 +86,9 @@ fun SessionArtifactsCard(
     val bodyMaxHeight = if (displayTier == SessionArtifactsTier.COMPACT) {
         110.dp
     } else {
-        minOf(420.dp, screenMaxHeight * 0.60f)
+        minOf(240.dp, screenMaxHeight * 0.30f)
     }
+    val listState = key(sessionKey) { rememberLazyListState() }
 
     Surface(
         color = colors.bgElevated,
@@ -99,7 +104,12 @@ fun SessionArtifactsCard(
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .clickable { displayTier = displayTier.toggleExpanded() }
+                    .clickable(
+                        role = Role.Button,
+                        onClickLabel = stringResource(
+                            if (expanded) R.string.session_artifacts_collapse else R.string.session_artifacts_expand
+                        ),
+                    ) { displayTier = displayTier.toggleExpanded() }
                     .padding(horizontal = 10.dp, vertical = 2.dp),
             ) {
                 Icon(
@@ -125,20 +135,39 @@ fun SessionArtifactsCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
                 androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-                Icon(
-                    if (displayTier == SessionArtifactsTier.FULL) {
-                        Icons.Rounded.CloseFullscreen
-                    } else {
-                        Icons.Rounded.OpenInFull
-                    },
-                    contentDescription = stringResource(R.string.session_artifacts_full_expand),
-                    tint = colors.textTertiary,
+                Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { displayTier = displayTier.toggleFullExpand() }
-                        .padding(7.dp),
-                )
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = stringResource(
+                                if (displayTier == SessionArtifactsTier.FULL) {
+                                    R.string.session_artifacts_restore
+                                } else {
+                                    R.string.session_artifacts_full_expand
+                                }
+                            ),
+                        ) { displayTier = displayTier.toggleFullExpand() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (displayTier == SessionArtifactsTier.FULL) {
+                            Icons.Rounded.CloseFullscreen
+                        } else {
+                            Icons.Rounded.OpenInFull
+                        },
+                        contentDescription = stringResource(
+                            if (displayTier == SessionArtifactsTier.FULL) {
+                                R.string.session_artifacts_restore
+                            } else {
+                                R.string.session_artifacts_full_expand
+                            }
+                        ),
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
                 Icon(
                     Icons.Rounded.ExpandMore,
                     contentDescription = null,
@@ -162,15 +191,14 @@ fun SessionArtifactsCard(
                     } else {
                         // R1-B: the bottomBar Column is not scrollable — an uncapped
                         // 12-row body (~530dp) can push the composer off-screen with
-                        // the strip + IME open. Cap the body at ~5 rows and scroll
-                        // the rest; the "还有 N 个" count stays OUTSIDE the scroll
-                        // (R2-A) so it's visible without scrolling to the fold.
-                        Column(
-                            Modifier
-                                .heightIn(max = bodyMaxHeight)
-                                .verticalScroll(rememberScrollState()),
+                        // Keep every row available while preventing a large session
+                        // from pushing the composer off-screen under the IME.
+                        LazyColumn(
+                            state = listState,
+                            userScrollEnabled = true,
+                            modifier = Modifier.heightIn(max = bodyMaxHeight),
                         ) {
-                            shown.forEachIndexed { idx, artifact ->
+                            itemsIndexed(shown) { idx, artifact ->
                                 if (idx > 0) HorizontalDivider(color = colors.hairline)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,

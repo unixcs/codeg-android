@@ -947,7 +947,10 @@
         <!-- 批v194 M3: session artifacts card -->
 <string name="session_artifacts_title">本会话产物 %1$d</string>
 <string name="session_artifacts_docs_only">仅文档</string>
+<string name="session_artifacts_expand">展开产物</string>
+<string name="session_artifacts_collapse">收起产物</string>
 <string name="session_artifacts_full_expand">完全展开</string>
+<string name="session_artifacts_restore">恢复默认展开</string>
 <string name="session_artifacts_added">新增</string>
 <string name="session_artifacts_modified">修改</string>
 <string name="session_artifacts_deleted">删除</string>

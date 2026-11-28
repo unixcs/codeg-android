@@ -955,7 +955,10 @@
         <!-- 批v194 M3: session artifacts card -->
 <string name="session_artifacts_title">Session artifacts (%1$d)</string>
 <string name="session_artifacts_docs_only">Docs only</string>
+<string name="session_artifacts_expand">Expand artifacts</string>
+<string name="session_artifacts_collapse">Collapse artifacts</string>
 <string name="session_artifacts_full_expand">Full expand</string>
+<string name="session_artifacts_restore">Restore compact</string>
 <string name="session_artifacts_added">added</string>
 <string name="session_artifacts_modified">modified</string>
 <string name="session_artifacts_deleted">deleted</string>
