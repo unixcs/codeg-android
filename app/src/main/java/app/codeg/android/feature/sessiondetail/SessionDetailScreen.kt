@@ -577,13 +577,7 @@ fun SessionDetailScreen(
                 // "only one button visible" report). The composer below stays pinned;
                 // the strip scrolls instead of clipping.
                 if (ui.pendingPermission != null || ui.pendingQuestion != null || ui.pendingPlanApproval != null) {
-                    val stripMax = with(androidx.compose.ui.platform.LocalConfiguration.current) {
-                        if (artifacts.isNotEmpty()) {
-                            (screenHeight * 0.35f).dp
-                        } else {
-                            (screenHeight * 0.6f).dp
-                        }
-                    }
+                    val stripMax = if (artifacts.isNotEmpty()) screenHeight * 0.35f else screenHeight * 0.60f
                     // Fullscreen plan reading (M7): the strip's 300/320dp cap is
                     // fine for options but crushes a long plan — the cards' header
                     // expand button swaps in PlanFullscreenDialog, read-only.
