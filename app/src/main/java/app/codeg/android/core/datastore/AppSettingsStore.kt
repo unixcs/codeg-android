@@ -244,8 +244,7 @@ data class AppSettings(
         const val DEFAULT_SESSION_SWIPE_RIGHT = "board"
         /** The initial value [AppSettingsStore.settings] exposes before DataStore's
          *  first emission; used to detect "settings not loaded yet". */
-        val INITIAL = default()
-        fun default() = AppSettings()
+        val INITIAL = AppSettings()
     }
 }
 
