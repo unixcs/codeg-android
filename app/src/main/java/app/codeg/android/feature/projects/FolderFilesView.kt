@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreateNewFolder
@@ -71,7 +72,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
-import app.codeg.android.core.designsystem.component.openWithBytes
+import app.codeg.android.core.designsystem.component.openWithWorkspaceFile
 import app.codeg.android.core.designsystem.component.isOpenWithMediaType
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,7 +95,7 @@ import androidx.compose.ui.unit.sp
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.component.CodegTextField
 import app.codeg.android.core.designsystem.component.CodegSegmented
-import app.codeg.android.core.designsystem.component.CopyButton
+import app.codeg.android.core.designsystem.component.DocShareButton
 import app.codeg.android.core.designsystem.component.EmptyState
 import app.codeg.android.core.designsystem.component.ImageViewerDialog
 import app.codeg.android.core.designsystem.component.ImageViewerSource
@@ -696,15 +697,7 @@ internal fun FileActionSheet(
                     error = null
                     scope.launch {
                         val result = runCatching {
-                            withContext(Dispatchers.IO) {
-                                // 批v165 R1 (P1): 10MB, same ceiling as the preview
-                                // path (:readWorkspaceFileBase64 there) — 100MB base64
-                                // (~133MB string + bytes on decode) OOMs the app heap.
-                                // Larger files go through Download, which streams.
-                                val b64 = client.readWorkspaceFileBase64(rootPath, relForRead, maxBytes = 10 * 1024 * 1024)
-                                val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-                                openWithBytes(context, target.name, bytes)
-                            }
+                            openWithWorkspaceFile(context, client, rootPath, relForRead, target.name)
                         }
                         shareBusy = false
                         result.fold(
@@ -1031,6 +1024,7 @@ private fun FilePreview(
     val outsideMsg = stringResource(R.string.files_outside_workspace)
     var result by remember(absPath) { mutableStateOf<Result<String>?>(null) }
     var loadTick by remember(absPath) { mutableStateOf(0) }
+    var shareMode by rememberSaveable(absPath) { mutableStateOf<String?>(null) }
     val reload: () -> Unit = { loadTick++ }
     LaunchedEffect(absPath, loadTick) {
         if (isMediaFile) return@LaunchedEffect
@@ -1057,14 +1051,21 @@ private fun FilePreview(
         }
         scope.launch {
             openWithError = runCatching {
-                val base64 = client.readWorkspaceFileBase64(pair.first, pair.second, maxBytes = 10 * 1024 * 1024)
-                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
-                openWithBytes(previewContext, absPath.substringAfterLast('/'), bytes)
+                openWithWorkspaceFile(
+                    context = previewContext,
+                    client = client,
+                    rootPath = pair.first,
+                    path = pair.second,
+                    fileName = absPath.substringAfterLast('/'),
+                )
                 null
             }.getOrElse { it.message ?: previewContext.getString(app.codeg.android.R.string.files_read_failed) }
         }
     }
     var rendered by remember(absPath, kind) { mutableStateOf(kind == PreviewKind.MARKDOWN) }
+    var moreOpen by remember(absPath) { mutableStateOf(false) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val copiedMsg = stringResource(R.string.files_action_copied)
     // 批v195 拍板 3A: the file browser's rendered-markdown outline — same shared
     // body/card as the doc preview. Gated on actual headings so a heading-less
     // file shows no dead button.
@@ -1072,6 +1073,7 @@ private fun FilePreview(
     val mdEntries = remember(result) {
         result?.getOrNull()?.let { outlineEntries(parseMarkdownBlocks(it)) }.orEmpty()
     }
+    val previewContent = result?.getOrNull()
 
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
@@ -1100,22 +1102,69 @@ private fun FilePreview(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                // Markdown edits its source too (new in v176); an empty file is
-                // still editable — the editor is how you put content INTO it.
-                if (kind == PreviewKind.TEXT || kind == PreviewKind.MARKDOWN) {
-                    IconButton(onClick = onEdit) {
-                        Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.files_action_edit), tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-                    }
-                }
-                if (kind == PreviewKind.MARKDOWN && rendered && mdEntries.isNotEmpty()) {
-                    IconButton(onClick = { outlineOpen = !outlineOpen }) {
-                        Icon(Icons.Rounded.Toc, contentDescription = stringResource(R.string.doc_preview_outline), tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-                    }
-                }
+                // One tap swaps rendered/source; every secondary action lives in
+                // the overflow so the title keeps real width on a phone.
                 if (kind == PreviewKind.MARKDOWN) {
-                    FilePreviewModeToggle(rendered = rendered, onToggle = { rendered = it })
+                    IconButton(onClick = { rendered = !rendered }, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            if (rendered) Icons.Rounded.Code else Icons.Rounded.Visibility,
+                            contentDescription = stringResource(
+                                if (rendered) R.string.files_preview_source else R.string.files_preview_rendered,
+                            ),
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
-                result?.getOrNull()?.let { if (it.isNotEmpty()) CopyButton(it) }
+                if (
+                    previewContent != null && previewContent.isNotEmpty() &&
+                    (kind == PreviewKind.TEXT || kind == PreviewKind.MARKDOWN || kind == PreviewKind.HTML)
+                ) {
+                    DocShareButton(
+                        fileName = absPath.substringAfterLast('/').ifEmpty { "document.txt" },
+                        content = previewContent,
+                        savedMode = shareMode,
+                        onModePicked = { shareMode = it },
+                    )
+                }
+                Box {
+                    IconButton(onClick = { moreOpen = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.files_manage), tint = colors.textSecondary)
+                    }
+                    DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                        if (kind == PreviewKind.TEXT || kind == PreviewKind.MARKDOWN) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.files_action_edit)) },
+                                leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    moreOpen = false
+                                    onEdit()
+                                },
+                            )
+                        }
+                        if (kind == PreviewKind.MARKDOWN && rendered && mdEntries.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.doc_preview_outline)) },
+                                leadingIcon = { Icon(Icons.Rounded.Toc, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    moreOpen = false
+                                    outlineOpen = !outlineOpen
+                                },
+                            )
+                        }
+                        if (previewContent != null && previewContent.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.files_action_copy)) },
+                                leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    moreOpen = false
+                                    clipboard.setText(AnnotatedString(previewContent))
+                                    android.widget.Toast.makeText(previewContext, copiedMsg, android.widget.Toast.LENGTH_SHORT).show()
+                                },
+                            )
+                        }
+                    }
+                }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val r = result
@@ -1208,20 +1257,6 @@ private fun previewKindOf(name: String): PreviewKind {
         "" -> PreviewKind.TEXT
         else -> PreviewKind.OTHER
     }
-}
-
-/** Rendered/Source segmented toggle for Markdown file previews. */
-@Composable
-private fun FilePreviewModeToggle(rendered: Boolean, onToggle: (Boolean) -> Unit) {
-    CodegSegmented(
-        options = listOf(
-            stringResource(R.string.files_preview_rendered),
-            stringResource(R.string.files_preview_source),
-        ),
-        selectedIndex = if (rendered) 0 else 1,
-        onSelect = { onToggle(it == 0) },
-        modifier = Modifier.padding(end = 8.dp),
-    )
 }
 
 /**

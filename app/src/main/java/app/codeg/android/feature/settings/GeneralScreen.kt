@@ -150,9 +150,8 @@ fun GeneralContent(
                     onSelect = viewModel::setTaskBoardKanbanColumns,
                 )
             }
-            // 批v196: the agent-options sheet follows the user's density choice.
-            // Defaults stay official-style single rows; grids are opt-in and the
-            // UI still falls back when labels are too long.
+            // 批v196/v197: the agent-options sheet follows the user's density
+            // choice. Defaults stay official-style single rows; grids are opt-in.
             ChipRow(
                 title = stringResource(R.string.general_agent_options_model_columns_title),
                 subtitle = stringResource(R.string.general_agent_options_model_columns_subtitle),
@@ -164,6 +163,7 @@ fun GeneralContent(
                 title = stringResource(R.string.general_agent_options_config_columns_title),
                 subtitle = stringResource(R.string.general_agent_options_config_columns_subtitle),
                 options = listOf(
+                    0 to R.string.general_columns_auto,
                     1 to R.string.general_columns_one,
                     2 to R.string.general_columns_two,
                     3 to R.string.general_columns_three,

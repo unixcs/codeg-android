@@ -435,7 +435,7 @@ class AppSettingsStoreTest {
 
     @Test
     fun `v196 agent option column prefs default and roundtrip`() = runBlocking {
-        // Density is opt-in: model rows start at 1, lower options also at 1.
+        // Model density is opt-in (1); lower options default to automatic.
         // Corrupt numeric prefs clamp at read time so a bad write can't break UI.
         val tmp = TemporaryFolder()
         tmp.create()
@@ -446,17 +446,19 @@ class AppSettingsStoreTest {
             }
             val store = AppSettingsStore(dataStore)
             assertEquals(1, store.settings.first().agentOptionsModelColumns)
-            assertEquals(1, store.settings.first().agentOptionsConfigColumns)
+            assertEquals(0, store.settings.first().agentOptionsConfigColumns)
             store.setAgentOptionsModelColumns(2)
             store.setAgentOptionsConfigColumns(3)
             val expanded = store.settings.first()
             assertEquals(2, expanded.agentOptionsModelColumns)
             assertEquals(3, expanded.agentOptionsConfigColumns)
             store.setAgentOptionsModelColumns(9)
-            store.setAgentOptionsConfigColumns(0)
+            store.setAgentOptionsConfigColumns(4)
             val coerced = store.settings.first()
             assertEquals(2, coerced.agentOptionsModelColumns)
-            assertEquals(1, coerced.agentOptionsConfigColumns)
+            assertEquals(3, coerced.agentOptionsConfigColumns)
+            store.setAgentOptionsConfigColumns(0)
+            assertEquals(0, store.settings.first().agentOptionsConfigColumns)
         } finally {
             scope.cancel()
             tmp.delete()

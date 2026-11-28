@@ -3,22 +3,40 @@ package app.codeg.android.core.designsystem.component
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import app.codeg.android.core.network.CodegClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
 
 /**
- * Open a fetched payload with a system-selected app. The bytes are cached
- * before the system chooser runs because Android cannot read Codeg's in-memory
- * server-backed files directly. `resolveOpenWithMime` keeps media types out of
- * the wildcard chooser so the right player/editor appears first.
+ * Stream a workspace file into the app cache, then hand its URI to the system
+ * open-with chooser. Streaming avoids the old 10 MB base64 ceiling that made
+ * generated videos (and larger audio files) fail before a player ever opened.
+ * `resolveOpenWithMime` narrows the chooser so the right player appears first.
  */
-suspend fun openWithBytes(context: Context, fileName: String, bytes: ByteArray) {
-    val uri = withContext(Dispatchers.IO) {
-        val dir = java.io.File(context.cacheDir, "open_with").apply { mkdirs() }
-        val file = java.io.File(dir, fileName.substringAfterLast('/').ifEmpty { "file" })
-        file.writeBytes(bytes)
-        FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+suspend fun openWithWorkspaceFile(
+    context: Context,
+    client: CodegClient,
+    rootPath: String,
+    path: String,
+    fileName: String = path.substringAfterLast('/'),
+) {
+    val file = withContext(Dispatchers.IO) {
+        val cachedRoot = File(context.cacheDir, "open_with").apply { mkdirs() }
+        pruneOldOpenWithDirs(cachedRoot)
+        // A unique directory keeps repeated opens from overwriting a file that
+        // a player may still be reading after the chooser closes.
+        val dir = File(cachedRoot, UUID.randomUUID().toString()).apply { mkdirs() }
+        val target = File(dir, safeShareFileName(fileName).ifEmpty { "file" })
+        target.outputStream().buffered().use { output ->
+            client.downloadWorkspace(rootPath, path, isDir = false) { chunk ->
+                output.write(chunk)
+            }
+        }
+        target
     }
+    val uri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
     val intent = Intent(Intent.ACTION_VIEW)
         .setDataAndType(uri, resolveOpenWithMime(fileName))
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -37,6 +55,13 @@ suspend fun openWithBytes(context: Context, fileName: String, bytes: ByteArray) 
     }
 }
 
+private fun pruneOldOpenWithDirs(root: File) {
+    val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+    root.listFiles()
+        ?.filter { it.isDirectory && it.lastModified() < cutoff }
+        ?.forEach { it.deleteRecursively() }
+}
+
 fun resolveOpenWithMime(name: String): String {
     val extension = name.substringAfterLast('.', "").lowercase()
     return when (extension) {
@@ -53,8 +78,18 @@ fun resolveOpenWithMime(name: String): String {
         "svg" -> "image/svg+xml"
         "pdf" -> "application/pdf"
         "zip" -> "application/zip"
-        "mp4", "m4v", "mov", "avi", "mkv", "webm", "3gp" -> "video/$extension"
-        "mp3", "m4a", "aac", "wav", "flac" -> "audio/$extension"
+        "mp4" -> "video/mp4"
+        "m4v" -> "video/x-m4v"
+        "mov" -> "video/quicktime"
+        "avi" -> "video/x-msvideo"
+        "mkv" -> "video/x-matroska"
+        "webm" -> "video/webm"
+        "3gp" -> "video/3gpp"
+        "mp3" -> "audio/mpeg"
+        "m4a" -> "audio/mp4"
+        "aac" -> "audio/aac"
+        "wav" -> "audio/wav"
+        "flac" -> "audio/flac"
         "ogg", "oga", "opus" -> "audio/ogg"
         "wmv" -> "video/x-ms-wmv"
         "wma" -> "audio/x-ms-wma"

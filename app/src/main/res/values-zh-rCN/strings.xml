@@ -837,6 +837,7 @@
     <string name="agentopts_search_model">搜索模型…</string>
     <string name="agentopts_no_matching_model">没有匹配「%1$s」的模型</string>
     <string name="agentopts_active_model">当前：%1$s</string>
+    <string name="agentopts_more_models_hint">仅显示前 24 组 · 可用搜索查找其余模型。</string>
     <string name="agentopts_model">模型</string>
 
     <!-- ===== Session Detail · Composer ===== -->
@@ -1214,6 +1215,8 @@
     <string name="files_upload_done">已上传 %1$d 个文件</string>
     <string name="files_action_open">打开</string>
     <string name="files_action_edit">编辑</string>
+    <string name="files_action_copy">复制文件内容</string>
+    <string name="files_action_copied">已复制</string>
     <string name="files_action_download">下载到手机</string>
     <string name="files_action_open_with">用其他应用打开</string>
     <string name="files_action_rename">重命名</string>
@@ -1275,6 +1278,8 @@
     <string name="doc_preview_share_mode_title">分享方式</string>
     <string name="doc_preview_share_as_text">分享为文本</string>
     <string name="doc_preview_share_as_file">分享为文件</string>
+    <string name="doc_preview_share_failed">没有可用的分享目标，请重试。</string>
+    <string name="doc_preview_share_text_too_long">文档过长，已自动改为以文件方式分享。</string>
     <string name="selection_menu_copy">复制</string>
     <string name="selection_menu_select_all">全选</string>
     <string name="selection_menu_share_selection">分享所选</string>
@@ -1813,11 +1818,12 @@
     <string name="general_columns_one">单列</string>
     <string name="general_columns_two">双列</string>
     <string name="general_columns_three">三列</string>
+    <string name="general_columns_auto">自动</string>
     <!-- 批v196：智能体选项密度。 -->
     <string name="general_agent_options_model_columns_title">模型排列列数</string>
     <string name="general_agent_options_model_columns_subtitle">单行更好点按；双列可一屏看到更多模型。</string>
     <string name="general_agent_options_config_columns_title">模式与强度列数</string>
-    <string name="general_agent_options_config_columns_subtitle">用于 Plan/YOLO、模型强度等智能体选项。</string>
+    <string name="general_agent_options_config_columns_subtitle">用于 Plan/YOLO、模型强度等智能体选项；自动会按标签长度排列 1–3 列。</string>
     <string name="task_overview_entry">总览</string>
     <!-- 批v167：看板⇄列表切换按钮——描述动作（要切去的布局） -->
     <string name="task_layout_to_list_cd">切换到列表视图</string>

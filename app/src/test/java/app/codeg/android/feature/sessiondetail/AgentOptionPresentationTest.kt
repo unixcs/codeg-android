@@ -16,7 +16,81 @@ class AgentOptionPresentationTest {
         assertEquals("0.08x", modelRate("Foo · 0.08 ×", null))
         assertEquals("0.08x", modelRate("Foo · 0.08 X", null))
         assertEquals("0.08x", modelRate(null, "0.08x"))
+        assertEquals("0.21x", modelRate("Foo", "x0.21"))
+        assertEquals("0.21x", modelRate("Foo", "Fast model · x0.21 credits"))
+        assertEquals("0.08x", modelRate("Foo · 0.08 credits", null))
         assertNull(modelRate("Foo", "Provider"))
+    }
+
+    @Test
+    fun `model presentation strips trailing rate from label`() {
+        val group = AgentModelGroup("magpie", "Magpie", emptyList())
+        val presentation = modelPresentation(
+            SessionConfigSelectOption("magpie/foo", "Magpie/Foo · 0.08x", "0.08x"),
+            group,
+        )
+        assertEquals("Foo", presentation.shortLabel)
+        assertEquals("0.08x", presentation.rate)
+    }
+
+    @Test
+    fun `codebuddy prefixed rate stays on one compact model row`() {
+        val option = SessionConfigSelectOption(
+            "deepseek-v4.1-flash",
+            "DeepSeek-V4.1-Flash · x0.08",
+            "Fast model · x0.08 credits",
+        )
+        val presentation = modelPresentation(option, null)
+
+        assertEquals("DeepSeek-V4.1-Flash", presentation.shortLabel)
+        assertEquals("0.08x", presentation.rate)
+    }
+
+    @Test
+    fun `model presentation compacts magpie plumbing and keeps model suffix`() {
+        val option = SessionConfigSelectOption(
+            "group/deepseek-v4.1-flash:free",
+            "magpie › group/deepseek-v4.1-flash:free · 0.08x",
+            null,
+        )
+        val flat = AgentModelGroup("__all__", null, listOf(option))
+        val presentation = modelPresentation(option, flat)
+
+        assertEquals("deepseek-v4.1-flash:free", presentation.shortLabel)
+        assertEquals("0.08x", presentation.rate)
+    }
+
+    @Test
+    fun `active model label uses compact row presentation and rate`() {
+        val option = SessionConfigOption(
+            id = "model",
+            kind = SessionConfigKind(
+                options = listOf(
+                    SessionConfigSelectOption("group/alpha", "magpie › group/alpha · 0.08x", null),
+                    SessionConfigSelectOption("group/beta", "magpie › group/beta · 0.11x", null),
+                ),
+            ),
+        )
+
+        assertEquals("alpha · 0.08x", activeModelLabel(option, "group/alpha"))
+        assertEquals("beta · 0.11x", activeModelLabel(option, "group/beta"))
+        assertNull(activeModelLabel(option, "missing"))
+    }
+
+    @Test
+    fun `current config value marks exactly one choice selected`() {
+        val option = SessionConfigOption(
+            id = "model",
+            kind = SessionConfigKind(
+                options = listOf(
+                    SessionConfigSelectOption("magpie/a", "Magpie/A", "0.08x"),
+                    SessionConfigSelectOption("magpie/b", "Magpie/B", "0.11x"),
+                ),
+            ),
+        )
+        val choices = option.toChoices("magpie/b")
+
+        assertEquals(listOf(false, true), choices.map { it.selected })
     }
 
     @Test
@@ -120,20 +194,46 @@ class AgentOptionPresentationTest {
     }
 
     @Test
-    fun `grid density falls back for long labels`() {
+    fun `explicit grid density honors columns and shrinks to option count`() {
         val short = listOf(ConfigOptionChoice("a", "ab", null, false), ConfigOptionChoice("b", "cd", "desc", false))
-        val long = listOf(ConfigOptionChoice("a", "x".repeat(19), null, false))
+        val longOne = listOf(ConfigOptionChoice("a", "x".repeat(19), null, false))
+        val longThree = listOf(
+            ConfigOptionChoice("a", "x".repeat(19), null, false),
+            ConfigOptionChoice("b", "y".repeat(19), null, false),
+            ConfigOptionChoice("c", "z".repeat(19), null, false),
+        )
         assertEquals(2, requestedConfigColumns(short, 2))
-        assertEquals(1, requestedConfigColumns(long, 2))
+        assertEquals(2, requestedConfigColumns(short, 3))
+        assertEquals(1, requestedConfigColumns(longOne, 2))
+        assertEquals(2, requestedConfigColumns(longThree, 2))
+        assertEquals(3, requestedConfigColumns(longThree, 3))
+        assertEquals(2, requestedConfigColumns(short, 0))
+        assertEquals(1, requestedConfigColumns(longOne, 0))
         assertEquals(listOf(listOf("a", "b")), gridRows(listOf("a", "b"), 2))
     }
 
     @Test
-    fun `model grid density falls back for long labels`() {
-        val short = listOf(SessionConfigSelectOption("a", "short", null))
-        val long = listOf(SessionConfigSelectOption("a", "x".repeat(19), null))
-        assertEquals(2, requestedModelColumns(short, 2))
-        assertEquals(1, requestedModelColumns(long, 2))
+    fun `auto config density caps columns by label length and choice count`() {
+        val shortThree = listOf(
+            ConfigOptionChoice("plan", "Plan", null, false),
+            ConfigOptionChoice("build", "Build", null, false),
+            ConfigOptionChoice("yolo", "YOLO", null, false),
+        )
+        val medium = listOf(
+            ConfigOptionChoice("standard", "Standard", null, false),
+            ConfigOptionChoice("pro", "Pro", null, false),
+            ConfigOptionChoice("max", "Max", null, false),
+        )
+        assertEquals(3, requestedConfigColumns(shortThree, 0))
+        assertEquals(2, requestedConfigColumns(medium, 0))
+    }
+
+    @Test
+    fun `model grid density honors the explicit column choice`() {
+        assertEquals(1, requestedModelColumns(1))
+        assertEquals(2, requestedModelColumns(2))
+        assertEquals(1, requestedModelColumns(0))
+        assertEquals(2, requestedModelColumns(9))
     }
 
 }

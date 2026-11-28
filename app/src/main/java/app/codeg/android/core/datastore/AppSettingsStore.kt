@@ -120,8 +120,9 @@ data class AppSettings(
     /** 批v196: agent-options model picker layout — 1 = the official-style,
      *  easy-to-hit single rows; 2 = an optional denser two-column grid. */
     val agentOptionsModelColumns: Int = DEFAULT_AGENT_OPTIONS_MODEL_COLUMNS,
-    /** 批v196: agent-options mode/effort/config layout — 1..3 columns, with
-     *  long labels falling back to a single column at render time. */
+    /** 批v197: agent-options mode/effort/config layout — 0 = automatic
+     *  (1..3 columns from label length), or an explicit 1..3 columns. Long
+     *  labels still fall back to a single column at render time. */
     val agentOptionsConfigColumns: Int = DEFAULT_AGENT_OPTIONS_CONFIG_COLUMNS,
     /** 批v179: the sheet's project order — "count" (most sessions first, the
      *  拍板 default), "manual" (sortOrder), "name", "created" (newest first). */
@@ -235,7 +236,7 @@ data class AppSettings(
         // 批v196: default to the precise single-row model picker; density is
         // opt-in so the first experience keeps generous touch targets.
         const val DEFAULT_AGENT_OPTIONS_MODEL_COLUMNS = 1
-        const val DEFAULT_AGENT_OPTIONS_CONFIG_COLUMNS = 1
+        const val DEFAULT_AGENT_OPTIONS_CONFIG_COLUMNS = 0
         const val DEFAULT_ADD_TO_PROJECT_SORT = ADD_TO_PROJECT_SORT_COUNT
         const val DEFAULT_FILE_SORT_MODE = FILE_SORT_MODE_NAME
         const val DEFAULT_ACTIVITY_WINDOW_HOURS = 24
@@ -338,7 +339,7 @@ class AppSettingsStore @Inject constructor(
             agentOptionsModelColumns = (prefs[AGENT_OPTIONS_MODEL_COLUMNS]
                 ?: AppSettings.DEFAULT_AGENT_OPTIONS_MODEL_COLUMNS).coerceIn(1, 2),
             agentOptionsConfigColumns = (prefs[AGENT_OPTIONS_CONFIG_COLUMNS]
-                ?: AppSettings.DEFAULT_AGENT_OPTIONS_CONFIG_COLUMNS).coerceIn(1, 3),
+                ?: AppSettings.DEFAULT_AGENT_OPTIONS_CONFIG_COLUMNS).coerceIn(0, 3),
             addToProjectSort = prefs[ADD_TO_PROJECT_SORT]?.takeIf { it in ADD_TO_PROJECT_SORTS }
                 ?: AppSettings.DEFAULT_ADD_TO_PROJECT_SORT,
             fileSortMode = prefs[FILE_SORT_MODE]?.takeIf { it in FILE_SORT_MODES }
@@ -705,9 +706,9 @@ class AppSettingsStore @Inject constructor(
         dataStore.edit { it[AGENT_OPTIONS_MODEL_COLUMNS] = columns.coerceIn(1, 2) }
     }
 
-    /** 批v196: persist the mode/effort/config column count (1..3). */
+    /** 批v197: persist the mode/effort/config column count (0 = auto, 1..3). */
     suspend fun setAgentOptionsConfigColumns(columns: Int) {
-        dataStore.edit { it[AGENT_OPTIONS_CONFIG_COLUMNS] = columns.coerceIn(1, 3) }
+        dataStore.edit { it[AGENT_OPTIONS_CONFIG_COLUMNS] = columns.coerceIn(0, 3) }
     }
 
     /** 批v179: persist the sheet's project order mode (whitelist-guarded). */

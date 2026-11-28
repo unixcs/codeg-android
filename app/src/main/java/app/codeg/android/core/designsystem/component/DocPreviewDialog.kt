@@ -1,13 +1,12 @@
 package app.codeg.android.core.designsystem.component
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -15,21 +14,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Toc
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -41,23 +39,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import app.codeg.android.R
 import app.codeg.android.core.designsystem.markdown.OutlineAwareMarkdownBody
 import app.codeg.android.core.designsystem.markdown.TappableMarkdownText
@@ -87,11 +80,11 @@ internal const val DOC_SHARE_MODE_FILE = "file"
  * self-contained AI-written HTML, and deployed pages open in the browser via URL
  * taps instead.
  *
- * 批v195 拍板 1A/2B/3A: the share action is dual-mode — short press shares with
- * the last-used format (settings-persisted; first use falls back to a smart
- * default), long press picks 文本/文件; the body's selection menu is our own
- * toolbar with 分享所选 (reflection-extracted, auto-degrades to the whole doc);
- * the outline moved to the shared MindFS-dims [OutlineAwareMarkdownBody].
+ * 批v197: the header share action opens a 文本/文件 format picker before the
+ * system chooser; the last-used format gets a check mark and is persisted by
+ * the caller. The body's selection menu remains our own toolbar with 分享所选
+ * (reflection-extracted, auto-degrades to the whole doc); the outline moved to
+ * the shared MindFS-dims [OutlineAwareMarkdownBody].
  *
  * 批v194 M4: the MindFS 大纲 port — Markdown previews gain a TOC action that
  * pops a compact heading card; tapping a heading scrolls the (block-anchored)
@@ -116,19 +109,18 @@ fun DocPreviewDialog(
     }
     val hasOutline = remember(blocks) { outlineEntries(blocks).isNotEmpty() }
     var outlineOpen by remember { mutableStateOf(false) }
-    var shareMenuOpen by remember { mutableStateOf(false) }
     val toolbarState = remember { DocSelectionToolbarState() }
     val toolbar = remember { DocTextToolbar(toolbarState) }
     val clipboard = LocalClipboardManager.current
     val scrollState = rememberScrollState()
+    val shareFailedMsg = stringResource(R.string.doc_preview_share_failed)
+    val shareTooLongMsg = stringResource(R.string.doc_preview_share_text_too_long)
     // A menu pinned to a stale rect is worse than no menu — hide on scroll.
     LaunchedEffect(scrollState.isScrollInProgress) {
         if (scrollState.isScrollInProgress) toolbarState.hide()
     }
-    // Only one of the two top-end popups open at a time.
     LaunchedEffect(outlineOpen) {
         if (outlineOpen) {
-            shareMenuOpen = false
             toolbarState.hide()
         }
     }
@@ -160,24 +152,15 @@ fun DocPreviewDialog(
                         if (state.kind == DocPreviewKind.MARKDOWN && hasOutline) {
                             IconButton(onClick = {
                                 outlineOpen = !outlineOpen
-                                if (outlineOpen) shareMenuOpen = false
                             }) {
                                 Icon(Icons.Rounded.Toc, contentDescription = stringResource(R.string.doc_preview_outline), tint = colors.textSecondary)
                             }
                         }
-                        ShareIconButton(
+                        DocShareButton(
                             fileName = state.title,
                             content = state.content,
                             savedMode = shareMode,
                             onModePicked = onShareModePicked,
-                            menuOpen = shareMenuOpen,
-                            onMenuToggle = {
-                                shareMenuOpen = !shareMenuOpen
-                                if (shareMenuOpen) {
-                                    outlineOpen = false
-                                    toolbarState.hide()
-                                }
-                            },
                         )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.bg),
@@ -230,109 +213,105 @@ fun DocPreviewDialog(
                             copy?.invoke()
                             val after = clipboard.getText()?.text
                             val picked = after?.takeIf { it.isNotBlank() && after != before }
-                            shareDocument(context, state.title, picked ?: state.content, asFile = false)
+                            val outcome = shareDocument(context, state.title, picked ?: state.content, asFile = false)
+                            showShareOutcome(context, outcome, shareFailedMsg, shareTooLongMsg)
                         }
                     },
                     onShareAll = {
-                        scope.launch { shareDocument(context, state.title, state.content, asFile = false) }
+                        scope.launch {
+                            val outcome = shareDocument(context, state.title, state.content, asFile = false)
+                            showShareOutcome(context, outcome, shareFailedMsg, shareTooLongMsg)
+                        }
                     },
                 )
-                if (shareMenuOpen) {
-                    val density = LocalDensity.current
-                    Popup(
-                        alignment = Alignment.TopEnd,
-                        offset = IntOffset(0, with(density) { 56.dp.roundToPx() }),
-                        onDismissRequest = { shareMenuOpen = false },
-                        properties = PopupProperties(focusable = true),
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = colors.bgElevated,
-                            border = BorderStroke(1.dp, colors.surfaceStroke),
-                            shadowElevation = 8.dp,
-                        ) {
-                            Column(Modifier.widthIn(min = 160.dp)) {
-                                Text(
-                                    stringResource(R.string.doc_preview_share_mode_title),
-                                    fontSize = 11.sp,
-                                    color = colors.textTertiary,
-                                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 2.dp),
-                                )
-                                ShareModeRow(stringResource(R.string.doc_preview_share_as_text)) {
-                                    shareMenuOpen = false
-                                    onShareModePicked(DOC_SHARE_MODE_TEXT)
-                                    scope.launch { shareDocument(context, state.title, state.content, asFile = false) }
-                                }
-                                ShareModeRow(stringResource(R.string.doc_preview_share_as_file)) {
-                                    shareMenuOpen = false
-                                    onShareModePicked(DOC_SHARE_MODE_FILE)
-                                    scope.launch { shareDocument(context, state.title, state.content, asFile = true) }
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }
 }
 
 /**
- * The header share action (批v195 拍板 1A). Short press shares with the last
- * used format; long press opens the 文本/文件 picker which also records the
- * choice via [onModePicked]. First use falls back to a smart default: a long
- * doc reads as a document → file, a short note → inline text.
+ * Header share action shared by the session artifact preview and the file
+ * browser preview. A tap first opens the format picker — "text" or "file" —
+ * because the old direct-share path made the receiving app's behavior a
+ * surprise. The last picked format gets a check mark; the actual system
+ * chooser is launched only after the user chooses.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun ShareIconButton(
+internal fun DocShareButton(
     fileName: String,
     content: String,
     savedMode: String?,
     onModePicked: (String) -> Unit,
-    menuOpen: Boolean,
-    onMenuToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val colors = CodegTheme.colors
     val scope = rememberCoroutineScope()
-    val effectiveMode = when (savedMode) {
-        DOC_SHARE_MODE_TEXT, DOC_SHARE_MODE_FILE -> savedMode
-        else -> if (content.length > SHARE_TEXT_LIMIT / 3) DOC_SHARE_MODE_FILE else DOC_SHARE_MODE_TEXT
-    }
-    // IconButton can't long-press — a plain Box with the same 48dp touch target.
-    Box(
-        Modifier
-            .size(48.dp)
-            .combinedClickable(
-                onClick = {
-                    scope.launch {
-                        shareDocument(context, fileName, content, asFile = effectiveMode == DOC_SHARE_MODE_FILE)
-                    }
-                },
-                onLongClick = onMenuToggle,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            Icons.Rounded.Share,
-            contentDescription = stringResource(R.string.doc_preview_share),
-            tint = if (menuOpen) colors.accent else colors.textSecondary,
-        )
+    var menuOpen by remember { mutableStateOf(false) }
+    val shareFailedMsg = stringResource(R.string.doc_preview_share_failed)
+    val shareTooLongMsg = stringResource(R.string.doc_preview_share_text_too_long)
+    val selectedMode = savedMode?.takeIf { it == DOC_SHARE_MODE_TEXT || it == DOC_SHARE_MODE_FILE }
+    Box(modifier) {
+        IconButton(onClick = { menuOpen = true }) {
+            Icon(
+                Icons.Rounded.Share,
+                contentDescription = stringResource(R.string.doc_preview_share),
+                tint = colors.textSecondary,
+            )
+        }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+        ) {
+            Text(
+                stringResource(R.string.doc_preview_share_mode_title),
+                fontSize = 11.sp,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
+            )
+            ShareModeMenuItem(
+                label = stringResource(R.string.doc_preview_share_as_text),
+                checked = selectedMode == DOC_SHARE_MODE_TEXT,
+            ) {
+                menuOpen = false
+                onModePicked(DOC_SHARE_MODE_TEXT)
+                scope.launch {
+                    val outcome = shareDocument(context, fileName, content, asFile = false)
+                    showShareOutcome(context, outcome, shareFailedMsg, shareTooLongMsg)
+                }
+            }
+            ShareModeMenuItem(
+                label = stringResource(R.string.doc_preview_share_as_file),
+                checked = selectedMode == DOC_SHARE_MODE_FILE,
+            ) {
+                menuOpen = false
+                onModePicked(DOC_SHARE_MODE_FILE)
+                scope.launch {
+                    val outcome = shareDocument(context, fileName, content, asFile = true)
+                    showShareOutcome(context, outcome, shareFailedMsg, shareTooLongMsg)
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun ShareModeRow(label: String, onClick: () -> Unit) {
-    val colors = CodegTheme.colors
-    Text(
-        label,
-        fontSize = 13.sp,
-        color = colors.textPrimary,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+private fun ShareModeMenuItem(label: String, checked: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        trailingIcon = if (checked) {
+            {
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = CodegTheme.colors.accent,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        } else {
+            null
+        },
+        onClick = onClick,
     )
 }
 
@@ -374,48 +353,134 @@ private fun DocHtmlPreview(html: String) {
 
 private const val SHARE_TEXT_LIMIT = 100_000
 
+internal enum class DocShareOutcome {
+    TEXT,
+    FILE,
+    TEXT_TOO_LONG_AS_FILE,
+    FAILED,
+}
+
+private data class SharePlan(
+    val intent: Intent,
+    val outcome: DocShareOutcome,
+)
+
+private fun showShareOutcome(
+    context: Context,
+    outcome: DocShareOutcome,
+    failedMessage: String,
+    tooLongMessage: String,
+) {
+    val message = when (outcome) {
+        DocShareOutcome.FAILED -> failedMessage
+        DocShareOutcome.TEXT_TOO_LONG_AS_FILE -> tooLongMessage
+        else -> return
+    }
+    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+}
+
 /**
- * Share in one of two shapes (批v195 拍板 1A): text goes as EXTRA_TEXT (the
- * receiving chat app shows it inline — Deepseek/豆包 read it directly);
- * everything else goes through FileProvider as a FULL-content stream — the
- * old `take(SHARE_TEXT_LIMIT)` silently truncated every file share past
- * 100KB. Text mode still falls back to a file past the binder-safe limit (a
- * huge EXTRA_TEXT fails inside the picker, not gracefully). The authority MUST
- * be `${applicationId}.fileprovider` — the fork's per-variant applicationId
+ * Share in one of two shapes (批v197): text goes as EXTRA_TEXT (the receiving
+ * chat app shows it inline — Deepseek/豆包 read it directly); file mode writes
+ * the full content into the FileProvider cache and sends a read-granted URI.
+ * The URI is mirrored into ClipData because several share targets (including
+ * some chat apps) only read the stream from there. The authority MUST be
+ * `${applicationId}.fileprovider` — the fork's per-variant applicationId
  * suffixes make a literal authority collide on dual installs.
  */
-internal suspend fun shareDocument(context: Context, fileName: String, content: String, asFile: Boolean = false) {
-    val send: Intent = if (!asFile && content.length <= SHARE_TEXT_LIMIT) {
-        Intent(Intent.ACTION_SEND)
-            .setType("text/plain")
-            .putExtra(Intent.EXTRA_SUBJECT, fileName)
-            .putExtra(Intent.EXTRA_TITLE, fileName)
-            .putExtra(Intent.EXTRA_TEXT, content)
+internal suspend fun shareDocument(
+    context: Context,
+    fileName: String,
+    content: String,
+    asFile: Boolean = false,
+): DocShareOutcome {
+    val plan = try {
+        buildShareIntent(context, fileName, content, asFile)
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        return DocShareOutcome.FAILED
+    }
+    val chooser = Intent.createChooser(plan.intent, null).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        plan.intent.clipData?.let { clipData = it }
+    }
+    return runCatching { context.startActivity(chooser) }
+        .fold({ plan.outcome }, { DocShareOutcome.FAILED })
+}
+
+private suspend fun buildShareIntent(
+    context: Context,
+    fileName: String,
+    content: String,
+    asFile: Boolean,
+): SharePlan =
+    if (!asFile && content.length <= SHARE_TEXT_LIMIT) {
+        SharePlan(
+            Intent(Intent.ACTION_SEND)
+                .setType("text/plain")
+                .putExtra(Intent.EXTRA_SUBJECT, fileName)
+                .putExtra(Intent.EXTRA_TITLE, fileName)
+                .putExtra(Intent.EXTRA_TEXT, content),
+            DocShareOutcome.TEXT,
+        )
     } else {
         val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = java.io.File(dir, fileName.substringAfterLast('/').ifEmpty { "document.txt" })
-        // Caller is already off Main (shareDocument runs in a scope on Default).
-        withContext(Dispatchers.IO) { runCatching { file.writeText(content) } }
+        // The share cache is best-effort and must not grow forever. Keep files
+        // for 24h: a receiver may read the URI asynchronously after the chooser
+        // closes, so immediate deletion would break the share.
+        withContext(Dispatchers.IO) { pruneOldShareDirs(dir) }
+        val safeName = safeShareFileName(fileName)
+        // A unique subdirectory keeps two same-named docs from overwriting each
+        // other while a receiver is still reading the first URI.
+        val shareDir = java.io.File(dir, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
+        val file = java.io.File(shareDir, safeName)
+        withContext(Dispatchers.IO) { file.writeText(content) }
         val uri = androidx.core.content.FileProvider.getUriForFile(
             context,
             context.packageName + ".fileprovider",
             file,
         )
-        Intent(Intent.ACTION_SEND)
-            .setType(mimeFor(fileName))
-            .putExtra(Intent.EXTRA_TITLE, fileName)
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        SharePlan(
+            Intent(Intent.ACTION_SEND)
+                .setType(resolveOpenWithMime(fileName))
+                .putExtra(Intent.EXTRA_SUBJECT, fileName)
+                .putExtra(Intent.EXTRA_TITLE, fileName)
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .apply { clipData = ClipData.newRawUri(safeName, uri) }
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+            if (asFile) DocShareOutcome.FILE else DocShareOutcome.TEXT_TOO_LONG_AS_FILE,
+        )
     }
-    val chooser = Intent.createChooser(send, null).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    runCatching { context.startActivity(chooser) }
+
+private fun pruneOldShareDirs(sharedRoot: java.io.File) {
+    val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+    sharedRoot.listFiles()
+        ?.filter { it.isDirectory && it.lastModified() < cutoff }
+        ?.forEach { it.deleteRecursively() }
 }
 
-private fun mimeFor(fileName: String): String = when (fileName.substringAfterLast('.', "").lowercase()) {
-    "md", "markdown" -> "text/markdown"
-    "html", "htm" -> "text/html"
-    "json" -> "application/json"
-    else -> "text/plain"
+/** Keep the cache path inside `shared/`; never let a display name become `..`. */
+internal fun safeShareFileName(fileName: String): String {
+    val base = fileName.substringAfterLast('/').substringAfterLast('\\').trim()
+        .replace(Regex("[\\u0000-\\u001F/\\\\]"), "_")
+        .trimEnd('.', ' ')
+    if (base.isEmpty() || base == "." || base == "..") return "document.txt"
+
+    val extension = base.substringAfterLast('.', "")
+        .takeIf { it.isNotEmpty() && it.length <= 12 && it.all(Char::isLetterOrDigit) }
+    val suffix = extension?.let { ".$it" }.orEmpty()
+    if (base.codePointCount(0, base.length) <= MAX_SHARE_NAME_CODE_POINTS) return base
+
+    val headLimit = (MAX_SHARE_NAME_CODE_POINTS - suffix.codePointCount(0, suffix.length)).coerceAtLeast(1)
+    val head = truncateCodePoints(base, headLimit).trimEnd('.', ' ').ifEmpty { "document" }
+    return head + suffix
+}
+
+private const val MAX_SHARE_NAME_CODE_POINTS = 60
+
+private fun truncateCodePoints(value: String, maxCodePoints: Int): String {
+    if (value.codePointCount(0, value.length) <= maxCodePoints) return value
+    return value.substring(0, value.offsetByCodePoints(0, maxCodePoints))
 }

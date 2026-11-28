@@ -33,8 +33,11 @@ class MimeForOpenWithTest {
 
     @Test fun mediaFilesGetSpecificMimesForSystemPlayers() {
         assertEquals("video/mp4", mimeForOpenWith("demo.MP4"))
+        assertEquals("video/x-matroska", mimeForOpenWith("movie.mkv"))
+        assertEquals("video/quicktime", mimeForOpenWith("clip.mov"))
         assertEquals("video/webm", mimeForOpenWith("clip.webm"))
-        assertEquals("audio/m4a", mimeForOpenWith("voice.m4a"))
+        assertEquals("audio/mpeg", mimeForOpenWith("voice.mp3"))
+        assertEquals("audio/mp4", mimeForOpenWith("voice.m4a"))
         assertEquals("audio/flac", mimeForOpenWith("track.flac"))
     }
 }

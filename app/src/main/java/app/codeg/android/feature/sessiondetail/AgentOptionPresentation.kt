@@ -18,21 +18,36 @@ internal data class AgentModelPresentation(
 )
 
 /**
- * Extract a trailing model multiplier from the human name first, then the
- * description. Covers `Foo · 0.29x` and provider entries whose rate lives in
- * the description; leaves normal provider labels intact.
+ * Extract a model multiplier from the human name first, then the description.
+ * Covers both `Foo · 0.29x` and CodeBuddy's `x0.21` / `x0.21 credits`; leaves
+ * normal provider labels intact.
  */
 internal fun modelRate(name: String?, description: String?): String? {
-    val nameRate = name?.let(::trailingModelRate)
+    val nameRate = name?.let(::endingModelRate)
     if (nameRate != null) return nameRate
-    return description?.let(::trailingModelRate)
+    return description?.let(::endingModelRate)
 }
 
-private fun trailingModelRate(text: String): String? {
+private val MODEL_RATE_END = Regex(
+    """\s*(?:[·•|]\s*)?(?:[x×]\s*(\d+(?:\.\d+)?)(?:\s*credits)?|(\d+(?:\.\d+)?)\s*(?:[x×](?:\s*credits)?|credits))\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun endingModelRate(text: String): String? {
     val trimmed = text.trim()
     if (trimmed.isEmpty()) return null
-    val match = Regex("""(\d+(?:\.\d+)?)\s*[x×]\s*$""", RegexOption.IGNORE_CASE).find(trimmed) ?: return null
-    return "${match.groupValues[1]}x"
+    val match = MODEL_RATE_END.find(trimmed) ?: return null
+    val value = match.groupValues.drop(1).firstOrNull { it.isNotEmpty() } ?: return null
+    return "${value}x"
+}
+
+/** Remove a trailing multiplier so the row never repeats it. */
+private fun stripEndingModelRate(text: String): String {
+    val trimmed = text.trim()
+    val match = MODEL_RATE_END.find(trimmed) ?: return trimmed
+    return trimmed.substring(0, match.range.first)
+        .trimEnd(' ', '·', '•', '|', '-', '–', '—')
+        .trim()
 }
 
 /** Split a name into its first `/` segments, or null for unusable prefixes. */
@@ -163,28 +178,67 @@ internal fun modelPresentation(
     group: AgentModelGroup?,
 ): AgentModelPresentation {
     val rawName = option.name.ifBlank { option.value }
-    val prefix = group?.name?.takeIf { rawName.startsWith("$it/") }
-        ?: valuePrefix(option.value)?.takeIf { rawName.startsWith("$it/") }
-    val shortLabel = if (prefix == null) rawName else rawName.drop(prefix.length + 1).trim()
+    val prefix = group?.name?.takeIf { rawName.startsWith("$it/", ignoreCase = true) }
+        ?: valuePrefix(option.value)?.takeIf { rawName.startsWith("$it/", ignoreCase = true) }
+    val labelWithoutPrefix = if (prefix == null) rawName else rawName.drop(prefix.length + 1).trim()
+    // Magpie plumbing reaches the app as `magpie › group/vendor/model · 0.08x`.
+    // Strip the rate first, then reuse the transcript's provider-prefix
+    // compactor so the row keeps the model name (and its suffix), not the
+    // plumbing. Plain provider labels without `›` or `/` pass through untouched.
+    val shortLabel = compactModelName(stripEndingModelRate(labelWithoutPrefix))
+        .ifBlank { labelWithoutPrefix }
     return AgentModelPresentation(
         shortLabel = shortLabel.ifBlank { rawName },
         rate = modelRate(option.name, option.description),
     )
 }
 
-/** Cap grid density only for genuinely long labels. */
-internal fun requestedModelColumns(
-    choices: List<SessionConfigSelectOption>,
-    requested: Int,
-): Int = requested.takeIf { requested == 1 || choices.none { it.name.length > 18 } } ?: 1
+/**
+ * The header's "current" label uses the same compact presentation as the row,
+ * including the rate, so the selected value is recognizable even when the full
+ * server name is a long `magpie › ...` plumbing string.
+ */
+internal fun activeModelLabel(option: SessionConfigOption, currentValue: String?): String? {
+    val raw = flattenChoiceValues(option).firstOrNull { it.value == currentValue } ?: return null
+    val group = modelGroups(option).firstOrNull { candidate ->
+        candidate.options.any { it.value == raw.value }
+    }
+    val presentation = modelPresentation(raw, group)
+    return presentation.rate?.let { "${presentation.shortLabel} · $it" } ?: presentation.shortLabel
+}
 
-/** Config grids need a title and optional one-line description to stay readable. */
+/**
+ * The model picker exposes only single or two-column layouts. An explicit
+ * two-column choice must win even when Magpie model ids are long: silently
+ * collapsing back to one column makes the setting look broken, while the row's
+ * ellipsis + trailing rate/check keeps a narrow grid readable.
+ */
+internal fun requestedModelColumns(requested: Int): Int = requested.coerceIn(1, 2)
+
+/**
+ * Config chips show only their labels; `requested == 0` picks density from
+ * label length alone, capped by the number of choices.
+ */
 internal fun requestedConfigColumns(
     choices: List<ConfigOptionChoice>,
     requested: Int,
-): Int = requested.takeIf {
-    it == 1 || choices.none { choice -> choice.label.length > 18 || choice.description.orEmpty().length > 24 }
-} ?: 1
+): Int {
+    if (choices.isEmpty()) return 1
+    if (requested == 0) {
+        val longest = choices.maxOf { it.label.length }
+        return when {
+            longest <= 6 -> choices.size.coerceIn(1, 3)
+            longest <= 11 -> choices.size.coerceIn(1, 2)
+            else -> 1
+        }
+    }
+    if (requested == 1) return 1
+    // An explicit 2/3-column choice is a user preference, not a hint: honor it
+    // and let the existing single-line ellipsis handle a long label. Only shrink
+    // when there are fewer choices than requested columns, so a one-option
+    // selector never leaves two empty cells.
+    return requested.coerceIn(2, 3).coerceAtMost(choices.size)
+}
 
 /** Balanced grid rows; the last row may be shorter. */
 internal fun <T> gridRows(values: List<T>, columns: Int): List<List<T>> {

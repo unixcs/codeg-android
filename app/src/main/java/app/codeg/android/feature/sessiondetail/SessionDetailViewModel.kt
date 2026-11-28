@@ -23,7 +23,7 @@ import app.codeg.android.core.datastore.IdeaStore
 import app.codeg.android.core.datastore.SessionProject
 import app.codeg.android.core.datastore.SessionRef
 import app.codeg.android.core.designsystem.component.isOpenWithMediaType
-import app.codeg.android.core.designsystem.component.openWithBytes
+import app.codeg.android.core.designsystem.component.openWithWorkspaceFile
 import app.codeg.android.core.datastore.SelectorPrefs
 import app.codeg.android.core.datastore.SelectorPrefsStore
 import app.codeg.android.core.datastore.resolveSelectorPrefs
@@ -216,10 +216,10 @@ class SessionDetailViewModel @Inject constructor(
         .map { it.agentOptionsModelColumns }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 1)
 
-    /** 批v196: mode/effort/config density is independently 1..3 columns. */
+    /** 批v197: mode/effort/config density is automatic by default (0), or 1..3. */
     val agentOptionsConfigColumns: StateFlow<Int> = appSettingsStore.settings
         .map { it.agentOptionsConfigColumns }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 1)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     fun setDocShareMode(mode: String) {
         viewModelScope.launch { appSettingsStore.setDocShareMode(mode) }
@@ -3726,13 +3726,13 @@ class SessionDetailViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val result = runCatching {
-                val base64 = activeClient.readWorkspaceFileBase64(
-                    externalRoot ?: root,
-                    relativePath,
-                    maxBytes = 10 * 1024 * 1024,
+                openWithWorkspaceFile(
+                    context = appContext,
+                    client = activeClient,
+                    rootPath = externalRoot ?: root,
+                    path = relativePath,
+                    fileName = name,
                 )
-                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
-                openWithBytes(appContext, name, bytes)
             }
             result.exceptionOrNull()?.let { failure ->
                 showNotice(failure.message ?: appContext.getString(R.string.files_read_failed))

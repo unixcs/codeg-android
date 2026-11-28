@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Folder
@@ -59,10 +60,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -258,9 +262,21 @@ fun AgentOptionsSheet(
             )
 
             SheetPage.Main -> {
-                val hasConfig = data.configOptions.isNotEmpty()
+                // An empty config option must not suppress Mode (the server can
+                // advertise a placeholder while its catalog is loading).
+                val modelOption = data.configOptions.firstOrNull {
+                    it.id == "model" || it.category == "model" || it.name.equals("Model", ignoreCase = true)
+                }?.takeIf { flattenChoiceValues(it).isNotEmpty() }
+                val configSections = data.configOptions.filter { option ->
+                    option != modelOption && flattenChoiceValues(option).isNotEmpty()
+                }
+                val hasConfig = modelOption != null || configSections.isNotEmpty()
                 val showModes = data.modes?.availableModes?.isNotEmpty() == true && !hasConfig
-                var modelQuery by rememberSaveable { mutableStateOf("") }
+                // Keyed to the context: a query typed for Codex must not hide
+                // CodeBuddy's models after a switch.
+                var modelQuery by rememberSaveable(ui.agent.wire, ui.selectedFolderId) {
+                    mutableStateOf("")
+                }
                 // The notice is pinned to the bottom of the sheet, OUTSIDE the scroll
                 // container: with a long selector list it used to sit above the fold, so
                 // a failed pick on a row further down produced a warning the user never
@@ -300,26 +316,19 @@ fun AgentOptionsSheet(
                             Text(stringResource(R.string.agentopts_busy), fontSize = 12.sp, color = colors.textTertiary)
                         }
 
-                        val modelOption = data.configOptions.firstOrNull {
-                            it.id == "model" || it.category == "model" || it.name.equals("Model", ignoreCase = true)
-                        }?.takeIf { flattenChoiceValues(it).isNotEmpty() }
                         if (!loading && modelOption != null) {
                             val query = modelQuery.trim()
-                            val allChoices = modelOption.toChoices(currentValues[modelOption.id])
                             CompactOptionSection(
                                 title = stringResource(R.string.agentopts_model),
                                 option = modelOption,
+                                currentValue = currentValues[modelOption.id],
                                 busy = modelOption.id in applying,
                                 locked = ui.isInFlight,
                                 query = modelQuery,
                                 onQueryChange = { modelQuery = it },
                                 onClearQuery = { modelQuery = "" },
                                 noMatchText = stringResource(R.string.agentopts_no_matching_model, query),
-                                activeLabel = if (allChoices.any { it.selected }) {
-                                    allChoices.firstOrNull { it.selected }?.label
-                                } else {
-                                    null
-                                },
+                                activeLabel = activeModelLabel(modelOption, currentValues[modelOption.id]),
                                 showSearch = true,
                                 modelColumns = modelColumns,
                             ) { valueId ->
@@ -334,69 +343,72 @@ fun AgentOptionsSheet(
                             showModes -> {
                                 Text(stringResource(R.string.agentopts_mode), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textTertiary)
                                 val modeApplying = MODE_APPLY in applying
-                                OptionGroup {
-                                    data.modes!!.availableModes.forEachIndexed { i, mode ->
-                                        if (i > 0) GroupDivider()
-                                        // Lock every mode row while a mode apply is in flight; also while a
-                                        // turn is running (options can't change mid-response — and an apply
-                                        // that failed then could null the live turn's connection). Spinner on
-                                        // the optimistically-selected row.
-                                        OptionRow(
-                                            title = mode.name.ifEmpty { mode.id },
+                                val modes = data.modes!!.availableModes
+                                // Lock every mode chip while a mode apply is in flight; also while a
+                                // turn is running (options can't change mid-response — and an apply
+                                // that failed then could null the live turn's connection). Spinner on
+                                // the optimistically-selected chip.
+                                CompactChoiceGrid(
+                                    choices = modes.map { mode ->
+                                        ConfigOptionChoice(
+                                            value = mode.id,
+                                            label = mode.name.ifEmpty { mode.id },
                                             description = mode.description,
                                             selected = currentMode == mode.id,
-                                            busy = modeApplying && currentMode == mode.id,
-                                            enabled = !modeApplying && !ui.isInFlight,
-                                            columns = 1,
-                                        ) {
-                                            // Move the checkmark instantly (iOS parity); the apply runs in the
-                                            // background and reverts to the previous pick only on real failure.
-                                            val previous = currentMode
-                                            currentMode = mode.id
-                                            applying = applying + MODE_APPLY
-                                            noteText = null
-                                            noteKey = null
-                                            val epoch = applyEpoch
-                                            val seq = ++applySeq
-                                            applySeqByKey[MODE_APPLY] = seq
-                                            scope.launch {
-                                                val outcome = viewModel.applyMode(mode.id)
-                                                // The sheet reloaded for another context while this ran. A
-                                                // newer pick for THIS selector also owns the row now: its
-                                                // own completion moves the value and releases the lock.
-                                                if (epoch != applyEpoch) return@launch
-                                                val latest = applySeqByKey[MODE_APPLY] == seq
-                                                if (latest) applying = applying - MODE_APPLY
-                                                when (outcome) {
-                                                    // Adopt the reconciled/normalized value.
-                                                    is OptionApplyOutcome.Applied -> if (latest) {
-                                                        currentMode = outcome.value
-                                                        // Retire only this selector's own stale notice.
-                                                        if (noteKey == MODE_APPLY) {
-                                                            noteText = null
-                                                            noteKey = null
-                                                        }
+                                        )
+                                    },
+                                    busy = modeApplying,
+                                    locked = ui.isInFlight,
+                                    requestedColumns = configColumns,
+                                ) { modeId ->
+                                    val mode = modes.firstOrNull { it.id == modeId }
+                                    if (mode != null) {
+                                        // Move the checkmark instantly (iOS parity); the apply runs in the
+                                        // background and reverts to the previous pick only on real failure.
+                                        val previous = currentMode
+                                        currentMode = mode.id
+                                        applying = applying + MODE_APPLY
+                                        noteText = null
+                                        noteKey = null
+                                        val epoch = applyEpoch
+                                        val seq = ++applySeq
+                                        applySeqByKey[MODE_APPLY] = seq
+                                        scope.launch {
+                                            val outcome = viewModel.applyMode(mode.id)
+                                            // The sheet reloaded for another context while this ran. A
+                                            // newer pick for THIS selector also owns the row now: its
+                                            // own completion moves the value and releases the lock.
+                                            if (epoch != applyEpoch) return@launch
+                                            val latest = applySeqByKey[MODE_APPLY] == seq
+                                            if (latest) applying = applying - MODE_APPLY
+                                            when (outcome) {
+                                                // Adopt the reconciled/normalized value.
+                                                is OptionApplyOutcome.Applied -> if (latest) {
+                                                    currentMode = outcome.value
+                                                    // Retire only this selector's own stale notice.
+                                                    if (noteKey == MODE_APPLY) {
+                                                        noteText = null
+                                                        noteKey = null
                                                     }
-                                                    OptionApplyOutcome.Busy -> if (latest) {
-                                                        currentMode = previous
-                                                        noteText = applyBusyNote
-                                                        noteKey = MODE_APPLY
-                                                        noteStamp += 1
-                                                    }
-                                                    OptionApplyOutcome.Failed -> if (latest) {
-                                                        currentMode = previous
-                                                        noteText = applyFailedNote
-                                                        noteKey = MODE_APPLY
-                                                        noteStamp += 1
-                                                    }
+                                                }
+                                                OptionApplyOutcome.Busy -> if (latest) {
+                                                    currentMode = previous
+                                                    noteText = applyBusyNote
+                                                    noteKey = MODE_APPLY
+                                                    noteStamp += 1
+                                                }
+                                                OptionApplyOutcome.Failed -> if (latest) {
+                                                    currentMode = previous
+                                                    noteText = applyFailedNote
+                                                    noteKey = MODE_APPLY
+                                                    noteStamp += 1
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                            hasConfig -> data.configOptions.forEach { option ->
-                                if (option == modelOption) return@forEach
+                            hasConfig -> configSections.forEach { option ->
                                 ConfigOptionSection(
                                     option = option,
                                     currentValue = currentValues[option.id],
@@ -787,6 +799,7 @@ internal fun SessionConfigOption.toChoices(currentValue: String?): List<ConfigOp
 private fun CompactOptionSection(
     title: String,
     option: SessionConfigOption,
+    currentValue: String?,
     busy: Boolean,
     locked: Boolean,
     query: String = "",
@@ -800,7 +813,24 @@ private fun CompactOptionSection(
 ) {
     val colors = CodegTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textTertiary)
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textTertiary)
+            activeLabel?.let {
+                Text(
+                    stringResource(R.string.agentopts_active_model, it),
+                    modifier = Modifier.weight(1f),
+                    fontSize = 11.sp,
+                    color = colors.textSecondary,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         if (showSearch) {
             TextField(
                 value = query,
@@ -831,16 +861,29 @@ private fun CompactOptionSection(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        activeLabel?.let {
-            Text(stringResource(R.string.agentopts_active_model, it), fontSize = 12.sp, color = colors.textPrimary)
-        }
-        val allChoices = option.toChoices(null)
+        val allChoices = option.toChoices(currentValue)
         val groups = filterModelGroups(modelGroups(option), query)
         val choicesById = allChoices.associateBy { it.value }
-        val visibleGroups = groups.map { group ->
-            group.copy(options = group.options.filter { raw -> choicesById.containsKey(raw.value) })
+        val visibleGroups = groups.mapNotNull { group ->
+            val options = group.options.filter { raw -> choicesById.containsKey(raw.value) }
+            if (options.isEmpty()) null else group.copy(options = options)
         }
-        val flattenedGroups = if (query.isEmpty()) visibleGroups.take(24) else visibleGroups
+        val selectedGroup = visibleGroups.firstOrNull { group ->
+            group.options.any { choicesById[it.value]?.selected == true }
+        }
+        val truncated = query.isEmpty() && visibleGroups.size > MAX_VISIBLE_MODEL_GROUPS
+        val flattenedGroups = if (truncated) {
+            val head = visibleGroups.take(MAX_VISIBLE_MODEL_GROUPS)
+            // The picked row must stay visible: a cap that drops the current
+            // provider leaves the user with no check mark anywhere in the list.
+            if (selectedGroup != null && selectedGroup !in head) {
+                head.dropLast(1) + selectedGroup
+            } else {
+                head
+            }
+        } else {
+            visibleGroups
+        }
         val visibleChoices = flattenedGroups.flatMap { group -> group.options }.mapNotNull { raw ->
             choicesById[raw.value]
         }
@@ -849,8 +892,17 @@ private fun CompactOptionSection(
             return@Column
         }
         renderModelChoiceGroups(flattenedGroups, visibleChoices, busy, locked, modelColumns, onSelect)
+        if (truncated) {
+            Text(
+                stringResource(R.string.agentopts_more_models_hint),
+                fontSize = 11.sp,
+                color = colors.textTertiary,
+            )
+        }
     }
 }
+
+private const val MAX_VISIBLE_MODEL_GROUPS = 24
 
 
 @Composable
@@ -863,14 +915,14 @@ private fun ConfigOptionSection(
     onSelect: (String) -> Unit,
 ) {
     val colors = CodegTheme.colors
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(option.name.uppercase().ifEmpty { option.id.uppercase() }, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colors.textTertiary)
         val choices = option.toChoices(currentValue)
-        ChoiceGrid(
+        CompactChoiceGrid(
             choices = choices,
             busy = optionApplying,
             locked = locked,
-            requestedColumns = requestedConfigColumns(choices, requestedColumns),
+            requestedColumns = requestedColumns,
         ) { onSelect(it) }
     }
 }
@@ -886,47 +938,88 @@ private fun GroupDivider() {
 }
 
 @Composable
-private fun OptionRow(
+private fun CompactChoiceGrid(
+    choices: List<ConfigOptionChoice>,
+    busy: Boolean,
+    locked: Boolean,
+    requestedColumns: Int,
+    onSelect: (String) -> Unit,
+) {
+    val effectiveColumns = requestedConfigColumns(choices, requestedColumns)
+    if (effectiveColumns == 1) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            choices.forEach { choice ->
+                CompactChoiceChip(
+                    title = choice.label,
+                    isSelected = choice.selected,
+                    busy = busy && choice.selected,
+                    enabled = !busy && !locked,
+                    columns = 1,
+                    onClick = { onSelect(choice.value) },
+                )
+            }
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            gridRows(choices, effectiveColumns).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { choice ->
+                        Box(Modifier.weight(1f)) {
+                            CompactChoiceChip(
+                                title = choice.label,
+                                isSelected = choice.selected,
+                                busy = busy && choice.selected,
+                                enabled = !busy && !locked,
+                                columns = effectiveColumns,
+                                onClick = { onSelect(choice.value) },
+                            )
+                        }
+                    }
+                    repeat(effectiveColumns - row.size) { Box(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactChoiceChip(
     title: String,
-    description: String?,
-    selected: Boolean,
+    isSelected: Boolean,
     busy: Boolean,
     enabled: Boolean,
     columns: Int,
     onClick: () -> Unit,
 ) {
     val colors = CodegTheme.colors
+    val shape = RoundedCornerShape(10.dp)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(if (isSelected) colors.selectedBg else colors.textPrimary.copy(alpha = 0.055f))
+            .border(1.dp, if (isSelected) colors.selectedBorder else colors.hairline, shape)
             .clickable(enabled = enabled) { onClick() }
-            .padding(
-                horizontal = if (columns == 1) 14.dp else 8.dp,
-                vertical = if (columns == 1) 10.dp else 6.dp,
-            ),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+            .semantics { selected = isSelected }
+            .alpha(if (enabled) 1f else 0.55f)
+            .padding(horizontal = if (columns == 1) 12.dp else 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                title,
-                fontSize = if (columns == 1) 14.sp else 13.sp,
-                color = colors.textPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            description?.takeIf { it.isNotEmpty() }?.let {
-                Text(
-                    it,
-                    fontSize = if (columns == 1) 12.sp else 11.sp,
-                    color = colors.textTertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+        Text(
+            title,
+            modifier = Modifier.weight(1f),
+            fontSize = if (columns == 1) 13.sp else 12.sp,
+            color = if (isSelected) colors.textPrimary else colors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (busy) {
+            CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(14.dp))
+        } else if (isSelected) {
+            Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(16.dp))
         }
-        if (busy) CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(16.dp))
-        else if (selected) Icon(Icons.Rounded.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -940,91 +1033,112 @@ private fun renderModelChoiceGroups(
     onSelect: (String) -> Unit,
 ) {
     val choicesById = choices.associateBy { it.value }
-    val effectiveColumns = requestedModelColumns(
-        choices.map { SessionConfigSelectOption(it.value, it.label, it.description) },
-        modelColumns,
-    )
     groups.forEach { group ->
-        group.name?.let { header ->
-            Text(header, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = CodegTheme.colors.textTertiary)
-        }
         val groupChoices = group.options.mapNotNull { option ->
             choicesById[option.value]?.let { match -> option to match }
         }
-        ChoiceGrid(
-            choices = groupChoices.map { it.second },
-            busy = busy,
-            locked = locked,
-            requestedColumns = effectiveColumns,
-            modelGroup = group,
-        ) { onSelect(it) }
+        if (groupChoices.isEmpty()) return@forEach
+        group.name?.let { header ->
+            Text(header, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = CodegTheme.colors.textTertiary)
+        }
+        // A single-model group should not render as a half-width cell just
+        // because the global preference is two columns.
+        val effectiveColumns = requestedModelColumns(modelColumns)
+            .coerceAtMost(groupChoices.size)
+        if (effectiveColumns == 1) {
+            OptionGroup {
+                groupChoices.forEachIndexed { index, pair ->
+                    if (index > 0) GroupDivider()
+                    val presentation = modelPresentation(pair.first, group)
+                    ModelOptionRow(
+                        title = presentation.shortLabel,
+                        rate = presentation.rate,
+                        isSelected = pair.second.selected,
+                        busy = busy && pair.second.selected,
+                        enabled = !busy && !locked,
+                        columns = 1,
+                        onClick = { onSelect(pair.second.value) },
+                    )
+                }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                gridRows(groupChoices, effectiveColumns).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEach { pair ->
+                            val presentation = modelPresentation(pair.first, group)
+                            Box(Modifier.weight(1f)) {
+                                ModelOptionRow(
+                                    title = presentation.shortLabel,
+                                    rate = presentation.rate,
+                                    isSelected = pair.second.selected,
+                                    busy = busy && pair.second.selected,
+                                    enabled = !busy && !locked,
+                                    columns = effectiveColumns,
+                                    onClick = { onSelect(pair.second.value) },
+                                )
+                            }
+                        }
+                        repeat(effectiveColumns - row.size) { Box(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun ChoiceGrid(
-    choices: List<ConfigOptionChoice>,
+private fun ModelOptionRow(
+    title: String,
+    rate: String?,
+    isSelected: Boolean,
     busy: Boolean,
-    locked: Boolean,
-    requestedColumns: Int,
-    modelGroup: AgentModelGroup? = null,
-    onSelect: (String) -> Unit,
+    enabled: Boolean,
+    columns: Int,
+    onClick: () -> Unit,
 ) {
-    val effectiveColumns = requestedColumns
-    if (effectiveColumns == 1) {
-        OptionGroup {
-            choices.forEachIndexed { index, choice ->
-                if (index > 0) GroupDivider()
-                OptionRow(
-                    title = choice.modelTitle(modelGroup),
-                    description = choice.modelSecondary(modelGroup, showSecondary = true),
-                    selected = choice.selected,
-                    busy = busy && choice.selected,
-                    enabled = !busy && !locked,
-                    columns = 1,
-                    onClick = { onSelect(choice.value) },
-                )
-            }
+    val colors = CodegTheme.colors
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(if (isSelected) colors.selectedBg else Color.Transparent)
+            .clickable(enabled = enabled) { onClick() }
+            .semantics { selected = isSelected }
+            .alpha(if (enabled) 1f else 0.55f)
+            .padding(
+                horizontal = if (columns == 1) 14.dp else 9.dp,
+                vertical = if (columns == 1) 7.dp else 4.dp,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            title,
+            modifier = Modifier.weight(1f),
+            fontSize = if (columns == 1) 14.sp else 13.sp,
+            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+            color = colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        rate?.takeIf { it.isNotEmpty() }?.let {
+            Text(
+                it,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = if (isSelected) colors.accent else colors.textTertiary,
+                maxLines = 1,
+            )
         }
-        return
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        gridRows(choices, effectiveColumns).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { choice ->
-                    Box(Modifier.weight(1f)) {
-                        OptionRow(
-                            title = choice.modelTitle(modelGroup),
-                            description = choice.modelSecondary(modelGroup, showSecondary = false),
-                            selected = choice.selected,
-                            busy = busy && choice.selected,
-                            enabled = !busy && !locked,
-                            columns = effectiveColumns,
-                            onClick = { onSelect(choice.value) },
-                        )
-                    }
-                }
-                repeat(effectiveColumns - row.size) { Box(Modifier.weight(1f)) }
-            }
+        if (busy) {
+            CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(16.dp))
+        } else if (isSelected) {
+            Icon(Icons.Rounded.CheckCircle, null, tint = colors.accent, modifier = Modifier.size(18.dp))
         }
     }
-}
-
-private fun ConfigOptionChoice.modelTitle(group: AgentModelGroup?): String {
-    if (group == null) return label
-    return modelPresentation(
-        SessionConfigSelectOption(value, label, description),
-        group,
-    ).shortLabel
-}
-
-private fun ConfigOptionChoice.modelSecondary(group: AgentModelGroup?, showSecondary: Boolean): String? {
-    if (!showSecondary) return null
-    if (group == null) return description
-    return modelPresentation(
-        SessionConfigSelectOption(value, label, description),
-        group,
-    ).rate ?: description
 }
 
 // endregion
