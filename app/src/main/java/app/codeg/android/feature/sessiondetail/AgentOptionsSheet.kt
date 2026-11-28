@@ -838,10 +838,12 @@ private fun CompactOptionSection(
         val groups = filterModelGroups(modelGroups(option), query)
         val choicesById = allChoices.associateBy { it.value }
         val visibleGroups = groups.map { group ->
-            group.copy(options = group.options.mapNotNull { raw -> choicesById[raw.value] })
+            group.copy(options = group.options.filter { raw -> choicesById.containsKey(raw.value) })
         }
         val flattenedGroups = if (query.isEmpty()) visibleGroups.take(24) else visibleGroups
-        val visibleChoices = flattenedGroups.flatten()
+        val visibleChoices = flattenedGroups.flatMap { group -> group.options }.mapNotNull { raw ->
+            choicesById[raw.value]
+        }
         if (visibleChoices.isEmpty()) {
             if (!noMatchText.isNullOrEmpty()) Text(noMatchText, fontSize = 12.sp, color = colors.textSecondary)
             return@Column
